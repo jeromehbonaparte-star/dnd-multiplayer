@@ -615,6 +615,180 @@ nav {
 #test-status.success { color: var(--success); }
 #test-status.error { color: var(--danger); }
 
+/* API Configurations List */
+.api-configs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.api-config-card {
+  background: var(--bg-card);
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  padding: 16px 20px;
+  position: relative;
+  transition: all 0.3s ease;
+}
+
+.api-config-card.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 15px var(--accent-glow);
+}
+
+.api-config-card .config-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.api-config-card .config-name {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-bright);
+}
+
+.api-config-card.active .config-name::after {
+  content: ' (Active)';
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.api-config-card .config-details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 8px;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.api-config-card .config-details span {
+  display: flex;
+  gap: 6px;
+}
+
+.api-config-card .config-details .label {
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+
+.api-config-card .config-details .value {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.api-config-card .config-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.api-config-card .config-actions button {
+  padding: 8px 16px;
+  font-size: 13px;
+  margin: 0;
+  border-radius: 4px;
+}
+
+.api-config-card .btn-activate {
+  background: var(--success);
+  color: var(--bg-dark);
+  border: none;
+}
+
+.api-config-card .btn-activate:hover {
+  background: #5bb77f;
+}
+
+.api-config-card.active .btn-activate {
+  display: none;
+}
+
+.api-config-card .btn-delete {
+  background: transparent;
+  color: var(--danger);
+  border: 1px solid var(--danger);
+}
+
+.api-config-card .btn-delete:hover {
+  background: var(--danger);
+  color: var(--text-bright);
+}
+
+.api-config-card .btn-edit {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border-color);
+}
+
+.api-config-card .btn-edit:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.api-config-card .btn-test-config {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border-color);
+}
+
+.api-config-card .btn-test-config:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Add API Config Form */
+.add-api-config {
+  background: var(--bg-light);
+  border: 2px dashed var(--border-color);
+  border-radius: 8px;
+  padding: 20px;
+  margin-top: 24px;
+}
+
+.add-api-config h3 {
+  font-family: var(--font-display);
+  font-size: 16px;
+  color: var(--text);
+  margin-bottom: 16px;
+}
+
+.checkbox-group label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.checkbox-group input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+#new-config-status {
+  margin-top: 12px;
+  font-size: 14px;
+}
+
+#new-config-status.success { color: var(--success); }
+#new-config-status.error { color: var(--danger); }
+
+.no-configs-message {
+  text-align: center;
+  padding: 24px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
 /* ═══════════════════════════════════════════════════════════════
    MODALS
    ═══════════════════════════════════════════════════════════════ */

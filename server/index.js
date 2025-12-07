@@ -92,6 +92,16 @@ db.exec(`
     action TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
+
+  CREATE TABLE IF NOT EXISTS api_configs (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    endpoint TEXT NOT NULL,
+    api_key TEXT NOT NULL,
+    model TEXT NOT NULL,
+    is_active INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
 `);
 
 // Migrate existing databases - add new columns if they don't exist
@@ -125,6 +135,34 @@ if (!columns.includes('spell_slots')) {
 const sessionColumns = db.prepare("PRAGMA table_info(game_sessions)").all().map(c => c.name);
 if (!sessionColumns.includes('compacted_count')) {
   db.exec('ALTER TABLE game_sessions ADD COLUMN compacted_count INTEGER DEFAULT 0');
+}
+
+// Migrate existing API settings to api_configs table if needed
+const existingConfigs = db.prepare('SELECT COUNT(*) as count FROM api_configs').get();
+if (existingConfigs.count === 0) {
+  // Check if there are old-style settings to migrate
+  const oldEndpoint = db.prepare("SELECT value FROM settings WHERE key = 'api_endpoint'").get();
+  const oldKey = db.prepare("SELECT value FROM settings WHERE key = 'api_key'").get();
+  const oldModel = db.prepare("SELECT value FROM settings WHERE key = 'api_model'").get();
+
+  if (oldKey && oldKey.value) {
+    // Migrate old settings to new api_configs table
+    db.prepare('INSERT INTO api_configs (id, name, endpoint, api_key, model, is_active) VALUES (?, ?, ?, ?, ?, 1)')
+      .run(uuidv4(), 'Default', oldEndpoint?.value || 'https://api.openai.com/v1/chat/completions', oldKey.value, oldModel?.value || 'gpt-4');
+  }
+}
+
+// Helper function to get active API config
+function getActiveApiConfig() {
+  const config = db.prepare('SELECT * FROM api_configs WHERE is_active = 1').get();
+  if (config) {
+    return {
+      api_endpoint: config.endpoint,
+      api_key: config.api_key,
+      api_model: config.model
+    };
+  }
+  return null;
 }
 
 // XP requirements for each level
@@ -357,6 +395,113 @@ app.post('/api/settings', checkPassword, checkAdminPassword, (req, res) => {
   res.json({ success: true });
 });
 
+// ==================== API Configuration Management ====================
+
+// Get all API configurations
+app.get('/api/api-configs', checkPassword, checkAdminPassword, (req, res) => {
+  const configs = db.prepare('SELECT * FROM api_configs ORDER BY created_at DESC').all();
+  // Mask API keys for security
+  const maskedConfigs = configs.map(config => ({
+    ...config,
+    api_key: config.api_key.length > 4 ? '****' + config.api_key.slice(-4) : '****',
+    api_key_set: !!config.api_key
+  }));
+  res.json(maskedConfigs);
+});
+
+// Create new API configuration
+app.post('/api/api-configs', checkPassword, checkAdminPassword, (req, res) => {
+  const { name, endpoint, api_key, model, is_active } = req.body;
+
+  if (!name || !endpoint || !api_key || !model) {
+    return res.status(400).json({ error: 'All fields are required: name, endpoint, api_key, model' });
+  }
+
+  const id = uuidv4();
+
+  // If this is set to active, deactivate all others first
+  if (is_active) {
+    db.prepare('UPDATE api_configs SET is_active = 0').run();
+  }
+
+  db.prepare('INSERT INTO api_configs (id, name, endpoint, api_key, model, is_active) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(id, name, endpoint, api_key, model, is_active ? 1 : 0);
+
+  res.json({ success: true, id });
+});
+
+// Update API configuration
+app.put('/api/api-configs/:id', checkPassword, checkAdminPassword, (req, res) => {
+  const { id } = req.params;
+  const { name, endpoint, api_key, model } = req.body;
+
+  const existing = db.prepare('SELECT * FROM api_configs WHERE id = ?').get(id);
+  if (!existing) {
+    return res.status(404).json({ error: 'API configuration not found' });
+  }
+
+  // Only update fields that were provided
+  const updates = [];
+  const values = [];
+
+  if (name) { updates.push('name = ?'); values.push(name); }
+  if (endpoint) { updates.push('endpoint = ?'); values.push(endpoint); }
+  if (api_key) { updates.push('api_key = ?'); values.push(api_key); }
+  if (model) { updates.push('model = ?'); values.push(model); }
+
+  if (updates.length > 0) {
+    values.push(id);
+    db.prepare(`UPDATE api_configs SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+  }
+
+  res.json({ success: true });
+});
+
+// Delete API configuration
+app.delete('/api/api-configs/:id', checkPassword, checkAdminPassword, (req, res) => {
+  const { id } = req.params;
+
+  const existing = db.prepare('SELECT * FROM api_configs WHERE id = ?').get(id);
+  if (!existing) {
+    return res.status(404).json({ error: 'API configuration not found' });
+  }
+
+  // Don't allow deleting the last config
+  const configCount = db.prepare('SELECT COUNT(*) as count FROM api_configs').get();
+  if (configCount.count <= 1) {
+    return res.status(400).json({ error: 'Cannot delete the last API configuration' });
+  }
+
+  // If deleting the active config, activate the first remaining one
+  if (existing.is_active) {
+    db.prepare('DELETE FROM api_configs WHERE id = ?').run(id);
+    const firstConfig = db.prepare('SELECT id FROM api_configs ORDER BY created_at ASC LIMIT 1').get();
+    if (firstConfig) {
+      db.prepare('UPDATE api_configs SET is_active = 1 WHERE id = ?').run(firstConfig.id);
+    }
+  } else {
+    db.prepare('DELETE FROM api_configs WHERE id = ?').run(id);
+  }
+
+  res.json({ success: true });
+});
+
+// Activate specific API configuration
+app.post('/api/api-configs/:id/activate', checkPassword, checkAdminPassword, (req, res) => {
+  const { id } = req.params;
+
+  const existing = db.prepare('SELECT * FROM api_configs WHERE id = ?').get(id);
+  if (!existing) {
+    return res.status(404).json({ error: 'API configuration not found' });
+  }
+
+  // Deactivate all, then activate the selected one
+  db.prepare('UPDATE api_configs SET is_active = 0').run();
+  db.prepare('UPDATE api_configs SET is_active = 1 WHERE id = ?').run(id);
+
+  res.json({ success: true, activated: existing.name });
+});
+
 // Test API Connection
 app.post('/api/test-connection', checkPassword, async (req, res) => {
   const { api_endpoint, api_key, api_model } = req.body;
@@ -409,6 +554,63 @@ app.post('/api/test-connection', checkPassword, async (req, res) => {
       success: true,
       message: message.substring(0, 200),
       model: data.model || data.model_name || api_model
+    });
+  } catch (error) {
+    res.status(500).json({ error: `Connection failed: ${error.message}` });
+  }
+});
+
+// Test API Connection by config ID
+app.post('/api/test-connection/:id', checkPassword, checkAdminPassword, async (req, res) => {
+  const { id } = req.params;
+
+  const config = db.prepare('SELECT * FROM api_configs WHERE id = ?').get(id);
+  if (!config) {
+    return res.status(404).json({ error: 'API configuration not found' });
+  }
+
+  try {
+    const response = await fetch(config.endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${config.api_key}`
+      },
+      body: JSON.stringify({
+        model: config.model,
+        messages: [{ role: 'user', content: 'Say "Connection successful!" in exactly those words.' }],
+        max_tokens: 50
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return res.status(response.status).json({ error: `API Error (${response.status}): ${errorText}` });
+    }
+
+    const data = await response.json();
+
+    // Handle different response formats
+    let message = 'Response received';
+    if (data.choices && data.choices[0]) {
+      const choice = data.choices[0];
+      message = choice.message?.content || choice.text || choice.content || message;
+    } else if (data.output) {
+      message = data.output;
+    } else if (data.response) {
+      message = data.response;
+    } else if (data.result) {
+      message = data.result;
+    }
+
+    if (typeof message === 'object') {
+      message = JSON.stringify(message);
+    }
+
+    res.json({
+      success: true,
+      message: message.substring(0, 200),
+      model: data.model || data.model_name || config.model
     });
   } catch (error) {
     res.status(500).json({ error: `Connection failed: ${error.message}` });
@@ -635,11 +837,9 @@ app.post('/api/characters/:id/levelup', checkPassword, async (req, res) => {
     });
   }
 
-  const settings = {};
-  db.prepare('SELECT key, value FROM settings').all().forEach(row => settings[row.key] = row.value);
-
-  if (!settings.api_key) {
-    return res.status(400).json({ error: 'API key not configured' });
+  const apiConfig = getActiveApiConfig();
+  if (!apiConfig || !apiConfig.api_key) {
+    return res.status(400).json({ error: 'No active API configuration. Please add and activate one in Settings.' });
   }
 
   const newLevel = character.level + 1;
@@ -673,14 +873,14 @@ LEVELUP_COMPLETE:{"hp_increase":N,"new_spells":"spells gained or None","new_skil
       ...(messages || [])
     ];
 
-    const response = await fetch(settings.api_endpoint, {
+    const response = await fetch(apiConfig.api_endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${settings.api_key}`
+        'Authorization': `Bearer ${apiConfig.api_key}`
       },
       body: JSON.stringify({
-        model: settings.api_model,
+        model: apiConfig.api_model,
         messages: allMessages,
         max_tokens: 64000
       })
@@ -784,11 +984,9 @@ app.post('/api/characters/:id/edit', checkPassword, async (req, res) => {
     return res.status(404).json({ error: 'Character not found' });
   }
 
-  const settings = {};
-  db.prepare('SELECT key, value FROM settings').all().forEach(row => settings[row.key] = row.value);
-
-  if (!settings.api_key) {
-    return res.status(400).json({ error: 'API key not configured' });
+  const apiConfig = getActiveApiConfig();
+  if (!apiConfig || !apiConfig.api_key) {
+    return res.status(400).json({ error: 'No active API configuration. Please add and activate one in Settings.' });
   }
 
   // Parse spell slots for display
@@ -849,14 +1047,14 @@ Only include fields that should be changed. Keep the conversation helpful and en
       ...(messages || [])
     ];
 
-    const response = await fetch(settings.api_endpoint, {
+    const response = await fetch(apiConfig.api_endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${settings.api_key}`
+        'Authorization': `Bearer ${apiConfig.api_key}`
       },
       body: JSON.stringify({
-        model: settings.api_model,
+        model: apiConfig.api_model,
         messages: allMessages,
         max_tokens: 64000
       })
@@ -1008,22 +1206,20 @@ Be encouraging, creative, and help new players understand their choices. Keep re
 app.post('/api/characters/ai-create', checkPassword, async (req, res) => {
   const { messages } = req.body;
 
-  const settings = {};
-  db.prepare('SELECT key, value FROM settings').all().forEach(row => settings[row.key] = row.value);
-
-  if (!settings.api_key) {
-    return res.status(400).json({ error: 'API key not configured. Please set up your API in Settings.' });
+  const apiConfig = getActiveApiConfig();
+  if (!apiConfig || !apiConfig.api_key) {
+    return res.status(400).json({ error: 'No active API configuration. Please add and activate one in Settings.' });
   }
 
   try {
-    const response = await fetch(settings.api_endpoint, {
+    const response = await fetch(apiConfig.api_endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${settings.api_key}`
+        'Authorization': `Bearer ${apiConfig.api_key}`
       },
       body: JSON.stringify({
-        model: settings.api_model,
+        model: apiConfig.api_model,
         messages: [
           { role: 'system', content: CHARACTER_CREATION_PROMPT },
           ...messages
@@ -1511,12 +1707,14 @@ async function processAITurn(sessionId, pendingActions, characters) {
   io.emit('turn_processing', { sessionId });
 
   const session = db.prepare('SELECT * FROM game_sessions WHERE id = ?').get(sessionId);
+  const apiConfig = getActiveApiConfig();
+  if (!apiConfig || !apiConfig.api_key) {
+    throw new Error('No active API configuration. Please add and activate one in Settings.');
+  }
+
+  // Get general settings (non-API settings)
   const settings = {};
   db.prepare('SELECT key, value FROM settings').all().forEach(row => settings[row.key] = row.value);
-
-  if (!settings.api_key) {
-    throw new Error('API key not configured');
-  }
 
   let fullHistory = JSON.parse(session.full_history || '[]');
   const compactedCount = session.compacted_count || 0;
@@ -1559,14 +1757,14 @@ Please narrate the outcome of these actions and describe what happens next.`;
   ];
 
   // Call AI API
-  const response = await fetch(settings.api_endpoint, {
+  const response = await fetch(apiConfig.api_endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${settings.api_key}`
+      'Authorization': `Bearer ${apiConfig.api_key}`
     },
     body: JSON.stringify({
-      model: settings.api_model,
+      model: apiConfig.api_model,
       messages: messages,
       max_tokens: 64000
     })
@@ -1756,7 +1954,7 @@ Please narrate the outcome of these actions and describe what happens next.`;
   if (newTotalTokens > maxTokens) {
     // Compact the recent history (messages since last compaction)
     const recentHistoryToCompact = fullHistory.slice(compactedCount);
-    newSummary = await compactHistory(settings, session.story_summary, recentHistoryToCompact);
+    newSummary = await compactHistory(apiConfig, session.story_summary, recentHistoryToCompact);
     // Mark all current messages as compacted
     newCompactedCount = fullHistory.length;
     // Keep full history for display, but reset token count since we'll use summary for AI context
@@ -1783,7 +1981,7 @@ Please narrate the outcome of these actions and describe what happens next.`;
 }
 
 // Compact history function
-async function compactHistory(settings, existingSummary, history) {
+async function compactHistory(apiConfig, existingSummary, history) {
   const historyText = history.map(h => `${h.role}: ${h.content}`).join('\n\n');
 
   const compactPrompt = `You are summarizing a D&D adventure for continuity purposes.
@@ -1800,14 +1998,14 @@ ${historyText}
 
 Provide an updated comprehensive summary:`;
 
-  const response = await fetch(settings.api_endpoint, {
+  const response = await fetch(apiConfig.api_endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${settings.api_key}`
+      'Authorization': `Bearer ${apiConfig.api_key}`
     },
     body: JSON.stringify({
-      model: settings.api_model,
+      model: apiConfig.api_model,
       messages: [{ role: 'user', content: compactPrompt }],
       max_tokens: 64000
     })

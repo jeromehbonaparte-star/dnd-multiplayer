@@ -116,21 +116,40 @@
     <!-- Settings Tab -->
     <div id="settings-tab" class="tab-content">
       <div class="settings-container">
-        <h2>API Settings</h2>
-        <div class="form-group">
-          <label>API Endpoint (OpenAI Compatible)</label>
-          <input type="text" id="api-endpoint" placeholder="https://api.openai.com/v1/chat/completions">
+        <h2>API Configurations</h2>
+        <p class="settings-note">Manage multiple API providers (OpenAI, DeepSeek, Local LLMs, etc.)</p>
+
+        <div class="api-configs-list" id="api-configs-list">
+          <!-- API configs will be populated here -->
         </div>
-        <div class="form-group">
-          <label>API Key</label>
-          <input type="password" id="api-key" placeholder="sk-...">
+
+        <div class="add-api-config">
+          <h3>Add New API Configuration</h3>
+          <div class="form-group">
+            <label>Name</label>
+            <input type="text" id="new-config-name" placeholder="e.g., OpenAI GPT-4, DeepSeek, Local Ollama">
+          </div>
+          <div class="form-group">
+            <label>API Endpoint</label>
+            <input type="text" id="new-config-endpoint" placeholder="https://api.openai.com/v1/chat/completions">
+          </div>
+          <div class="form-group">
+            <label>API Key</label>
+            <input type="password" id="new-config-key" placeholder="sk-...">
+          </div>
+          <div class="form-group">
+            <label>Model</label>
+            <input type="text" id="new-config-model" placeholder="gpt-4">
+          </div>
+          <div class="form-group checkbox-group">
+            <label>
+              <input type="checkbox" id="new-config-active"> Set as active
+            </label>
+          </div>
+          <button onclick="addApiConfig()" class="btn-primary">Add Configuration</button>
+          <button onclick="testNewConfig()" class="btn-test">Test Before Adding</button>
+          <p id="new-config-status"></p>
         </div>
-        <div class="form-group">
-          <label>Model</label>
-          <input type="text" id="api-model" placeholder="gpt-4">
-        </div>
-        <button onclick="testConnection()" class="btn-test">Test Connection</button>
-        <p id="test-status"></p>
 
         <h2>Game Settings</h2>
         <div class="form-group">

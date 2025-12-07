@@ -310,32 +310,175 @@ async function loadInitialData() {
 }
 
 // Settings
-let originalMaskedApiKey = ''; // Store the masked key to detect changes
-
 async function loadSettings() {
   try {
     const settings = await api('/api/settings');
-    document.getElementById('api-endpoint').value = settings.api_endpoint || '';
-    document.getElementById('api-key').value = settings.api_key || '';
-    document.getElementById('api-key').placeholder = settings.api_key_set ? 'Key is set (enter new key to change)' : 'sk-...';
-    document.getElementById('api-model').value = settings.api_model || '';
     document.getElementById('max-tokens').value = settings.max_tokens_before_compact || 8000;
-    originalMaskedApiKey = settings.api_key || '';
+    // Load API configurations
+    await loadApiConfigs();
   } catch (error) {
     console.error('Failed to load settings:', error);
   }
 }
 
+// Load API Configurations
+async function loadApiConfigs() {
+  try {
+    const configs = await api('/api/api-configs');
+    const listEl = document.getElementById('api-configs-list');
+
+    if (!configs || configs.length === 0) {
+      listEl.innerHTML = '<div class="no-configs-message">No API configurations yet. Add one below to get started.</div>';
+      return;
+    }
+
+    listEl.innerHTML = configs.map(config => `
+      <div class="api-config-card ${config.is_active ? 'active' : ''}" data-id="${config.id}">
+        <div class="config-header">
+          <span class="config-name">${escapeHtml(config.name)}</span>
+        </div>
+        <div class="config-details">
+          <span><span class="label">Endpoint:</span> <span class="value">${escapeHtml(config.endpoint)}</span></span>
+          <span><span class="label">Model:</span> <span class="value">${escapeHtml(config.model)}</span></span>
+          <span><span class="label">API Key:</span> <span class="value">${escapeHtml(config.api_key)}</span></span>
+        </div>
+        <div class="config-actions">
+          <button class="btn-activate" onclick="activateApiConfig('${config.id}')">Activate</button>
+          <button class="btn-test-config" onclick="testApiConfig('${config.id}')">Test</button>
+          <button class="btn-delete" onclick="deleteApiConfig('${config.id}')">Delete</button>
+        </div>
+      </div>
+    `).join('');
+  } catch (error) {
+    console.error('Failed to load API configs:', error);
+  }
+}
+
+// Add new API Configuration
+async function addApiConfig() {
+  const name = document.getElementById('new-config-name').value.trim();
+  const endpoint = document.getElementById('new-config-endpoint').value.trim();
+  const api_key = document.getElementById('new-config-key').value.trim();
+  const model = document.getElementById('new-config-model').value.trim();
+  const is_active = document.getElementById('new-config-active').checked;
+  const statusEl = document.getElementById('new-config-status');
+
+  if (!name || !endpoint || !api_key || !model) {
+    statusEl.textContent = 'All fields are required';
+    statusEl.className = 'error';
+    return;
+  }
+
+  try {
+    await api('/api/api-configs', 'POST', { name, endpoint, api_key, model, is_active });
+    statusEl.textContent = 'Configuration added successfully!';
+    statusEl.className = 'success';
+
+    // Clear form
+    document.getElementById('new-config-name').value = '';
+    document.getElementById('new-config-endpoint').value = '';
+    document.getElementById('new-config-key').value = '';
+    document.getElementById('new-config-model').value = '';
+    document.getElementById('new-config-active').checked = false;
+
+    // Reload configs
+    await loadApiConfigs();
+
+    setTimeout(() => { statusEl.textContent = ''; }, 3000);
+  } catch (error) {
+    statusEl.textContent = error.message || 'Failed to add configuration';
+    statusEl.className = 'error';
+  }
+}
+
+// Test new config before adding
+async function testNewConfig() {
+  const statusEl = document.getElementById('new-config-status');
+  statusEl.textContent = 'Testing connection...';
+  statusEl.className = '';
+
+  const testData = {
+    api_endpoint: document.getElementById('new-config-endpoint').value.trim(),
+    api_key: document.getElementById('new-config-key').value.trim(),
+    api_model: document.getElementById('new-config-model').value.trim()
+  };
+
+  if (!testData.api_endpoint || !testData.api_key || !testData.api_model) {
+    statusEl.textContent = 'Please fill in endpoint, API key, and model';
+    statusEl.className = 'error';
+    return;
+  }
+
+  try {
+    const result = await api('/api/test-connection', 'POST', testData);
+    statusEl.textContent = `Connection successful! Response: ${result.message}`;
+    statusEl.className = 'success';
+  } catch (error) {
+    statusEl.textContent = `Connection failed: ${error.message}`;
+    statusEl.className = 'error';
+  }
+}
+
+// Activate specific API config
+async function activateApiConfig(id) {
+  try {
+    await api(`/api/api-configs/${id}/activate`, 'POST');
+    await loadApiConfigs();
+  } catch (error) {
+    alert('Failed to activate configuration: ' + error.message);
+  }
+}
+
+// Test existing API config
+async function testApiConfig(id) {
+  // Get the card to show testing status
+  const card = document.querySelector(`.api-config-card[data-id="${id}"]`);
+  const btn = card.querySelector('.btn-test-config');
+  const originalText = btn.textContent;
+  btn.textContent = 'Testing...';
+  btn.disabled = true;
+
+  try {
+    // Use the test-config endpoint with the config ID
+    const result = await api(`/api/test-connection/${id}`, 'POST');
+    btn.textContent = 'Success!';
+    btn.style.color = 'var(--success)';
+    btn.style.borderColor = 'var(--success)';
+    setTimeout(() => {
+      btn.textContent = originalText;
+      btn.style.color = '';
+      btn.style.borderColor = '';
+      btn.disabled = false;
+    }, 2000);
+  } catch (error) {
+    btn.textContent = 'Failed';
+    btn.style.color = 'var(--danger)';
+    btn.style.borderColor = 'var(--danger)';
+    setTimeout(() => {
+      btn.textContent = originalText;
+      btn.style.color = '';
+      btn.style.borderColor = '';
+      btn.disabled = false;
+    }, 2000);
+  }
+}
+
+// Delete API config
+async function deleteApiConfig(id) {
+  if (!confirm('Are you sure you want to delete this API configuration?')) {
+    return;
+  }
+
+  try {
+    await api(`/api/api-configs/${id}`, 'DELETE');
+    await loadApiConfigs();
+  } catch (error) {
+    alert('Failed to delete configuration: ' + error.message);
+  }
+}
+
 async function saveSettings() {
-  const apiKeyInput = document.getElementById('api-key').value;
-
-  // Only send API key if it was changed (not the masked value)
-  const apiKeyChanged = apiKeyInput && apiKeyInput !== originalMaskedApiKey && !apiKeyInput.startsWith('****');
-
   const settings = {
-    api_endpoint: document.getElementById('api-endpoint').value,
-    api_key: apiKeyChanged ? apiKeyInput : undefined,
-    api_model: document.getElementById('api-model').value,
     max_tokens_before_compact: document.getElementById('max-tokens').value,
     new_password: document.getElementById('new-password').value || undefined
   };
@@ -346,8 +489,6 @@ async function saveSettings() {
     if (settings.new_password) {
       password = settings.new_password;
     }
-    // Reload settings to get updated masked key
-    await loadSettings();
     setTimeout(() => {
       document.getElementById('settings-status').textContent = '';
     }, 3000);
@@ -356,25 +497,15 @@ async function saveSettings() {
   }
 }
 
-// Test Connection
+// Test Connection (legacy - for backward compatibility)
 async function testConnection() {
-  const statusEl = document.getElementById('test-status');
-  statusEl.textContent = 'Testing connection...';
-  statusEl.className = '';
-
-  const testData = {
-    api_endpoint: document.getElementById('api-endpoint').value,
-    api_key: document.getElementById('api-key').value,
-    api_model: document.getElementById('api-model').value
-  };
-
-  try {
-    const result = await api('/api/test-connection', 'POST', testData);
-    statusEl.textContent = `Success! Model: ${result.model} - Response: "${result.message}"`;
-    statusEl.className = 'success';
-  } catch (error) {
-    statusEl.textContent = error.message || 'Connection failed';
-    statusEl.className = 'error';
+  // Redirect to testing the active config
+  const activeCard = document.querySelector('.api-config-card.active');
+  if (activeCard) {
+    const id = activeCard.dataset.id;
+    await testApiConfig(id);
+  } else {
+    alert('No active API configuration. Please add and activate one first.');
   }
 }
 
