@@ -581,6 +581,9 @@ function renderCharactersList() {
         <button class="btn-inventory" onclick="openInventoryModal('${c.id}')">Inventory</button>
         <button class="btn-levelup" onclick="levelUpCharacter('${c.id}')" ${canLevel ? '' : 'disabled'}>${canLevel ? 'Level Up!' : 'Need XP'}</button>
       </div>
+      <div class="btn-row">
+        <button class="btn-reset-xp" onclick="resetXP('${c.id}', '${c.character_name.replace(/'/g, "\\'")}')">Reset XP</button>
+      </div>
     </div>
   `}).join('');
 }
@@ -653,6 +656,19 @@ async function deleteCharacter(id) {
     await api(`/api/characters/${id}`, 'DELETE');
   } catch (error) {
     console.error('Failed to delete character:', error);
+  }
+}
+
+async function resetXP(id, name) {
+  if (!confirm(`Reset ${name}'s XP to 0? This cannot be undone.`)) return;
+
+  try {
+    await api(`/api/characters/${id}/reset-xp`, 'POST');
+    showNotification(`${name}'s XP has been reset to 0`);
+    loadCharacters();
+  } catch (error) {
+    console.error('Failed to reset XP:', error);
+    alert('Failed to reset XP: ' + error.message);
   }
 }
 

@@ -1092,6 +1092,18 @@ nav {
   cursor: not-allowed;
 }
 
+.character-card .btn-reset-xp {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--text-muted);
+  font-size: 11px;
+}
+
+.character-card .btn-reset-xp:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 /* Theme Toggle */
 .theme-toggle {
   padding: 8px 12px;

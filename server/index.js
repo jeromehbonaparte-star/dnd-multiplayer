@@ -405,6 +405,21 @@ app.post('/api/characters/:id/xp', checkPassword, (req, res) => {
   res.json({ character: updatedChar, canLevelUp: canLevel, requiredXP: getRequiredXP(updatedChar.level) });
 });
 
+// Reset XP to 0
+app.post('/api/characters/:id/reset-xp', checkPassword, (req, res) => {
+  const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
+
+  if (!character) {
+    return res.status(404).json({ error: 'Character not found' });
+  }
+
+  db.prepare('UPDATE characters SET xp = 0 WHERE id = ?').run(req.params.id);
+
+  const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
+  io.emit('character_updated', updatedChar);
+  res.json({ character: updatedChar });
+});
+
 // Update gold for a character
 app.post('/api/characters/:id/gold', checkPassword, (req, res) => {
   const { amount } = req.body;
