@@ -795,9 +795,15 @@ async function processAITurn(sessionId, pendingActions, characters) {
   let history = JSON.parse(session.full_history || '[]');
 
   // Build character info
-  const characterInfo = characters.map(c =>
-    `${c.character_name} (${c.race} ${c.class}, played by ${c.player_name}): STR:${c.strength} DEX:${c.dexterity} CON:${c.constitution} INT:${c.intelligence} WIS:${c.wisdom} CHA:${c.charisma} HP:${c.hp}/${c.max_hp}`
-  ).join('\n');
+  const characterInfo = characters.map(c => {
+    let info = `${c.character_name} (Level ${c.level} ${c.race} ${c.class}, played by ${c.player_name}):\n`;
+    info += `  Stats: STR:${c.strength} DEX:${c.dexterity} CON:${c.constitution} INT:${c.intelligence} WIS:${c.wisdom} CHA:${c.charisma}\n`;
+    info += `  HP: ${c.hp}/${c.max_hp}`;
+    if (c.skills) info += `\n  Skills: ${c.skills}`;
+    if (c.spells) info += `\n  Spells: ${c.spells}`;
+    if (c.passives) info += `\n  Passives: ${c.passives}`;
+    return info;
+  }).join('\n\n');
 
   // Build action summary
   const actionSummary = pendingActions.map(pa => {
