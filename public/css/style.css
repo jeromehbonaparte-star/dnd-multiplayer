@@ -231,25 +231,25 @@ nav {
   border-left: 3px solid var(--accent);
 }
 
-.session-delete-btn {
-  padding: 2px 5px;
-  background: #dc3545;
-  color: white;
-  border: none;
-  border-radius: 3px;
-  cursor: pointer;
-  font-size: 9px;
-  font-weight: bold;
-  opacity: 0.7;
-  transition: all 0.2s;
-  min-width: 18px;
-  height: 18px;
-  line-height: 1;
+.sidebar .session-delete-btn {
+  padding: 2px 4px !important;
+  background: #dc3545 !important;
+  color: white !important;
+  border: none !important;
+  border-radius: 2px !important;
+  cursor: pointer !important;
+  font-size: 8px !important;
+  font-weight: bold !important;
+  width: auto !important;
+  min-width: 14px !important;
+  height: 14px !important;
+  line-height: 1 !important;
+  margin: 0 !important;
+  flex-shrink: 0;
 }
 
-.session-delete-btn:hover {
-  background: #c82333;
-  opacity: 1;
+.sidebar .session-delete-btn:hover {
+  background: #a71d2a !important;
 }
 
 .party-item {
