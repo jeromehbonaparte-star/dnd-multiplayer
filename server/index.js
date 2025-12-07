@@ -398,7 +398,7 @@ app.post('/api/settings', checkPassword, checkAdminPassword, (req, res) => {
 // ==================== API Configuration Management ====================
 
 // Get all API configurations
-app.get('/api/api-configs', checkPassword, checkAdminPassword, (req, res) => {
+app.get('/api/api-configs', checkPassword, (req, res) => {
   const configs = db.prepare('SELECT * FROM api_configs ORDER BY created_at DESC').all();
   // Mask API keys for security
   const maskedConfigs = configs.map(config => ({
@@ -410,7 +410,7 @@ app.get('/api/api-configs', checkPassword, checkAdminPassword, (req, res) => {
 });
 
 // Create new API configuration
-app.post('/api/api-configs', checkPassword, checkAdminPassword, (req, res) => {
+app.post('/api/api-configs', checkPassword, (req, res) => {
   const { name, endpoint, api_key, model, is_active } = req.body;
 
   if (!name || !endpoint || !api_key || !model) {
@@ -431,7 +431,7 @@ app.post('/api/api-configs', checkPassword, checkAdminPassword, (req, res) => {
 });
 
 // Update API configuration
-app.put('/api/api-configs/:id', checkPassword, checkAdminPassword, (req, res) => {
+app.put('/api/api-configs/:id', checkPassword, (req, res) => {
   const { id } = req.params;
   const { name, endpoint, api_key, model } = req.body;
 
@@ -458,7 +458,7 @@ app.put('/api/api-configs/:id', checkPassword, checkAdminPassword, (req, res) =>
 });
 
 // Delete API configuration
-app.delete('/api/api-configs/:id', checkPassword, checkAdminPassword, (req, res) => {
+app.delete('/api/api-configs/:id', checkPassword, (req, res) => {
   const { id } = req.params;
 
   const existing = db.prepare('SELECT * FROM api_configs WHERE id = ?').get(id);
@@ -487,7 +487,7 @@ app.delete('/api/api-configs/:id', checkPassword, checkAdminPassword, (req, res)
 });
 
 // Activate specific API configuration
-app.post('/api/api-configs/:id/activate', checkPassword, checkAdminPassword, (req, res) => {
+app.post('/api/api-configs/:id/activate', checkPassword, (req, res) => {
   const { id } = req.params;
 
   const existing = db.prepare('SELECT * FROM api_configs WHERE id = ?').get(id);
@@ -561,7 +561,7 @@ app.post('/api/test-connection', checkPassword, async (req, res) => {
 });
 
 // Test API Connection by config ID
-app.post('/api/test-connection/:id', checkPassword, checkAdminPassword, async (req, res) => {
+app.post('/api/test-connection/:id', checkPassword, async (req, res) => {
   const { id } = req.params;
 
   const config = db.prepare('SELECT * FROM api_configs WHERE id = ?').get(id);

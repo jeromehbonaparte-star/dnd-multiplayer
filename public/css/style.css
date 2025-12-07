@@ -789,6 +789,24 @@ nav {
   font-style: italic;
 }
 
+/* API Edit Modal */
+.api-edit-modal-content {
+  max-width: 500px;
+  width: 90%;
+}
+
+.api-edit-modal-content .form-group {
+  margin-bottom: 16px;
+}
+
+#edit-config-status {
+  margin-top: 12px;
+  font-size: 14px;
+}
+
+#edit-config-status.success { color: var(--success); }
+#edit-config-status.error { color: var(--danger); }
+
 /* ═══════════════════════════════════════════════════════════════
    MODALS
    ═══════════════════════════════════════════════════════════════ */
