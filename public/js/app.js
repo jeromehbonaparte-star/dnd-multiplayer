@@ -1,5 +1,7 @@
 // Global state
 let password = '';
+let adminPassword = '';
+let isAdminAuthenticated = false;
 let currentSession = null;
 let characters = [];
 let socket = null;
@@ -148,7 +150,7 @@ function initSocket() {
 }
 
 // API helper
-async function api(endpoint, method = 'GET', body = null) {
+async function api(endpoint, method = 'GET', body = null, requireAdmin = false) {
   const options = {
     method,
     headers: {
@@ -156,6 +158,11 @@ async function api(endpoint, method = 'GET', body = null) {
       'X-Game-Password': password
     }
   };
+
+  // Add admin password header if authenticated
+  if (adminPassword) {
+    options.headers['X-Admin-Password'] = adminPassword;
+  }
 
   if (body) {
     options.body = JSON.stringify(body);
@@ -168,7 +175,42 @@ async function api(endpoint, method = 'GET', body = null) {
     throw new Error('Unauthorized');
   }
 
+  if (response.status === 403) {
+    isAdminAuthenticated = false;
+    adminPassword = '';
+    throw new Error('Admin access required');
+  }
+
   return response.json();
+}
+
+// Admin authentication
+async function promptAdminLogin() {
+  const pwd = prompt('Enter admin password to access settings:');
+  if (!pwd) return false;
+
+  try {
+    const result = await fetch('/api/admin-auth', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Game-Password': password
+      },
+      body: JSON.stringify({ adminPassword: pwd })
+    });
+
+    if (result.ok) {
+      adminPassword = pwd;
+      isAdminAuthenticated = true;
+      return true;
+    } else {
+      alert('Invalid admin password');
+      return false;
+    }
+  } catch (error) {
+    alert('Failed to authenticate: ' + error.message);
+    return false;
+  }
 }
 
 // Authentication
@@ -195,12 +237,26 @@ function showLogin() {
 
 // Tab navigation
 document.querySelectorAll('.tab-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
+  btn.addEventListener('click', async () => {
+    const targetTab = btn.dataset.tab;
+
+    // Require admin password for settings tab
+    if (targetTab === 'settings' && !isAdminAuthenticated) {
+      const authenticated = await promptAdminLogin();
+      if (!authenticated) return;
+    }
+
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
 
     btn.classList.add('active');
-    document.getElementById(`${btn.dataset.tab}-tab`).classList.add('active');
+    document.getElementById(`${targetTab}-tab`).classList.add('active');
+
+    // Load settings when tab is accessed
+    if (targetTab === 'settings') {
+      loadSettings();
+    }
+
     saveAppState(); // Save state when tab changes
   });
 });
@@ -208,7 +264,6 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 // Load initial data
 async function loadInitialData() {
   await Promise.all([
-    loadSettings(),
     loadCharacters(),
     loadSessions()
   ]);

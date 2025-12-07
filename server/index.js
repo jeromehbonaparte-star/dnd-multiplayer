@@ -110,7 +110,9 @@ function canLevelUp(xp, level) {
 // Initialize default settings if not exist
 const initSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
 const defaultPassword = process.env.GAME_PASSWORD || 'changeme';
+const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
 initSetting.run('game_password', bcrypt.hashSync(defaultPassword, 10));
+initSetting.run('admin_password', bcrypt.hashSync(adminPassword, 10));
 initSetting.run('api_endpoint', 'https://api.openai.com/v1/chat/completions');
 initSetting.run('api_key', '');
 initSetting.run('api_model', 'gpt-4');
@@ -163,13 +165,24 @@ Wait for all players to submit their actions before narrating the outcome.`;
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../public')));
 
-// Middleware to check password
+// Middleware to check game password
 const checkPassword = (req, res, next) => {
   const password = req.headers['x-game-password'];
   const storedHash = db.prepare('SELECT value FROM settings WHERE key = ?').get('game_password');
 
   if (!storedHash || !bcrypt.compareSync(password || '', storedHash.value)) {
     return res.status(401).json({ error: 'Invalid password' });
+  }
+  next();
+};
+
+// Middleware to check admin password
+const checkAdminPassword = (req, res, next) => {
+  const adminPwd = req.headers['x-admin-password'];
+  const storedHash = db.prepare('SELECT value FROM settings WHERE key = ?').get('admin_password');
+
+  if (!storedHash || !bcrypt.compareSync(adminPwd || '', storedHash.value)) {
+    return res.status(403).json({ error: 'Admin access required' });
   }
   next();
 };
@@ -186,7 +199,19 @@ app.post('/api/auth', (req, res) => {
   }
 });
 
-app.get('/api/settings', checkPassword, (req, res) => {
+// Admin auth endpoint
+app.post('/api/admin-auth', checkPassword, (req, res) => {
+  const { adminPassword } = req.body;
+  const storedHash = db.prepare('SELECT value FROM settings WHERE key = ?').get('admin_password');
+
+  if (bcrypt.compareSync(adminPassword || '', storedHash.value)) {
+    res.json({ success: true });
+  } else {
+    res.status(403).json({ error: 'Invalid admin password' });
+  }
+});
+
+app.get('/api/settings', checkPassword, checkAdminPassword, (req, res) => {
   const settings = {};
   const rows = db.prepare('SELECT key, value FROM settings').all();
   rows.forEach(row => {
@@ -197,8 +222,8 @@ app.get('/api/settings', checkPassword, (req, res) => {
   res.json(settings);
 });
 
-app.post('/api/settings', checkPassword, (req, res) => {
-  const { api_endpoint, api_key, api_model, max_tokens_before_compact, system_prompt, new_password } = req.body;
+app.post('/api/settings', checkPassword, checkAdminPassword, (req, res) => {
+  const { api_endpoint, api_key, api_model, max_tokens_before_compact, new_password } = req.body;
 
   const updateSetting = db.prepare('UPDATE settings SET value = ? WHERE key = ?');
 
@@ -206,7 +231,6 @@ app.post('/api/settings', checkPassword, (req, res) => {
   if (api_key) updateSetting.run(api_key, 'api_key');
   if (api_model) updateSetting.run(api_model, 'api_model');
   if (max_tokens_before_compact) updateSetting.run(max_tokens_before_compact, 'max_tokens_before_compact');
-  if (system_prompt) updateSetting.run(system_prompt, 'system_prompt');
   if (new_password) updateSetting.run(bcrypt.hashSync(new_password, 10), 'game_password');
 
   res.json({ success: true });
