@@ -130,6 +130,24 @@ if (!columns.includes('ac')) {
 if (!columns.includes('spell_slots')) {
   db.exec("ALTER TABLE characters ADD COLUMN spell_slots TEXT DEFAULT '{}'");
 }
+if (!columns.includes('feats')) {
+  db.exec("ALTER TABLE characters ADD COLUMN feats TEXT DEFAULT ''");
+}
+if (!columns.includes('classes')) {
+  // Multiclass support: JSON object like {"Fighter": 5, "Wizard": 3}
+  // Will be initialized from existing class column on first load
+  db.exec("ALTER TABLE characters ADD COLUMN classes TEXT DEFAULT '{}'");
+}
+
+// Migrate existing characters to use multiclass format
+const charsToMigrate = db.prepare("SELECT id, class, level, classes FROM characters WHERE classes = '{}' OR classes IS NULL").all();
+for (const char of charsToMigrate) {
+  if (char.class && char.level) {
+    const classesObj = {};
+    classesObj[char.class] = char.level;
+    db.prepare("UPDATE characters SET classes = ? WHERE id = ?").run(JSON.stringify(classesObj), char.id);
+  }
+}
 
 // Migrate game_sessions table - add compacted_count column
 const sessionColumns = db.prepare("PRAGMA table_info(game_sessions)").all().map(c => c.name);
@@ -273,6 +291,30 @@ COMBAT - MAKE IT MEMORABLE
 - Misses should be near-things: "The blade whistles past close enough to trim hair"
 - Critical hits (nat 20) are LEGENDARY moments—double dice, double drama
 - Critical fails (nat 1) are comedic or dangerous, never boring
+
+═══════════════════════════════════════════════════════════════
+MULTICLASS & FEATS - CHARACTER COMPLEXITY
+═══════════════════════════════════════════════════════════════
+
+MULTICLASS CHARACTERS:
+- Characters may have levels in multiple classes (e.g., "Fighter 3 / Wizard 2")
+- Use the abilities and features from ALL their classes appropriately
+- Spellcasting for multiclass: combine spell slots using the multiclass table
+- A Fighter 3/Wizard 2 fights with martial prowess AND casts spells
+
+FEATS - SPECIAL ABILITIES:
+Characters may have feats that grant special abilities. When relevant, remember:
+- Great Weapon Master: Can take -5 to hit for +10 damage with heavy weapons
+- Sharpshooter: -5 to hit for +10 damage with ranged, ignore cover
+- Sentinel: Opportunity attacks reduce speed to 0, can attack when allies hit
+- Polearm Master: Bonus action attack, opportunity attacks at reach
+- War Caster: Advantage on concentration, can cast spells as opportunity attacks
+- Lucky: Can reroll dice (limited uses per long rest)
+- Alert: +5 initiative, can't be surprised
+- Tough: Extra HP equal to 2x level
+- Mobile: Extra speed, no opportunity attacks from creatures you attack
+
+Always consider a character's feats when describing their combat actions!
 
 ═══════════════════════════════════════════════════════════════
 TRACKING SYSTEMS - ALWAYS USE THESE EXACT FORMATS
@@ -845,27 +887,56 @@ app.post('/api/characters/:id/levelup', checkPassword, async (req, res) => {
   const newLevel = character.level + 1;
   const conMod = Math.floor((character.constitution - 10) / 2);
 
+  // Parse current classes
+  let currentClasses = {};
+  try {
+    currentClasses = JSON.parse(character.classes || '{}');
+  } catch (e) {
+    currentClasses = {};
+    if (character.class) {
+      currentClasses[character.class] = character.level;
+    }
+  }
+  const classesDisplay = Object.entries(currentClasses).map(([cls, lvl]) => `${cls} ${lvl}`).join(' / ') || character.class;
+
   const levelUpSystemPrompt = `You are a friendly D&D 5e level up assistant. Help ${character.character_name} level up from ${character.level} to ${newLevel}.
 
 CURRENT CHARACTER:
 - Name: ${character.character_name}
 - Race: ${character.race}
-- Class: ${character.class}
-- Current Level: ${character.level}
+- Classes: ${classesDisplay}
+- Total Level: ${character.level}
 - Stats: STR ${character.strength}, DEX ${character.dexterity}, CON ${character.constitution}, INT ${character.intelligence}, WIS ${character.wisdom}, CHA ${character.charisma}
 - Current HP: ${character.max_hp}
 - Current Spells: ${character.spells || 'None'}
 - Current Skills: ${character.skills || 'None'}
 - Current Passives/Features: ${character.passives || 'None'}
+- Current Feats: ${character.feats || 'None'}
 
 LEVEL UP RULES:
-1. HP Increase: Roll class hit die + CON modifier (${conMod}). For a ${character.class}, that's typically 1d${character.class === 'Barbarian' ? '12' : character.class === 'Fighter' || character.class === 'Paladin' || character.class === 'Ranger' ? '10' : character.class === 'Wizard' || character.class === 'Sorcerer' ? '6' : '8'}+${conMod}.
-2. Check if this level grants new class features (Extra Attack at 5, etc.)
-3. Check if this is an Ability Score Improvement level (4, 8, 12, 16, 19) - ask player what stats to increase
-4. For spellcasters, check for new spell slots and spells known/prepared
+1. FIRST, ask if they want to:
+   a) Continue in their current class (${character.class})
+   b) MULTICLASS into a new class (must meet multiclass requirements - usually 13+ in key ability)
+
+2. HP Increase: Roll the hit die of the class they're taking a level in + CON modifier (${conMod}).
+   - Barbarian: d12, Fighter/Paladin/Ranger: d10, Wizard/Sorcerer: d6, Others: d8
+
+3. Check if this class level grants new features (check the specific class level, not total level!)
+
+4. ASI/FEAT LEVELS: At class levels 4, 8, 12, 16, 19 in ANY class, offer the choice:
+   - Ability Score Improvement: +2 to one stat OR +1 to two stats
+   - OR take a FEAT instead (Great Weapon Master, Sharpshooter, Lucky, Sentinel, War Caster, etc.)
+
+5. For spellcasters, check for new spell slots and spells (based on class level, not total level)
+
+MULTICLASS REQUIREMENTS (need 13+ in the key ability to multiclass INTO a class):
+- Barbarian: STR 13, Bard: CHA 13, Cleric: WIS 13, Druid: WIS 13
+- Fighter: STR or DEX 13, Monk: DEX and WIS 13, Paladin: STR and CHA 13
+- Ranger: DEX and WIS 13, Rogue: DEX 13, Sorcerer: CHA 13
+- Warlock: CHA 13, Wizard: INT 13
 
 Guide the player through their choices conversationally. When ALL choices are finalized, output:
-LEVELUP_COMPLETE:{"hp_increase":N,"new_spells":"spells gained or None","new_skills":"skills gained or None","new_passives":"features gained or None","stat_changes":"any stat increases or None","summary":"Brief exciting summary"}`;
+LEVELUP_COMPLETE:{"hp_increase":N,"class_leveled":"ClassName","new_class_level":N,"new_spells":"spells gained or None","new_skills":"skills gained or None","new_passives":"features gained or None","stat_changes":"any stat increases or None","new_feat":"feat taken or None","summary":"Brief exciting summary"}`;
 
   try {
     const allMessages = [
@@ -935,9 +1006,33 @@ LEVELUP_COMPLETE:{"hp_increase":N,"new_spells":"spells gained or None","new_skil
             ? (character.passives ? `${character.passives}, ${levelData.new_passives}` : levelData.new_passives)
             : character.passives;
 
+          // Handle feats
+          const newFeats = levelData.new_feat && levelData.new_feat !== 'None'
+            ? (character.feats ? `${character.feats}, ${levelData.new_feat}` : levelData.new_feat)
+            : character.feats;
+
+          // Handle multiclass - update classes JSON
+          let updatedClasses = {};
+          try {
+            updatedClasses = JSON.parse(character.classes || '{}');
+          } catch (e) {
+            updatedClasses = {};
+            if (character.class) {
+              updatedClasses[character.class] = character.level;
+            }
+          }
+
+          // Update the class that was leveled
+          const classLeveled = levelData.class_leveled || character.class;
+          updatedClasses[classLeveled] = (updatedClasses[classLeveled] || 0) + 1;
+
+          // Determine primary class (highest level class)
+          const primaryClass = Object.entries(updatedClasses)
+            .sort((a, b) => b[1] - a[1])[0][0];
+
           db.prepare(`
-            UPDATE characters SET level = ?, hp = ?, max_hp = ?, spells = ?, skills = ?, passives = ? WHERE id = ?
-          `).run(newLevel, newMaxHP, newMaxHP, newSpells || '', newSkills || '', newPassives || '', req.params.id);
+            UPDATE characters SET level = ?, hp = ?, max_hp = ?, spells = ?, skills = ?, passives = ?, feats = ?, classes = ?, class = ? WHERE id = ?
+          `).run(newLevel, newMaxHP, newMaxHP, newSpells || '', newSkills || '', newPassives || '', newFeats || '', JSON.stringify(updatedClasses), primaryClass, req.params.id);
 
           const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
           io.emit('character_updated', updatedChar);
@@ -1001,14 +1096,25 @@ app.post('/api/characters/:id/edit', checkPassword, async (req, res) => {
     }
   } catch (e) { }
 
+  // Parse classes for multiclass display
+  let classesDisplay = character.class;
+  let classesJson = '{}';
+  try {
+    const classes = JSON.parse(character.classes || '{}');
+    if (Object.keys(classes).length > 0) {
+      classesDisplay = Object.entries(classes).map(([cls, lvl]) => `${cls} ${lvl}`).join(' / ');
+      classesJson = JSON.stringify(classes);
+    }
+  } catch (e) { }
+
   const editPrompt = `You are a D&D 5e character editor assistant. Help modify this character based on the user's request.
 
 CURRENT CHARACTER:
 - Player: ${character.player_name}
 - Name: ${character.character_name}
 - Race: ${character.race}
-- Class: ${character.class}
-- Level: ${character.level}
+- Classes: ${classesDisplay} (Total Level: ${character.level})
+- Classes JSON: ${classesJson}
 - XP: ${character.xp || 0}
 - Stats: STR ${character.strength}, DEX ${character.dexterity}, CON ${character.constitution}, INT ${character.intelligence}, WIS ${character.wisdom}, CHA ${character.charisma}
 - HP: ${character.hp}/${character.max_hp}
@@ -1019,16 +1125,27 @@ CURRENT CHARACTER:
 - Spells: ${character.spells || 'None'}
 - Skills: ${character.skills || 'None'}
 - Passives: ${character.passives || 'None'}
+- Feats: ${character.feats || 'None'}
 
 USER'S EDIT REQUEST: ${editRequest}
 
 Discuss the changes with the user. When you have confirmed ALL changes, output the updated character in this EXACT JSON format:
-EDIT_COMPLETE:{"character_name":"...","race":"...","class":"...","strength":N,"dexterity":N,"constitution":N,"intelligence":N,"wisdom":N,"charisma":N,"hp":N,"max_hp":N,"ac":N,"spell_slots":{"1":{"current":N,"max":N},"2":{"current":N,"max":N}},"background":"...","equipment":"...","spells":"...","skills":"...","passives":"..."}
+EDIT_COMPLETE:{"character_name":"...","race":"...","class":"PrimaryClass","classes":{"Fighter":5,"Wizard":2},"level":N,"strength":N,"dexterity":N,"constitution":N,"intelligence":N,"wisdom":N,"charisma":N,"hp":N,"max_hp":N,"ac":N,"spell_slots":{"1":{"current":N,"max":N}},"background":"...","equipment":"...","spells":"...","skills":"...","passives":"...","feats":"..."}
+
+MULTICLASS FORMAT:
+- "class" is the primary class (highest level)
+- "classes" is a JSON object with each class and its level, e.g., {"Fighter":5,"Wizard":2} for a Fighter 5/Wizard 2
+- "level" is the total character level (sum of all class levels)
+
+FEATS:
+- Common feats: Alert, Lucky, Sentinel, Great Weapon Master, Sharpshooter, War Caster, Resilient, Mobile, Tough, Polearm Master, Crossbow Expert
+- Separate multiple feats with commas
 
 SPELL SLOTS FORMAT:
 - spell_slots is a JSON object where keys are spell levels (1-9)
 - Each level has "current" (available) and "max" (total) slots
 - Example for a 5th level Wizard: {"1":{"current":4,"max":4},"2":{"current":3,"max":3},"3":{"current":2,"max":2}}
+- For multiclass spellcasters, calculate slots based on combined spellcaster levels
 - Omit spell_slots entirely for non-casters
 
 AC CALCULATION:
@@ -1101,9 +1218,9 @@ Only include fields that should be changed. Keep the conversation helpful and en
           const updates = [];
           const values = [];
 
-          const fields = ['character_name', 'race', 'class', 'strength', 'dexterity', 'constitution',
+          const fields = ['character_name', 'race', 'class', 'level', 'strength', 'dexterity', 'constitution',
                          'intelligence', 'wisdom', 'charisma', 'hp', 'max_hp', 'ac', 'background',
-                         'equipment', 'spells', 'skills', 'passives'];
+                         'equipment', 'spells', 'skills', 'passives', 'feats'];
 
           fields.forEach(field => {
             if (editData[field] !== undefined) {
@@ -1116,6 +1233,12 @@ Only include fields that should be changed. Keep the conversation helpful and en
           if (editData.spell_slots !== undefined) {
             updates.push('spell_slots = ?');
             values.push(typeof editData.spell_slots === 'string' ? editData.spell_slots : JSON.stringify(editData.spell_slots));
+          }
+
+          // Handle classes separately (needs JSON stringify for multiclass)
+          if (editData.classes !== undefined) {
+            updates.push('classes = ?');
+            values.push(typeof editData.classes === 'string' ? editData.classes : JSON.stringify(editData.classes));
           }
 
           if (updates.length > 0) {
@@ -1173,11 +1296,13 @@ const CHARACTER_CREATION_PROMPT = `You are a friendly D&D 5e character creation 
 
 You must guide them through these steps IN ORDER:
 1. Ask for their PLAYER NAME (the real person's name)
-2. Ask what RACE they want (Human, Elf, Dwarf, Halfling, Dragonborn, Gnome, Half-Elf, Half-Orc, Tiefling)
+2. Ask what RACE they want (Human, Variant Human, Elf, Dwarf, Halfling, Dragonborn, Gnome, Half-Elf, Half-Orc, Tiefling)
+   - If VARIANT HUMAN: They get +1 to two different stats, one skill proficiency, and ONE FEAT at level 1!
 3. Ask what CLASS they want (Fighter, Wizard, Rogue, Cleric, Barbarian, Bard, Druid, Monk, Paladin, Ranger, Sorcerer, Warlock)
 4. Ask for their CHARACTER NAME
 5. Help them with a brief BACKSTORY (2-3 sentences)
-6. Confirm their starting SPELLS (if spellcaster), SKILLS (based on class), and EQUIPMENT
+6. If Variant Human, help them choose their STARTING FEAT (e.g., Alert, Lucky, Sentinel, Great Weapon Master, Sharpshooter, War Caster, etc.)
+7. Confirm their starting SPELLS (if spellcaster), SKILLS (based on class), and EQUIPMENT
 
 For STATS, roll 4d6 drop lowest for each stat and assign them appropriately for their class.
 
@@ -1187,6 +1312,9 @@ SKILLS by class (choose proficiencies):
 - Rogue: Acrobatics, Athletics, Deception, Insight, Intimidation, Investigation, Perception, Performance, Persuasion, Sleight of Hand, Stealth (pick 4)
 - Cleric: History, Insight, Medicine, Persuasion, Religion (pick 2)
 - Other classes: Choose 2-3 appropriate skills
+
+FEATS (for Variant Human at level 1, or acquired at ASI levels 4, 8, 12, 16, 19):
+Popular choices: Alert, Lucky, Sentinel, Great Weapon Master, Sharpshooter, War Caster, Resilient, Mobile, Tough, Observant, Polearm Master, Crossbow Expert, Shield Master, Mage Slayer
 
 PASSIVES to include:
 - Passive Perception (10 + Wisdom modifier + proficiency if proficient)
@@ -1199,7 +1327,9 @@ SPELLS for Level 1 spellcasters:
 - Other casters: Appropriate cantrips and spells for level 1
 
 When you have ALL information needed, output the final character in this EXACT JSON format on a single line:
-CHARACTER_COMPLETE:{"player_name":"...","character_name":"...","race":"...","class":"...","strength":N,"dexterity":N,"constitution":N,"intelligence":N,"wisdom":N,"charisma":N,"background":"...","equipment":"...","spells":"Cantrips: X, Y. Spells: A, B, C","skills":"Skill1, Skill2 (proficient), Skill3","passives":"Passive Perception: N, Darkvision 60ft, Feature Name"}
+CHARACTER_COMPLETE:{"player_name":"...","character_name":"...","race":"...","class":"...","classes":{"ClassName":1},"strength":N,"dexterity":N,"constitution":N,"intelligence":N,"wisdom":N,"charisma":N,"background":"...","equipment":"...","spells":"Cantrips: X, Y. Spells: A, B, C","skills":"Skill1, Skill2 (proficient), Skill3","passives":"Passive Perception: N, Darkvision 60ft, Feature Name","feats":"Feat Name (if any, otherwise empty string)"}
+
+Note: The "classes" field is a JSON object tracking levels in each class. For a level 1 Fighter it would be {"Fighter":1}. This supports multiclassing at higher levels.
 
 Be encouraging, creative, and help new players understand their choices. Keep responses concise but helpful.`;
 
@@ -1255,13 +1385,24 @@ app.post('/api/characters/ai-create', checkPassword, async (req, res) => {
           const id = uuidv4();
           const hp = 10 + Math.floor((charData.constitution - 10) / 2);
 
+          // Handle classes - if not provided, create from class field
+          let classesJson = '{}';
+          if (charData.classes && typeof charData.classes === 'object') {
+            classesJson = JSON.stringify(charData.classes);
+          } else if (charData.class) {
+            const classObj = {};
+            classObj[charData.class] = 1;
+            classesJson = JSON.stringify(classObj);
+          }
+
           db.prepare(`
-            INSERT INTO characters (id, player_name, character_name, race, class, level, xp, strength, dexterity, constitution, intelligence, wisdom, charisma, hp, max_hp, background, equipment, spells, skills, passives)
-            VALUES (?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO characters (id, player_name, character_name, race, class, level, xp, strength, dexterity, constitution, intelligence, wisdom, charisma, hp, max_hp, background, equipment, spells, skills, passives, feats, classes)
+            VALUES (?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `).run(id, charData.player_name, charData.character_name, charData.race, charData.class,
                  charData.strength, charData.dexterity, charData.constitution, charData.intelligence,
                  charData.wisdom, charData.charisma, hp, hp, charData.background, charData.equipment,
-                 charData.spells || '', charData.skills || '', charData.passives || '');
+                 charData.spells || '', charData.skills || '', charData.passives || '',
+                 charData.feats || '', classesJson);
 
           const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(id);
           io.emit('character_created', character);
@@ -1721,12 +1862,22 @@ async function processAITurn(sessionId, pendingActions, characters) {
 
   // Build character info
   const characterInfo = characters.map(c => {
-    let info = `${c.character_name} (Level ${c.level} ${c.race} ${c.class}, played by ${c.player_name}):\n`;
+    // Parse multiclass info
+    let classDisplay = `${c.class} ${c.level}`;
+    try {
+      const classes = JSON.parse(c.classes || '{}');
+      if (Object.keys(classes).length > 0) {
+        classDisplay = Object.entries(classes).map(([cls, lvl]) => `${cls} ${lvl}`).join(' / ');
+      }
+    } catch (e) {}
+
+    let info = `${c.character_name} (${c.race} ${classDisplay}, played by ${c.player_name}):\n`;
     info += `  Stats: STR:${c.strength} DEX:${c.dexterity} CON:${c.constitution} INT:${c.intelligence} WIS:${c.wisdom} CHA:${c.charisma}\n`;
-    info += `  HP: ${c.hp}/${c.max_hp}`;
+    info += `  HP: ${c.hp}/${c.max_hp}, AC: ${c.ac || 10}`;
     if (c.skills) info += `\n  Skills: ${c.skills}`;
     if (c.spells) info += `\n  Spells: ${c.spells}`;
     if (c.passives) info += `\n  Passives: ${c.passives}`;
+    if (c.feats) info += `\n  Feats: ${c.feats}`;
     return info;
   }).join('\n\n');
 

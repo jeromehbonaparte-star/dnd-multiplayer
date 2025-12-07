@@ -759,12 +759,26 @@ function renderCharactersList() {
     }
     const spellSlotsDisplay = formatSpellSlots(spellSlots);
 
+    // Parse multiclass
+    let classDisplay = `${c.class} (Level ${c.level})`;
+    try {
+      const classes = JSON.parse(c.classes || '{}');
+      if (Object.keys(classes).length > 0) {
+        classDisplay = Object.entries(classes)
+          .map(([cls, lvl]) => `${cls} ${lvl}`)
+          .join(' / ');
+      }
+    } catch (e) {}
+
+    // Parse feats
+    const feats = c.feats || '';
+
     return `
     <div class="character-card" data-id="${c.id}">
       <button class="delete-btn" onclick="deleteCharacter('${c.id}')">X</button>
       <h3>${c.character_name}</h3>
       <div class="player">Played by ${c.player_name}</div>
-      <div class="race-class">${c.race} ${c.class} (Level ${c.level})</div>
+      <div class="race-class">${c.race} ${classDisplay}</div>
       <div class="stats">
         <div class="stat">${c.strength}<span>STR</span></div>
         <div class="stat">${c.dexterity}<span>DEX</span></div>
@@ -784,6 +798,7 @@ function renderCharactersList() {
       ${c.skills ? `<div class="details"><strong>Skills:</strong> ${c.skills}</div>` : ''}
       ${c.spells ? `<div class="details"><strong>Spells:</strong> ${c.spells}</div>` : ''}
       ${c.passives ? `<div class="details"><strong>Passives:</strong> ${c.passives}</div>` : ''}
+      ${feats ? `<div class="details feats"><strong>Feats:</strong> ${feats}</div>` : ''}
       <div class="inventory-section">
         <div class="inventory-header" onclick="toggleInventory('${c.id}')">
           <strong>Inventory (${itemCount} items)</strong>
