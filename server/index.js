@@ -109,10 +109,25 @@ function canLevelUp(xp, level) {
 
 // Initialize default settings if not exist
 const initSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
-const defaultPassword = process.env.GAME_PASSWORD || 'changeme';
-const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
-initSetting.run('game_password', bcrypt.hashSync(defaultPassword, 10));
-initSetting.run('admin_password', bcrypt.hashSync(adminPassword, 10));
+const upsertSetting = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');
+
+// Passwords from environment variables - ALWAYS update if env var is set
+const defaultPassword = process.env.GAME_PASSWORD;
+const adminPassword = process.env.ADMIN_PASSWORD;
+
+// Always update passwords if environment variables are provided
+if (defaultPassword) {
+  upsertSetting.run('game_password', bcrypt.hashSync(defaultPassword, 10));
+} else {
+  initSetting.run('game_password', bcrypt.hashSync('changeme', 10));
+}
+
+if (adminPassword) {
+  upsertSetting.run('admin_password', bcrypt.hashSync(adminPassword, 10));
+} else {
+  initSetting.run('admin_password', bcrypt.hashSync('admin123', 10));
+}
+
 initSetting.run('api_endpoint', 'https://api.openai.com/v1/chat/completions');
 initSetting.run('api_key', '');
 initSetting.run('api_model', 'gpt-4');
