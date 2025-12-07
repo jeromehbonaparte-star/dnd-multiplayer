@@ -185,6 +185,10 @@ created_at DATETIME
 - Long Rest button restores all spell slots
 - Add/remove spell slot levels for class flexibility
 - Displayed in character cards and party sidebar
+- "Recalculate AC/Spells" button scans existing history for:
+  - [SPELL:] tags
+  - Natural language spell casting (e.g., "Gandalf casts Fireball using a 3rd level slot")
+  - AC mentions near character names (e.g., "Your AC is now 16")
 
 ### 6. AI-Assisted Level Up & Editing
 
@@ -253,6 +257,7 @@ created_at DATETIME
 - `POST /api/sessions/:id/process` - Force process turn
 - `POST /api/sessions/:id/recalculate-xp` - Scan history for XP
 - `POST /api/sessions/:id/recalculate-loot` - Scan history for gold and items
+- `POST /api/sessions/:id/recalculate-ac-spells` - Scan history for AC and spell slot usage
 
 ---
 

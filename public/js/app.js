@@ -927,6 +927,39 @@ async function recalculateLoot() {
   }
 }
 
+async function recalculateACSpells() {
+  if (!currentSession) {
+    alert('Please select a session first');
+    return;
+  }
+
+  if (!confirm('Recalculate AC and spell slots from session history? This will scan for:\n- [SPELL: ...] tags\n- Natural language spell casting mentions\n- AC mentions in DM responses')) return;
+
+  try {
+    const result = await api(`/api/sessions/${currentSession.id}/recalculate-ac-spells`, 'POST');
+    if (result.success) {
+      const acCount = Object.keys(result.acUpdated || {}).length;
+      const spellCount = Object.keys(result.spellSlotsUpdated || {}).length;
+
+      let summary = 'Recalculation complete!\n';
+      if (acCount > 0) {
+        summary += `AC updated for: ${Object.entries(result.acUpdated).map(([name, ac]) => `${name} (AC ${ac})`).join(', ')}\n`;
+      }
+      if (spellCount > 0) {
+        summary += `Spell slots detected for: ${Object.keys(result.spellSlotsUpdated).join(', ')}`;
+      }
+      if (acCount === 0 && spellCount === 0) {
+        summary = 'No AC or spell slot information found in session history.\nTip: You can manually set these values using the Spells button on each character.';
+      }
+      alert(summary);
+      loadCharacters();
+    }
+  } catch (error) {
+    console.error('Failed to recalculate AC/spells:', error);
+    alert('Failed to recalculate AC/spells: ' + error.message);
+  }
+}
+
 function showNotification(message) {
   const notif = document.getElementById('levelup-notification');
   notif.querySelector('.notification-text').textContent = message;

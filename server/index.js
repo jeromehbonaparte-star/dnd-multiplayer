@@ -1269,6 +1269,169 @@ app.post('/api/sessions/:id/recalculate-loot', checkPassword, (req, res) => {
   res.json({ success: true, goldAwarded, inventoryChanges });
 });
 
+// Recalculate AC and spell slots from session history
+app.post('/api/sessions/:id/recalculate-ac-spells', checkPassword, (req, res) => {
+  const sessionId = req.params.id;
+  const session = db.prepare('SELECT * FROM game_sessions WHERE id = ?').get(sessionId);
+
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  const characters = db.prepare('SELECT * FROM characters').all();
+  const history = JSON.parse(session.full_history || '[]');
+  const acValues = {};
+  const spellSlotUsage = {};
+
+  // Initialize tracking for each character
+  for (const char of characters) {
+    acValues[char.id] = null; // null means not found
+    spellSlotUsage[char.id] = {};
+  }
+
+  // Scan all messages for AC and spell slot information
+  for (const entry of history) {
+    const content = entry.content || '';
+
+    // Parse [SPELL:] tags (our format)
+    const spellMatches = content.match(/\[SPELL:([^\]]+)\]/gi);
+    if (spellMatches) {
+      for (const match of spellMatches) {
+        const spellContent = match.replace(/\[SPELL:/i, '').replace(']', '');
+        const parts = spellContent.split(',');
+
+        for (const part of parts) {
+          const trimmed = part.trim();
+
+          // Check for REST command
+          const restMatch = trimmed.match(/(.+?)\s*\+REST/i);
+          if (restMatch) {
+            const charName = restMatch[1].trim();
+            const char = characters.find(c => c.character_name.toLowerCase() === charName.toLowerCase());
+            if (char) {
+              // Reset all spell slots to max
+              for (const level in spellSlotUsage[char.id]) {
+                spellSlotUsage[char.id][level].used = 0;
+              }
+            }
+            continue;
+          }
+
+          // Check for slot usage: CharacterName -1st, +2nd, etc.
+          const slotMatch = trimmed.match(/(.+?)\s*([+-])(\d+)(?:st|nd|rd|th)/i);
+          if (slotMatch) {
+            const charName = slotMatch[1].trim();
+            const isUsing = slotMatch[2] === '-';
+            const level = slotMatch[3];
+            const char = characters.find(c => c.character_name.toLowerCase() === charName.toLowerCase());
+            if (char) {
+              if (!spellSlotUsage[char.id][level]) {
+                spellSlotUsage[char.id][level] = { used: 0, detected: true };
+              }
+              if (isUsing) {
+                spellSlotUsage[char.id][level].used++;
+              } else {
+                spellSlotUsage[char.id][level].used = Math.max(0, spellSlotUsage[char.id][level].used - 1);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Parse natural language spell casting (for older chats without [SPELL:] tags)
+    // Patterns like "Gandalf casts Fireball using a 3rd level spell slot"
+    const naturalSpellPattern = /(\w+(?:\s+\w+)?)\s+(?:casts?|uses?|expends?)\s+.+?(?:using\s+)?(?:a\s+)?(\d+)(?:st|nd|rd|th)[\s-]*level\s+(?:spell\s+)?slot/gi;
+    let naturalMatch;
+    while ((naturalMatch = naturalSpellPattern.exec(content)) !== null) {
+      const charName = naturalMatch[1].trim();
+      const level = naturalMatch[2];
+      const char = characters.find(c => c.character_name.toLowerCase() === charName.toLowerCase());
+      if (char) {
+        if (!spellSlotUsage[char.id][level]) {
+          spellSlotUsage[char.id][level] = { used: 0, detected: true };
+        }
+        spellSlotUsage[char.id][level].used++;
+      }
+    }
+
+    // Parse AC mentions from AI responses
+    // Patterns: "AC is now 16", "AC: 18", "Armor Class of 15", "AC 14"
+    if (entry.role === 'assistant') {
+      for (const char of characters) {
+        const charNamePattern = char.character_name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+        // Look for AC mentions near character name
+        const acPatterns = [
+          new RegExp(`${charNamePattern}[^.]*?(?:AC|Armor\\s*Class)\\s*(?:is\\s*(?:now\\s*)?|:\\s*|of\\s*|=\\s*)(\\d+)`, 'i'),
+          new RegExp(`(?:AC|Armor\\s*Class)\\s*(?:is\\s*(?:now\\s*)?|:\\s*|of\\s*|=\\s*)(\\d+)[^.]*?${charNamePattern}`, 'i'),
+          new RegExp(`${charNamePattern}'s\\s*(?:AC|Armor\\s*Class)\\s*(?:is\\s*)?(?:now\\s*)?(\\d+)`, 'i')
+        ];
+
+        for (const pattern of acPatterns) {
+          const acMatch = content.match(pattern);
+          if (acMatch) {
+            const acValue = parseInt(acMatch[1]);
+            if (acValue >= 5 && acValue <= 30) { // Sanity check for AC values
+              acValues[char.id] = acValue;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Update characters with found values
+  const results = { acUpdated: {}, spellSlotsUpdated: {} };
+
+  for (const char of characters) {
+    let updated = false;
+
+    // Update AC if found
+    if (acValues[char.id] !== null) {
+      db.prepare('UPDATE characters SET ac = ? WHERE id = ?').run(acValues[char.id], char.id);
+      results.acUpdated[char.character_name] = acValues[char.id];
+      updated = true;
+    }
+
+    // Update spell slots if any were detected
+    const detectedSlots = spellSlotUsage[char.id];
+    if (Object.keys(detectedSlots).length > 0) {
+      // Get current spell slots or initialize
+      let currentSlots = {};
+      try {
+        currentSlots = JSON.parse(char.spell_slots || '{}');
+      } catch (e) {
+        currentSlots = {};
+      }
+
+      // Update with detected usage
+      for (const level in detectedSlots) {
+        if (!currentSlots[level]) {
+          // If we detected usage but no slot config exists, estimate max based on typical caster
+          const estimatedMax = Math.max(2, detectedSlots[level].used + 1);
+          currentSlots[level] = { current: estimatedMax - detectedSlots[level].used, max: estimatedMax };
+        } else {
+          // Update current based on usage (max - used)
+          currentSlots[level].current = Math.max(0, currentSlots[level].max - detectedSlots[level].used);
+        }
+      }
+
+      db.prepare('UPDATE characters SET spell_slots = ? WHERE id = ?').run(JSON.stringify(currentSlots), char.id);
+      results.spellSlotsUpdated[char.character_name] = currentSlots;
+      updated = true;
+    }
+  }
+
+  // Notify clients
+  const updatedCharacters = db.prepare('SELECT * FROM characters').all();
+  for (const char of updatedCharacters) {
+    io.emit('character_updated', char);
+  }
+
+  res.json({ success: true, ...results });
+});
+
 // AI Processing function
 async function processAITurn(sessionId, pendingActions, characters) {
   // Notify all clients that processing has started
