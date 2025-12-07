@@ -713,6 +713,24 @@ app.get('/api/sessions/:id', checkPassword, (req, res) => {
   res.json({ session, pendingActions, characters });
 });
 
+// Delete session
+app.delete('/api/sessions/:id', checkPassword, (req, res) => {
+  const sessionId = req.params.id;
+
+  // Delete associated pending actions first
+  db.prepare('DELETE FROM pending_actions WHERE session_id = ?').run(sessionId);
+
+  // Delete the session
+  const result = db.prepare('DELETE FROM game_sessions WHERE id = ?').run(sessionId);
+
+  if (result.changes > 0) {
+    io.emit('session_deleted', sessionId);
+    res.json({ success: true });
+  } else {
+    res.status(404).json({ error: 'Session not found' });
+  }
+});
+
 // Submit action
 app.post('/api/sessions/:id/action', checkPassword, async (req, res) => {
   const { character_id, action } = req.body;
@@ -763,6 +781,9 @@ app.post('/api/sessions/:id/process', checkPassword, async (req, res) => {
 
 // AI Processing function
 async function processAITurn(sessionId, pendingActions, characters) {
+  // Notify all clients that processing has started
+  io.emit('turn_processing', { sessionId });
+
   const session = db.prepare('SELECT * FROM game_sessions WHERE id = ?').get(sessionId);
   const settings = {};
   db.prepare('SELECT key, value FROM settings').all().forEach(row => settings[row.key] = row.value);

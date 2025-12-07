@@ -102,14 +102,34 @@ function initSocket() {
     loadSessions();
   });
 
+  socket.on('session_deleted', (sessionId) => {
+    if (currentSession && currentSession.id === sessionId) {
+      currentSession = null;
+      document.getElementById('story-summary').textContent = '';
+      document.getElementById('story-history').innerHTML = '';
+      document.getElementById('turn-counter').textContent = 'Turn: 0';
+      document.getElementById('token-counter').textContent = 'Tokens: 0';
+      document.getElementById('waiting-counter').textContent = 'Waiting for: 0 players';
+      document.getElementById('pending-actions').innerHTML = '';
+    }
+    loadSessions();
+  });
+
   socket.on('action_submitted', ({ sessionId, pendingActions, character_id }) => {
     if (currentSession && currentSession.id === sessionId) {
       updatePendingActions(pendingActions);
     }
   });
 
+  socket.on('turn_processing', ({ sessionId }) => {
+    if (currentSession && currentSession.id === sessionId) {
+      showNarratorTyping();
+    }
+  });
+
   socket.on('turn_processed', ({ sessionId, response, turn, tokensUsed, compacted }) => {
     if (currentSession && currentSession.id === sessionId) {
+      hideNarratorTyping();
       loadSession(sessionId);
       if (compacted) {
         showNotification('History was auto-compacted to save tokens!');
@@ -476,13 +496,26 @@ async function loadSessions() {
     const sessions = await api('/api/sessions');
     const list = document.getElementById('session-list');
     list.innerHTML = sessions.map(s => `
-      <div class="session-item ${currentSession && currentSession.id === s.id ? 'active' : ''}"
-           onclick="loadSession('${s.id}')">
-        ${s.name}
+      <div class="session-item ${currentSession && currentSession.id === s.id ? 'active' : ''}">
+        <span class="session-name" onclick="loadSession('${s.id}')">${s.name}</span>
+        <button class="session-delete-btn" onclick="event.stopPropagation(); deleteSession('${s.id}', '${s.name.replace(/'/g, "\\'")}')" title="Delete session">X</button>
       </div>
     `).join('');
   } catch (error) {
     console.error('Failed to load sessions:', error);
+  }
+}
+
+async function deleteSession(id, name) {
+  if (!confirm(`Are you sure you want to delete the session "${name}"?\n\nThis will permanently delete all story history and progress!`)) {
+    return;
+  }
+
+  try {
+    await api(`/api/sessions/${id}`, 'DELETE');
+  } catch (error) {
+    console.error('Failed to delete session:', error);
+    alert('Failed to delete session: ' + error.message);
   }
 }
 
@@ -621,6 +654,24 @@ function showNotification(message) {
 
 function hideLevelUpNotification() {
   document.getElementById('levelup-notification').classList.add('hidden');
+}
+
+// Narrator typing indicator
+function showNarratorTyping() {
+  const indicator = document.getElementById('narrator-typing');
+  if (indicator) {
+    indicator.classList.remove('hidden');
+    // Scroll to show the indicator
+    const container = document.getElementById('story-container');
+    container.scrollTop = container.scrollHeight;
+  }
+}
+
+function hideNarratorTyping() {
+  const indicator = document.getElementById('narrator-typing');
+  if (indicator) {
+    indicator.classList.add('hidden');
+  }
 }
 
 // Mobile menu toggle
