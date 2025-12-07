@@ -279,9 +279,6 @@ app.post('/api/characters/ai-create', checkPassword, async (req, res) => {
   const settings = {};
   db.prepare('SELECT key, value FROM settings').all().forEach(row => settings[row.key] = row.value);
 
-  console.log('Character creation using endpoint:', settings.api_endpoint);
-  console.log('Character creation using model:', settings.api_model);
-
   if (!settings.api_key) {
     return res.status(400).json({ error: 'API key not configured. Please set up your API in Settings.' });
   }
