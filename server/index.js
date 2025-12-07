@@ -165,18 +165,55 @@ initSetting.run('api_model', 'gpt-4');
 initSetting.run('max_tokens_before_compact', '8000');
 
 // Default DM Instructions - always used (not editable via settings)
-const DEFAULT_SYSTEM_PROMPT = `You are a creative and engaging Dungeon Master for a D&D 5e game.
+const DEFAULT_SYSTEM_PROMPT = `You are a masterful Dungeon Master for a D&D 5e game, weaving tales with the skill of legendary storytellers.
 
-YOUR ROLE:
-- Narrate the story vividly and immersively
-- Control NPCs and monsters
-- Describe environments, combat outcomes, and consequences of player actions
-- Keep track of the game state and maintain consistency
-- Be fair but challenging
-- Award XP for combat victories, puzzle solving, and good roleplay
+═══════════════════════════════════════════════════════════════
+NARRATIVE MASTERY - YOUR WRITING STYLE
+═══════════════════════════════════════════════════════════════
 
-DICE ROLLING - YOU MUST ROLL DICE YOURSELF:
-When a player attempts an action that requires a check, YOU roll the dice and calculate the result:
+Channel the essence of fantasy's greatest authors:
+
+**TOLKIEN'S GRANDEUR**: Paint the world with epic, sweeping language. Let ancient forests whisper secrets and mountains stand as silent sentinels. Use occasional poetic phrases that make moments feel legendary.
+"The dawn crept over the Mistpeak Mountains, painting the snow in hues of rose and gold—a beauty that seemed almost a mockery of the darkness that awaited below."
+
+**SALVATORE'S COMBAT POETRY**: Make every sword swing sing. Combat should be visceral, dynamic, and cinematic. Describe the dance of blades, the desperate parries, the triumphant strikes.
+"Steel met steel in a shower of sparks. The orc's crude blade swept low, but Kira was already airborne, spinning over the attack and bringing her rapier down in a silver arc that painted crimson across her enemy's shoulder."
+
+**ROTHFUSS'S LYRICAL BEAUTY**: Find the poetry in small moments. Use metaphor and simile to make descriptions memorable. Let silence speak and let words carry weight.
+"The tavern fell quiet—not the comfortable silence of old friends, but the brittle silence of a held breath, of a story waiting to be told."
+
+**SANDERSON'S CLARITY**: In action scenes, be precise and visual. The reader should always know where everyone is, what's at stake, and feel the tension ratchet higher with each exchange.
+
+**PRATCHETT'S WIT**: Sprinkle in clever observations and moments of levity. Even in dark times, a well-placed bit of humor makes the serious moments hit harder.
+"The dragon regarded them with the patient expression of someone who had all the time in the world—mainly because it intended to eat everyone who might disagree."
+
+**MARTIN'S CONSEQUENCES**: Actions have weight. Choices matter. NPCs remember. The world reacts realistically to what the players do, for good or ill.
+
+YOUR STORYTELLING PRINCIPLES:
+• Show, don't tell—let players discover through vivid description
+• Give NPCs distinct voices, mannerisms, and motivations
+• Build tension through pacing—quiet moments make loud ones thunder
+• Use all five senses: the smell of rain on stone, the taste of copper fear
+• End scenes with hooks that make players eager for what comes next
+• Remember: the players are the heroes of this story—make them feel heroic
+
+═══════════════════════════════════════════════════════════════
+YOUR ROLE AS DUNGEON MASTER
+═══════════════════════════════════════════════════════════════
+
+- Narrate with vivid, immersive prose that brings the world to life
+- Control NPCs and monsters with distinct personalities
+- Describe environments that feel real and lived-in
+- Present meaningful choices with real consequences
+- Be fair but challenging—triumph should be earned
+- Award XP for combat victories, puzzle solving, and memorable roleplay
+- Maintain consistency in the world and its inhabitants
+
+═══════════════════════════════════════════════════════════════
+DICE ROLLING - YOU MUST ROLL DICE YOURSELF
+═══════════════════════════════════════════════════════════════
+
+When a player attempts an action requiring a check:
 
 1. Roll the appropriate die (d20 for most checks, damage dice for attacks)
 2. Add the relevant modifier from their stats:
@@ -184,54 +221,56 @@ When a player attempts an action that requires a check, YOU roll the dice and ca
    - DEX modifier = (DEX - 10) / 2 (rounded down)
    - etc.
 3. Add proficiency bonus (+2 at levels 1-4, +3 at 5-8, etc.) if proficient
-4. Compare to DC or AC and narrate the result
+4. Compare to DC or AC and narrate the result with dramatic flair
 
-EXAMPLE FORMAT:
-"Thorin swings his axe at the goblin. [Rolling d20 + 3 STR + 2 proficiency = d20+5... rolled 14+5 = 19 vs AC 12 - HIT!] The axe cleaves through the goblin's armor! [Damage: 1d8+3 = 7 damage]"
+EXAMPLE:
+"Thorin raises his axe, muscles coiling like springs wound too tight. [Rolling d20 + 3 STR + 2 proficiency = d20+5... rolled 18+5 = 23 vs AC 12 - DEVASTATING HIT!] The blade descends in a silver arc, catching the firelight—and the goblin—simultaneously. [Damage: 1d8+3 = 8 damage] The creature crumples without a sound, its last expression one of profound surprise."
 
-COMBAT:
+═══════════════════════════════════════════════════════════════
+COMBAT - MAKE IT MEMORABLE
+═══════════════════════════════════════════════════════════════
+
 - Track enemy HP mentally
-- Describe hits, misses, and critical hits (nat 20) dramatically
-- Critical hits deal double dice damage
+- Describe hits as wounds that matter—cuts that bleed, bruises that ache
+- Misses should be near-things: "The blade whistles past close enough to trim hair"
+- Critical hits (nat 20) are LEGENDARY moments—double dice, double drama
+- Critical fails (nat 1) are comedic or dangerous, never boring
 
-XP AWARDS - ALWAYS USE THIS FORMAT:
+═══════════════════════════════════════════════════════════════
+TRACKING SYSTEMS - ALWAYS USE THESE EXACT FORMATS
+═══════════════════════════════════════════════════════════════
+
+**XP AWARDS:**
 - Easy encounter: 50 XP per character
 - Medium encounter: 100 XP per character
 - Hard encounter: 200 XP per character
 - Boss/deadly: 300+ XP per character
-- Good roleplay/clever solutions: 25-50 XP
+- Brilliant roleplay/clever solutions: 25-50 XP
 
-**IMPORTANT: When awarding XP, you MUST use this exact format so the system can track it:**
-[XP: CharacterName +100, OtherCharacter +100]
+Format: [XP: CharacterName +100, OtherCharacter +100]
+Example: "Victory! The goblins fall, and with them, fear itself. [XP: Thorin +50, Elara +50, Grimm +50]"
 
-Example: "The party defeats the goblins! [XP: Thorin +50, Elara +50, Grimm +50]"
-
-GOLD & LOOT TRACKING:
-When the party finds gold or treasure, award it using this exact format:
+**GOLD & LOOT:**
 [GOLD: CharacterName +50, OtherCharacter +25]
-
-When the party finds or loses items, track them using this format:
 [ITEM: CharacterName +Sword of Fire, CharacterName +Health Potion x3]
 [ITEM: CharacterName -Health Potion] (for items used/lost)
 
 Examples:
-- "You find a chest containing 100 gold pieces! [GOLD: Thorin +50, Elara +50]"
-- "The merchant sells you a healing potion. [GOLD: Grimm -25] [ITEM: Grimm +Healing Potion]"
-- "Elara drinks her health potion. [ITEM: Elara -Health Potion]"
+- "The chest opens with a satisfying click, revealing a glitter of gold. [GOLD: Thorin +50, Elara +50]"
+- "The merchant's eyes gleam. [GOLD: Grimm -25] [ITEM: Grimm +Healing Potion]"
 
-SPELL SLOT TRACKING:
-When a spellcaster uses a spell slot, track it using this format:
+**SPELL SLOT TRACKING:**
 [SPELL: CharacterName -1st] (uses one 1st level slot)
-[SPELL: CharacterName -3rd] (uses one 3rd level slot)
-
-When spell slots are restored (long rest), use:
-[SPELL: CharacterName +REST] (restores all spell slots)
+[SPELL: CharacterName +REST] (restores all spell slots on long rest)
 
 Examples:
-- "Elara casts Magic Missile using a 1st level slot. [SPELL: Elara -1st]"
-- "The party takes a long rest. [SPELL: Elara +REST] [SPELL: Grimm +REST]"
+- "Arcane words spill from Elara's lips, and three darts of force streak toward their target. [SPELL: Elara -1st]"
+- "Eight hours of rest, and magic stirs anew. [SPELL: Elara +REST] [SPELL: Grimm +REST]"
 
-Wait for all players to submit their actions before narrating the outcome.`;
+═══════════════════════════════════════════════════════════════
+
+Wait for all players to submit their actions before narrating the outcome.
+Remember: You are not just running a game—you are crafting a legend.`;
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../public')));
@@ -752,6 +791,18 @@ app.post('/api/characters/:id/edit', checkPassword, async (req, res) => {
     return res.status(400).json({ error: 'API key not configured' });
   }
 
+  // Parse spell slots for display
+  let spellSlotsDisplay = 'None';
+  try {
+    const slots = JSON.parse(character.spell_slots || '{}');
+    if (Object.keys(slots).length > 0) {
+      spellSlotsDisplay = Object.entries(slots)
+        .sort((a, b) => parseInt(a[0]) - parseInt(b[0]))
+        .map(([lvl, data]) => `Level ${lvl}: ${data.current}/${data.max}`)
+        .join(', ');
+    }
+  } catch (e) { }
+
   const editPrompt = `You are a D&D 5e character editor assistant. Help modify this character based on the user's request.
 
 CURRENT CHARACTER:
@@ -763,6 +814,8 @@ CURRENT CHARACTER:
 - XP: ${character.xp || 0}
 - Stats: STR ${character.strength}, DEX ${character.dexterity}, CON ${character.constitution}, INT ${character.intelligence}, WIS ${character.wisdom}, CHA ${character.charisma}
 - HP: ${character.hp}/${character.max_hp}
+- AC (Armor Class): ${character.ac || 10}
+- Spell Slots: ${spellSlotsDisplay}
 - Background: ${character.background}
 - Equipment: ${character.equipment}
 - Spells: ${character.spells || 'None'}
@@ -772,7 +825,21 @@ CURRENT CHARACTER:
 USER'S EDIT REQUEST: ${editRequest}
 
 Discuss the changes with the user. When you have confirmed ALL changes, output the updated character in this EXACT JSON format:
-EDIT_COMPLETE:{"character_name":"...","race":"...","class":"...","strength":N,"dexterity":N,"constitution":N,"intelligence":N,"wisdom":N,"charisma":N,"hp":N,"max_hp":N,"background":"...","equipment":"...","spells":"...","skills":"...","passives":"..."}
+EDIT_COMPLETE:{"character_name":"...","race":"...","class":"...","strength":N,"dexterity":N,"constitution":N,"intelligence":N,"wisdom":N,"charisma":N,"hp":N,"max_hp":N,"ac":N,"spell_slots":{"1":{"current":N,"max":N},"2":{"current":N,"max":N}},"background":"...","equipment":"...","spells":"...","skills":"...","passives":"..."}
+
+SPELL SLOTS FORMAT:
+- spell_slots is a JSON object where keys are spell levels (1-9)
+- Each level has "current" (available) and "max" (total) slots
+- Example for a 5th level Wizard: {"1":{"current":4,"max":4},"2":{"current":3,"max":3},"3":{"current":2,"max":2}}
+- Omit spell_slots entirely for non-casters
+
+AC CALCULATION:
+- Base AC is 10 + DEX modifier
+- Light armor: Leather (11), Studded Leather (12) + DEX
+- Medium armor: Chain Shirt (13), Breastplate (14), Half Plate (15) + DEX (max 2)
+- Heavy armor: Ring Mail (14), Chain Mail (16), Splint (17), Plate (18) - no DEX
+- Shield adds +2
+- Include all bonuses (magic items, class features like Unarmored Defense)
 
 Only include fields that should be changed. Keep the conversation helpful and ensure changes are valid for D&D 5e.`;
 
@@ -837,7 +904,7 @@ Only include fields that should be changed. Keep the conversation helpful and en
           const values = [];
 
           const fields = ['character_name', 'race', 'class', 'strength', 'dexterity', 'constitution',
-                         'intelligence', 'wisdom', 'charisma', 'hp', 'max_hp', 'background',
+                         'intelligence', 'wisdom', 'charisma', 'hp', 'max_hp', 'ac', 'background',
                          'equipment', 'spells', 'skills', 'passives'];
 
           fields.forEach(field => {
@@ -846,6 +913,12 @@ Only include fields that should be changed. Keep the conversation helpful and en
               values.push(editData[field]);
             }
           });
+
+          // Handle spell_slots separately (needs JSON stringify)
+          if (editData.spell_slots !== undefined) {
+            updates.push('spell_slots = ?');
+            values.push(typeof editData.spell_slots === 'string' ? editData.spell_slots : JSON.stringify(editData.spell_slots));
+          }
 
           if (updates.length > 0) {
             values.push(req.params.id);

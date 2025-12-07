@@ -279,9 +279,26 @@ created_at DATETIME
 ## Default DM Instructions (System Prompt)
 
 The system prompt is hardcoded in `server/index.js` as `DEFAULT_SYSTEM_PROMPT`. It includes:
+
+**Narrative Mastery (Author-Inspired Storytelling):**
+- Tolkien's Grandeur: Epic, sweeping language and poetic descriptions
+- Salvatore's Combat Poetry: Visceral, cinematic action scenes
+- Rothfuss's Lyrical Beauty: Metaphor and memorable prose
+- Sanderson's Clarity: Precise, visual action with clear stakes
+- Pratchett's Wit: Clever observations and well-timed humor
+- Martin's Consequences: Choices matter, NPCs remember
+
+**Storytelling Principles:**
+- Show, don't tell
+- Give NPCs distinct voices
+- Use all five senses
+- Build tension through pacing
+- End scenes with hooks
+
+**Technical Instructions:**
 - Role instructions for AI DM
 - Dice rolling format and calculation rules
-- Combat mechanics
+- Combat mechanics with dramatic descriptions
 - XP award format: `[XP: CharacterName +100]`
 - Gold award format: `[GOLD: CharacterName +50]`
 - Item tracking format: `[ITEM: CharacterName +Sword of Fire]`
