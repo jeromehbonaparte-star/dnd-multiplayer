@@ -583,32 +583,55 @@ LEVELUP_COMPLETE:{"hp_increase":N,"new_spells":"spells gained or None","new_skil
 
     // Check if level up is complete
     if (aiMessage.includes('LEVELUP_COMPLETE:')) {
-      const jsonMatch = aiMessage.match(/LEVELUP_COMPLETE:(\{.*\})/);
-      if (jsonMatch) {
-        const levelData = JSON.parse(jsonMatch[1]);
+      // Extract JSON - handle multiline and various formats
+      let jsonStr = null;
+      const startIdx = aiMessage.indexOf('LEVELUP_COMPLETE:') + 'LEVELUP_COMPLETE:'.length;
+      const jsonStart = aiMessage.indexOf('{', startIdx);
 
-        // Update character
-        const newMaxHP = character.max_hp + (levelData.hp_increase || 0);
-        const newSpells = levelData.new_spells && levelData.new_spells !== 'None'
-          ? (character.spells ? `${character.spells}, ${levelData.new_spells}` : levelData.new_spells)
-          : character.spells;
-        const newSkills = levelData.new_skills && levelData.new_skills !== 'None'
-          ? (character.skills ? `${character.skills}, ${levelData.new_skills}` : levelData.new_skills)
-          : character.skills;
-        const newPassives = levelData.new_passives && levelData.new_passives !== 'None'
-          ? (character.passives ? `${character.passives}, ${levelData.new_passives}` : levelData.new_passives)
-          : character.passives;
+      if (jsonStart !== -1) {
+        // Find matching closing brace by counting braces
+        let braceCount = 0;
+        let jsonEnd = jsonStart;
+        for (let i = jsonStart; i < aiMessage.length; i++) {
+          if (aiMessage[i] === '{') braceCount++;
+          if (aiMessage[i] === '}') braceCount--;
+          if (braceCount === 0) {
+            jsonEnd = i + 1;
+            break;
+          }
+        }
+        jsonStr = aiMessage.substring(jsonStart, jsonEnd);
+      }
 
-        db.prepare(`
-          UPDATE characters SET level = ?, hp = ?, max_hp = ?, spells = ?, skills = ?, passives = ? WHERE id = ?
-        `).run(newLevel, newMaxHP, newMaxHP, newSpells || '', newSkills || '', newPassives || '', req.params.id);
+      if (jsonStr) {
+        try {
+          const levelData = JSON.parse(jsonStr);
 
-        const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
-        io.emit('character_updated', updatedChar);
-        io.emit('character_leveled_up', { character: updatedChar, summary: levelData.summary });
+          // Update character
+          const newMaxHP = character.max_hp + (levelData.hp_increase || 0);
+          const newSpells = levelData.new_spells && levelData.new_spells !== 'None'
+            ? (character.spells ? `${character.spells}, ${levelData.new_spells}` : levelData.new_spells)
+            : character.spells;
+          const newSkills = levelData.new_skills && levelData.new_skills !== 'None'
+            ? (character.skills ? `${character.skills}, ${levelData.new_skills}` : levelData.new_skills)
+            : character.skills;
+          const newPassives = levelData.new_passives && levelData.new_passives !== 'None'
+            ? (character.passives ? `${character.passives}, ${levelData.new_passives}` : levelData.new_passives)
+            : character.passives;
 
-        const cleanMessage = aiMessage.replace(/LEVELUP_COMPLETE:\{.*\}/, '').trim();
-        return res.json({ message: cleanMessage || 'Level up complete!', complete: true, character: updatedChar, levelUp: levelData });
+          db.prepare(`
+            UPDATE characters SET level = ?, hp = ?, max_hp = ?, spells = ?, skills = ?, passives = ? WHERE id = ?
+          `).run(newLevel, newMaxHP, newMaxHP, newSpells || '', newSkills || '', newPassives || '', req.params.id);
+
+          const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
+          io.emit('character_updated', updatedChar);
+          io.emit('character_leveled_up', { character: updatedChar, summary: levelData.summary });
+
+          const cleanMessage = aiMessage.substring(0, aiMessage.indexOf('LEVELUP_COMPLETE:')).trim();
+          return res.json({ message: cleanMessage || 'Level up complete!', complete: true, character: updatedChar, levelUp: levelData });
+        } catch (parseError) {
+          console.error('Failed to parse level up JSON:', parseError.message, 'Raw JSON:', jsonStr);
+        }
       }
     }
 
@@ -708,35 +731,58 @@ Only include fields that should be changed. Keep the conversation helpful and en
 
     // Check if edit is complete
     if (aiMessage.includes('EDIT_COMPLETE:')) {
-      const jsonMatch = aiMessage.match(/EDIT_COMPLETE:(\{.*\})/);
-      if (jsonMatch) {
-        const editData = JSON.parse(jsonMatch[1]);
+      // Extract JSON - handle multiline and various formats
+      let jsonStr = null;
+      const startIdx = aiMessage.indexOf('EDIT_COMPLETE:') + 'EDIT_COMPLETE:'.length;
+      const jsonStart = aiMessage.indexOf('{', startIdx);
 
-        // Build update query dynamically
-        const updates = [];
-        const values = [];
-
-        const fields = ['character_name', 'race', 'class', 'strength', 'dexterity', 'constitution',
-                       'intelligence', 'wisdom', 'charisma', 'hp', 'max_hp', 'background',
-                       'equipment', 'spells', 'skills', 'passives'];
-
-        fields.forEach(field => {
-          if (editData[field] !== undefined) {
-            updates.push(`${field} = ?`);
-            values.push(editData[field]);
+      if (jsonStart !== -1) {
+        // Find matching closing brace by counting braces
+        let braceCount = 0;
+        let jsonEnd = jsonStart;
+        for (let i = jsonStart; i < aiMessage.length; i++) {
+          if (aiMessage[i] === '{') braceCount++;
+          if (aiMessage[i] === '}') braceCount--;
+          if (braceCount === 0) {
+            jsonEnd = i + 1;
+            break;
           }
-        });
-
-        if (updates.length > 0) {
-          values.push(req.params.id);
-          db.prepare(`UPDATE characters SET ${updates.join(', ')} WHERE id = ?`).run(...values);
         }
+        jsonStr = aiMessage.substring(jsonStart, jsonEnd);
+      }
 
-        const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
-        io.emit('character_updated', updatedChar);
+      if (jsonStr) {
+        try {
+          const editData = JSON.parse(jsonStr);
 
-        const cleanMessage = aiMessage.replace(/EDIT_COMPLETE:\{.*\}/, '').trim();
-        return res.json({ message: cleanMessage || 'Character updated!', complete: true, character: updatedChar });
+          // Build update query dynamically
+          const updates = [];
+          const values = [];
+
+          const fields = ['character_name', 'race', 'class', 'strength', 'dexterity', 'constitution',
+                         'intelligence', 'wisdom', 'charisma', 'hp', 'max_hp', 'background',
+                         'equipment', 'spells', 'skills', 'passives'];
+
+          fields.forEach(field => {
+            if (editData[field] !== undefined) {
+              updates.push(`${field} = ?`);
+              values.push(editData[field]);
+            }
+          });
+
+          if (updates.length > 0) {
+            values.push(req.params.id);
+            db.prepare(`UPDATE characters SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+          }
+
+          const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
+          io.emit('character_updated', updatedChar);
+
+          const cleanMessage = aiMessage.substring(0, aiMessage.indexOf('EDIT_COMPLETE:')).trim();
+          return res.json({ message: cleanMessage || 'Character updated!', complete: true, character: updatedChar });
+        } catch (parseError) {
+          console.error('Failed to parse edit JSON:', parseError.message, 'Raw JSON:', jsonStr);
+        }
       }
     }
 
