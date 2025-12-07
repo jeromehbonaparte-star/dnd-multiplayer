@@ -429,7 +429,7 @@ nav {
   background: var(--bg-light);
 }
 
-.chat-input-area input {
+.chat-input-area textarea {
   flex: 1;
   padding: 12px;
   border: none;
@@ -437,9 +437,12 @@ nav {
   background: var(--bg-dark);
   color: var(--text);
   font-size: 14px;
+  font-family: inherit;
+  resize: none;
+  min-height: 44px;
 }
 
-.chat-input-area input:disabled {
+.chat-input-area textarea:disabled {
   opacity: 0.5;
 }
 
@@ -807,13 +810,16 @@ nav {
   gap: 10px;
 }
 
-.modal-input input {
+.modal-input textarea {
   flex: 1;
   padding: 12px;
   border: none;
   border-radius: 6px;
   background: var(--bg-light);
   color: var(--text);
+  font-family: inherit;
+  resize: none;
+  min-height: 44px;
 }
 
 .modal-input button {

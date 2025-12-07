@@ -85,7 +85,7 @@
               </div>
             </div>
             <div class="chat-input-area">
-              <input type="text" id="char-chat-input" placeholder="Type your response..." disabled>
+              <textarea id="char-chat-input" placeholder="Type your response... (Shift+Enter to send)" disabled rows="2"></textarea>
               <button id="char-chat-send" onclick="sendCharacterMessage()" disabled>Send</button>
             </div>
           </div>
@@ -150,7 +150,7 @@
       <h2 id="modal-title">Edit Character</h2>
       <div class="modal-chat" id="modal-chat-messages"></div>
       <div class="modal-input">
-        <input type="text" id="modal-input" placeholder="Describe what you want to change...">
+        <textarea id="modal-input" placeholder="Describe what you want to change... (Shift+Enter to send)" rows="2"></textarea>
         <button onclick="sendModalMessage()">Send</button>
       </div>
       <div class="modal-buttons">
