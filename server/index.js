@@ -108,6 +108,12 @@ if (!columns.includes('skills')) {
 if (!columns.includes('passives')) {
   db.exec('ALTER TABLE characters ADD COLUMN passives TEXT');
 }
+if (!columns.includes('gold')) {
+  db.exec('ALTER TABLE characters ADD COLUMN gold INTEGER DEFAULT 0');
+}
+if (!columns.includes('inventory')) {
+  db.exec("ALTER TABLE characters ADD COLUMN inventory TEXT DEFAULT '[]'");
+}
 
 // Migrate game_sessions table - add compacted_count column
 const sessionColumns = db.prepare("PRAGMA table_info(game_sessions)").all().map(c => c.name);
@@ -193,6 +199,19 @@ XP AWARDS - ALWAYS USE THIS FORMAT:
 [XP: CharacterName +100, OtherCharacter +100]
 
 Example: "The party defeats the goblins! [XP: Thorin +50, Elara +50, Grimm +50]"
+
+GOLD & LOOT TRACKING:
+When the party finds gold or treasure, award it using this exact format:
+[GOLD: CharacterName +50, OtherCharacter +25]
+
+When the party finds or loses items, track them using this format:
+[ITEM: CharacterName +Sword of Fire, CharacterName +Health Potion x3]
+[ITEM: CharacterName -Health Potion] (for items used/lost)
+
+Examples:
+- "You find a chest containing 100 gold pieces! [GOLD: Thorin +50, Elara +50]"
+- "The merchant sells you a healing potion. [GOLD: Grimm -25] [ITEM: Grimm +Healing Potion]"
+- "Elara drinks her health potion. [ITEM: Elara -Health Potion]"
 
 Wait for all players to submit their actions before narrating the outcome.`;
 
@@ -384,6 +403,88 @@ app.post('/api/characters/:id/xp', checkPassword, (req, res) => {
 
   io.emit('character_updated', updatedChar);
   res.json({ character: updatedChar, canLevelUp: canLevel, requiredXP: getRequiredXP(updatedChar.level) });
+});
+
+// Update gold for a character
+app.post('/api/characters/:id/gold', checkPassword, (req, res) => {
+  const { amount } = req.body;
+  const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
+
+  if (!character) {
+    return res.status(404).json({ error: 'Character not found' });
+  }
+
+  const newGold = Math.max(0, (character.gold || 0) + amount);
+  db.prepare('UPDATE characters SET gold = ? WHERE id = ?').run(newGold, req.params.id);
+
+  const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
+  io.emit('character_updated', updatedChar);
+  res.json({ character: updatedChar });
+});
+
+// Get character inventory
+app.get('/api/characters/:id/inventory', checkPassword, (req, res) => {
+  const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
+
+  if (!character) {
+    return res.status(404).json({ error: 'Character not found' });
+  }
+
+  let inventory = [];
+  try {
+    inventory = JSON.parse(character.inventory || '[]');
+  } catch (e) {
+    inventory = [];
+  }
+
+  res.json({ inventory, gold: character.gold || 0 });
+});
+
+// Update character inventory (add/remove items)
+app.post('/api/characters/:id/inventory', checkPassword, (req, res) => {
+  const { action, item, quantity = 1 } = req.body; // action: 'add' or 'remove'
+  const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
+
+  if (!character) {
+    return res.status(404).json({ error: 'Character not found' });
+  }
+
+  if (!item || !action) {
+    return res.status(400).json({ error: 'Item name and action (add/remove) required' });
+  }
+
+  let inventory = [];
+  try {
+    inventory = JSON.parse(character.inventory || '[]');
+  } catch (e) {
+    inventory = [];
+  }
+
+  if (action === 'add') {
+    const existingItem = inventory.find(i => i.name.toLowerCase() === item.toLowerCase());
+    if (existingItem) {
+      existingItem.quantity = (existingItem.quantity || 1) + quantity;
+    } else {
+      inventory.push({ name: item, quantity: quantity });
+    }
+  } else if (action === 'remove') {
+    const existingIdx = inventory.findIndex(i => i.name.toLowerCase() === item.toLowerCase());
+    if (existingIdx !== -1) {
+      inventory[existingIdx].quantity = (inventory[existingIdx].quantity || 1) - quantity;
+      if (inventory[existingIdx].quantity <= 0) {
+        inventory.splice(existingIdx, 1);
+      }
+    }
+  } else if (action === 'set') {
+    // Replace entire inventory
+    inventory = req.body.inventory || [];
+  }
+
+  db.prepare('UPDATE characters SET inventory = ? WHERE id = ?').run(JSON.stringify(inventory), req.params.id);
+
+  const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
+  io.emit('character_updated', updatedChar);
+  res.json({ character: updatedChar, inventory });
 });
 
 // Level up a character (AI-assisted)
@@ -911,6 +1012,114 @@ app.post('/api/sessions/:id/recalculate-xp', checkPassword, (req, res) => {
   res.json({ success: true, xpAwarded });
 });
 
+// Recalculate gold and inventory from session history
+app.post('/api/sessions/:id/recalculate-loot', checkPassword, (req, res) => {
+  const sessionId = req.params.id;
+  const session = db.prepare('SELECT * FROM game_sessions WHERE id = ?').get(sessionId);
+
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  const characters = db.prepare('SELECT * FROM characters').all();
+  const history = JSON.parse(session.full_history || '[]');
+  const goldAwarded = {};
+  const inventoryChanges = {};
+
+  // Initialize tracking objects for each character
+  for (const char of characters) {
+    goldAwarded[char.id] = 0;
+    inventoryChanges[char.id] = [];
+  }
+
+  // Scan all assistant messages for gold and item awards
+  for (const entry of history) {
+    if (entry.role === 'assistant') {
+      // Parse GOLD awards
+      const goldMatches = entry.content.match(/\[GOLD:([^\]]+)\]/gi);
+      if (goldMatches) {
+        for (const match of goldMatches) {
+          const goldAwards = match.replace(/\[GOLD:/i, '').replace(']', '').split(',');
+          for (const award of goldAwards) {
+            const goldMatch = award.trim().match(/(.+?)\s*([+-])(\d+)/);
+            if (goldMatch) {
+              const charName = goldMatch[1].trim();
+              const sign = goldMatch[2] === '+' ? 1 : -1;
+              const goldAmount = parseInt(goldMatch[3]) * sign;
+              const char = characters.find(c => c.character_name.toLowerCase() === charName.toLowerCase());
+              if (char) {
+                goldAwarded[char.id] = (goldAwarded[char.id] || 0) + goldAmount;
+              }
+            }
+          }
+        }
+      }
+
+      // Parse ITEM awards
+      const itemMatches = entry.content.match(/\[ITEM:([^\]]+)\]/gi);
+      if (itemMatches) {
+        for (const match of itemMatches) {
+          const itemAwards = match.replace(/\[ITEM:/i, '').replace(']', '').split(',');
+          for (const award of itemAwards) {
+            const itemMatch = award.trim().match(/(.+?)\s*([+-])(.+)/);
+            if (itemMatch) {
+              const charName = itemMatch[1].trim();
+              const isAdding = itemMatch[2] === '+';
+              let itemName = itemMatch[3].trim();
+
+              let quantity = 1;
+              const qtyMatch = itemName.match(/(.+?)\s*x(\d+)$/i);
+              if (qtyMatch) {
+                itemName = qtyMatch[1].trim();
+                quantity = parseInt(qtyMatch[2]);
+              }
+
+              const char = characters.find(c => c.character_name.toLowerCase() === charName.toLowerCase());
+              if (char) {
+                inventoryChanges[char.id].push({
+                  item: itemName,
+                  quantity: isAdding ? quantity : -quantity
+                });
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Update character gold and inventory
+  for (const char of characters) {
+    // Update gold
+    const newGold = Math.max(0, goldAwarded[char.id] || 0);
+
+    // Build inventory from changes
+    const inventory = [];
+    for (const change of inventoryChanges[char.id]) {
+      const existingItem = inventory.find(i => i.name.toLowerCase() === change.item.toLowerCase());
+      if (existingItem) {
+        existingItem.quantity += change.quantity;
+        if (existingItem.quantity <= 0) {
+          inventory.splice(inventory.indexOf(existingItem), 1);
+        }
+      } else if (change.quantity > 0) {
+        inventory.push({ name: change.item, quantity: change.quantity });
+      }
+    }
+
+    db.prepare('UPDATE characters SET gold = ?, inventory = ? WHERE id = ?')
+      .run(newGold, JSON.stringify(inventory), char.id);
+  }
+
+  // Notify clients
+  const updatedCharacters = db.prepare('SELECT * FROM characters').all();
+  for (const char of updatedCharacters) {
+    io.emit('character_updated', char);
+  }
+
+  res.json({ success: true, goldAwarded, inventoryChanges });
+});
+
 // AI Processing function
 async function processAITurn(sessionId, pendingActions, characters) {
   // Notify all clients that processing has started
@@ -1011,6 +1220,86 @@ Please narrate the outcome of these actions and describe what happens next.`;
           if (char) {
             db.prepare('UPDATE characters SET xp = xp + ? WHERE id = ?').run(xpAmount, char.id);
             io.emit('character_updated', { ...char, xp: (char.xp || 0) + xpAmount });
+          }
+        }
+      }
+    }
+  }
+
+  // Parse and award GOLD from AI response
+  // Format: [GOLD: CharacterName +50, OtherCharacter -25]
+  const goldMatches = aiResponse.match(/\[GOLD:([^\]]+)\]/gi);
+  if (goldMatches) {
+    for (const match of goldMatches) {
+      const goldAwards = match.replace(/\[GOLD:/i, '').replace(']', '').split(',');
+      for (const award of goldAwards) {
+        const goldMatch = award.trim().match(/(.+?)\s*([+-])(\d+)/);
+        if (goldMatch) {
+          const charName = goldMatch[1].trim();
+          const sign = goldMatch[2] === '+' ? 1 : -1;
+          const goldAmount = parseInt(goldMatch[3]) * sign;
+          const char = characters.find(c => c.character_name.toLowerCase() === charName.toLowerCase());
+          if (char) {
+            const newGold = Math.max(0, (char.gold || 0) + goldAmount);
+            db.prepare('UPDATE characters SET gold = ? WHERE id = ?').run(newGold, char.id);
+            io.emit('character_updated', { ...char, gold: newGold });
+          }
+        }
+      }
+    }
+  }
+
+  // Parse and update INVENTORY from AI response
+  // Format: [ITEM: CharacterName +Sword of Fire, CharacterName -Health Potion]
+  const itemMatches = aiResponse.match(/\[ITEM:([^\]]+)\]/gi);
+  if (itemMatches) {
+    for (const match of itemMatches) {
+      const itemAwards = match.replace(/\[ITEM:/i, '').replace(']', '').split(',');
+      for (const award of itemAwards) {
+        const itemMatch = award.trim().match(/(.+?)\s*([+-])(.+)/);
+        if (itemMatch) {
+          const charName = itemMatch[1].trim();
+          const isAdding = itemMatch[2] === '+';
+          let itemName = itemMatch[3].trim();
+
+          // Parse quantity (e.g., "Health Potion x3")
+          let quantity = 1;
+          const qtyMatch = itemName.match(/(.+?)\s*x(\d+)$/i);
+          if (qtyMatch) {
+            itemName = qtyMatch[1].trim();
+            quantity = parseInt(qtyMatch[2]);
+          }
+
+          const char = characters.find(c => c.character_name.toLowerCase() === charName.toLowerCase());
+          if (char) {
+            let inventory = [];
+            try {
+              inventory = JSON.parse(char.inventory || '[]');
+            } catch (e) {
+              inventory = [];
+            }
+
+            if (isAdding) {
+              // Check if item already exists
+              const existingItem = inventory.find(i => i.name.toLowerCase() === itemName.toLowerCase());
+              if (existingItem) {
+                existingItem.quantity = (existingItem.quantity || 1) + quantity;
+              } else {
+                inventory.push({ name: itemName, quantity: quantity });
+              }
+            } else {
+              // Remove item
+              const existingIdx = inventory.findIndex(i => i.name.toLowerCase() === itemName.toLowerCase());
+              if (existingIdx !== -1) {
+                inventory[existingIdx].quantity = (inventory[existingIdx].quantity || 1) - quantity;
+                if (inventory[existingIdx].quantity <= 0) {
+                  inventory.splice(existingIdx, 1);
+                }
+              }
+            }
+
+            db.prepare('UPDATE characters SET inventory = ? WHERE id = ?').run(JSON.stringify(inventory), char.id);
+            io.emit('character_updated', { ...char, inventory: JSON.stringify(inventory) });
           }
         }
       }

@@ -49,6 +49,7 @@
           <div id="pending-actions"></div>
           <button onclick="forceProcessTurn()" class="btn-secondary">Force Process Turn</button>
           <button onclick="recalculateXP()" class="btn-secondary">Recalculate XP</button>
+          <button onclick="recalculateLoot()" class="btn-secondary">Recalculate Loot</button>
         </div>
 
         <div class="main-content">
@@ -165,6 +166,31 @@
   <div id="levelup-notification" class="notification hidden">
     <span class="notification-text"></span>
     <button onclick="hideLevelUpNotification()">Dismiss</button>
+  </div>
+
+  <!-- Inventory Modal -->
+  <div id="inventory-modal" class="modal">
+    <div class="modal-content inventory-modal-content">
+      <span class="modal-close" onclick="closeInventoryModal()">&times;</span>
+      <h2 id="inventory-modal-title">Inventory</h2>
+      <div class="inventory-modal-gold">
+        <label>Gold:</label>
+        <input type="number" id="inventory-gold-input" min="0" value="0">
+        <button onclick="updateGold()" class="btn-small">Update</button>
+      </div>
+      <div class="inventory-modal-items">
+        <h3>Items</h3>
+        <div id="inventory-modal-list"></div>
+        <div class="inventory-add-item">
+          <input type="text" id="new-item-name" placeholder="Item name">
+          <input type="number" id="new-item-qty" min="1" value="1" style="width: 60px;">
+          <button onclick="addItemToInventory()" class="btn-small">Add</button>
+        </div>
+      </div>
+      <div class="modal-buttons">
+        <button onclick="closeInventoryModal()" class="btn-secondary">Close</button>
+      </div>
+    </div>
   </div>
 
   <!-- Admin Login Modal -->

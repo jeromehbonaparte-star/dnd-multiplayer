@@ -537,6 +537,14 @@ function renderCharactersList() {
     const requiredXP = getRequiredXP(c.level);
     const xpPercent = Math.min((xp / requiredXP) * 100, 100);
     const canLevel = canLevelUp(xp, c.level);
+    const gold = c.gold || 0;
+    let inventory = [];
+    try {
+      inventory = JSON.parse(c.inventory || '[]');
+    } catch (e) {
+      inventory = [];
+    }
+    const itemCount = inventory.reduce((sum, item) => sum + (item.quantity || 1), 0);
 
     return `
     <div class="character-card" data-id="${c.id}">
@@ -553,17 +561,38 @@ function renderCharactersList() {
         <div class="stat">${c.charisma}<span>CHA</span></div>
       </div>
       <div class="hp">HP: ${c.hp}/${c.max_hp}</div>
+      <div class="gold-display">Gold: ${gold}</div>
       <div class="xp-bar"><div class="xp-fill" style="width: ${xpPercent}%"></div></div>
       <div class="xp-text">XP: ${xp} / ${requiredXP}</div>
       ${c.skills ? `<div class="details"><strong>Skills:</strong> ${c.skills}</div>` : ''}
       ${c.spells ? `<div class="details"><strong>Spells:</strong> ${c.spells}</div>` : ''}
       ${c.passives ? `<div class="details"><strong>Passives:</strong> ${c.passives}</div>` : ''}
+      <div class="inventory-section">
+        <div class="inventory-header" onclick="toggleInventory('${c.id}')">
+          <strong>Inventory (${itemCount} items)</strong>
+          <span class="inventory-toggle">+</span>
+        </div>
+        <div class="inventory-list" id="inventory-${c.id}" style="display: none;">
+          ${inventory.length > 0 ? inventory.map(item => `<div class="inventory-item">${item.name}${item.quantity > 1 ? ' x' + item.quantity : ''}</div>`).join('') : '<div class="inventory-empty">No items</div>'}
+        </div>
+      </div>
       <div class="btn-row">
         <button class="btn-edit" onclick="openEditModal('${c.id}')">Edit</button>
+        <button class="btn-inventory" onclick="openInventoryModal('${c.id}')">Inventory</button>
         <button class="btn-levelup" onclick="levelUpCharacter('${c.id}')" ${canLevel ? '' : 'disabled'}>${canLevel ? 'Level Up!' : 'Need XP'}</button>
       </div>
     </div>
   `}).join('');
+}
+
+function toggleInventory(charId) {
+  const list = document.getElementById(`inventory-${charId}`);
+  const isHidden = list.style.display === 'none';
+  list.style.display = isHidden ? 'block' : 'none';
+  // Update toggle icon
+  const card = list.closest('.character-card');
+  const toggle = card.querySelector('.inventory-toggle');
+  toggle.textContent = isHidden ? '-' : '+';
 }
 
 function updateCharacterSelect() {
@@ -577,6 +606,14 @@ function updatePartyList() {
   list.innerHTML = characters.map(c => {
     const xp = c.xp || 0;
     const requiredXP = getRequiredXP(c.level);
+    const gold = c.gold || 0;
+    let inventory = [];
+    try {
+      inventory = JSON.parse(c.inventory || '[]');
+    } catch (e) {
+      inventory = [];
+    }
+    const itemCount = inventory.reduce((sum, item) => sum + (item.quantity || 1), 0);
     return `
     <div class="party-item expanded">
       <div class="party-header">
@@ -585,6 +622,7 @@ function updatePartyList() {
       </div>
       <div class="info">${c.race} ${c.class}</div>
       <div class="hp">HP: ${c.hp}/${c.max_hp}</div>
+      <div class="gold-info">Gold: ${gold}</div>
       <div class="xp-info">XP: ${xp}/${requiredXP}</div>
       <div class="party-stats">
         <span>STR:${c.strength}</span>
@@ -597,6 +635,7 @@ function updatePartyList() {
       ${c.skills ? `<div class="party-detail"><strong>Skills:</strong> ${c.skills}</div>` : ''}
       ${c.spells ? `<div class="party-detail"><strong>Spells:</strong> ${c.spells}</div>` : ''}
       ${c.passives ? `<div class="party-detail"><strong>Passives:</strong> ${c.passives}</div>` : ''}
+      <div class="party-detail"><strong>Items:</strong> ${itemCount > 0 ? inventory.map(i => `${i.name}${i.quantity > 1 ? ' x' + i.quantity : ''}`).join(', ') : 'None'}</div>
     </div>
   `}).join('');
 }
@@ -789,6 +828,31 @@ async function recalculateXP() {
   }
 }
 
+async function recalculateLoot() {
+  if (!currentSession) {
+    alert('Please select a session first');
+    return;
+  }
+
+  if (!confirm('Recalculate gold and inventory from session history? This will scan all DM responses for [GOLD: ...] and [ITEM: ...] tags.')) return;
+
+  try {
+    const result = await api(`/api/sessions/${currentSession.id}/recalculate-loot`, 'POST');
+    if (result.success) {
+      const goldCount = Object.values(result.goldAwarded).filter(g => g !== 0).length;
+      const itemCount = Object.values(result.inventoryChanges).filter(arr => arr.length > 0).length;
+      const summary = goldCount > 0 || itemCount > 0
+        ? `Loot recalculated! Found gold for ${goldCount} characters and items for ${itemCount} characters.`
+        : 'No [GOLD: ...] or [ITEM: ...] tags found in session history.';
+      alert(summary);
+      loadCharacters();
+    }
+  } catch (error) {
+    console.error('Failed to recalculate loot:', error);
+    alert('Failed to recalculate loot: ' + error.message);
+  }
+}
+
 function showNotification(message) {
   const notif = document.getElementById('levelup-notification');
   notif.querySelector('.notification-text').textContent = message;
@@ -908,6 +972,122 @@ async function levelUpCharacter(charId) {
     loadCharacters();
   } catch (error) {
     alert('Level up failed: ' + error.message);
+  }
+}
+
+// Inventory Modal Functions
+let inventoryModalCharId = null;
+
+function openInventoryModal(charId) {
+  inventoryModalCharId = charId;
+  const char = characters.find(c => c.id === charId);
+  if (!char) return;
+
+  document.getElementById('inventory-modal-title').textContent = `${char.character_name}'s Inventory`;
+  document.getElementById('inventory-gold-input').value = char.gold || 0;
+
+  renderInventoryModalList(char);
+
+  document.getElementById('inventory-modal').classList.add('active');
+}
+
+function closeInventoryModal() {
+  document.getElementById('inventory-modal').classList.remove('active');
+  inventoryModalCharId = null;
+}
+
+function renderInventoryModalList(char) {
+  let inventory = [];
+  try {
+    inventory = JSON.parse(char.inventory || '[]');
+  } catch (e) {
+    inventory = [];
+  }
+
+  const listEl = document.getElementById('inventory-modal-list');
+  if (inventory.length === 0) {
+    listEl.innerHTML = '<div class="inventory-empty">No items in inventory</div>';
+  } else {
+    listEl.innerHTML = inventory.map((item, idx) => `
+      <div class="inventory-modal-item">
+        <span class="item-name">${escapeHtml(item.name)}</span>
+        <span class="item-qty">x${item.quantity || 1}</span>
+        <button class="btn-tiny" onclick="removeItemFromInventory('${escapeHtml(item.name.replace(/'/g, "\\'"))}')">-</button>
+      </div>
+    `).join('');
+  }
+}
+
+async function updateGold() {
+  if (!inventoryModalCharId) return;
+
+  const char = characters.find(c => c.id === inventoryModalCharId);
+  if (!char) return;
+
+  const newGold = parseInt(document.getElementById('inventory-gold-input').value) || 0;
+  const goldDiff = newGold - (char.gold || 0);
+
+  try {
+    await api(`/api/characters/${inventoryModalCharId}/gold`, 'POST', { amount: goldDiff });
+    loadCharacters();
+    showNotification(`Gold updated for ${char.character_name}`);
+  } catch (error) {
+    alert('Failed to update gold: ' + error.message);
+  }
+}
+
+async function addItemToInventory() {
+  if (!inventoryModalCharId) return;
+
+  const itemName = document.getElementById('new-item-name').value.trim();
+  const quantity = parseInt(document.getElementById('new-item-qty').value) || 1;
+
+  if (!itemName) {
+    alert('Please enter an item name');
+    return;
+  }
+
+  try {
+    const result = await api(`/api/characters/${inventoryModalCharId}/inventory`, 'POST', {
+      action: 'add',
+      item: itemName,
+      quantity: quantity
+    });
+
+    document.getElementById('new-item-name').value = '';
+    document.getElementById('new-item-qty').value = '1';
+
+    // Update local character data and refresh modal
+    const charIdx = characters.findIndex(c => c.id === inventoryModalCharId);
+    if (charIdx !== -1) {
+      characters[charIdx] = result.character;
+      renderInventoryModalList(result.character);
+    }
+    loadCharacters();
+  } catch (error) {
+    alert('Failed to add item: ' + error.message);
+  }
+}
+
+async function removeItemFromInventory(itemName) {
+  if (!inventoryModalCharId) return;
+
+  try {
+    const result = await api(`/api/characters/${inventoryModalCharId}/inventory`, 'POST', {
+      action: 'remove',
+      item: itemName,
+      quantity: 1
+    });
+
+    // Update local character data and refresh modal
+    const charIdx = characters.findIndex(c => c.id === inventoryModalCharId);
+    if (charIdx !== -1) {
+      characters[charIdx] = result.character;
+      renderInventoryModalList(result.character);
+    }
+    loadCharacters();
+  } catch (error) {
+    alert('Failed to remove item: ' + error.message);
   }
 }
 

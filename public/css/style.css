@@ -1230,3 +1230,178 @@ nav {
     grid-template-columns: repeat(2, 1fr);
   }
 }
+
+/* Gold Display */
+.gold-display {
+  color: #ffd700;
+  font-weight: bold;
+  margin: 5px 0;
+  font-size: 14px;
+}
+
+.gold-info {
+  color: #ffd700;
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+/* Inventory Section in Character Cards */
+.inventory-section {
+  margin-top: 10px;
+  background: var(--bg-dark);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.inventory-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  background: var(--bg-dark);
+}
+
+.inventory-header:hover {
+  background: var(--bg-light);
+}
+
+.inventory-toggle {
+  color: var(--accent);
+  font-weight: bold;
+}
+
+.inventory-list {
+  padding: 8px 10px;
+  border-top: 1px solid var(--bg-light);
+}
+
+.inventory-item {
+  font-size: 11px;
+  padding: 3px 0;
+  color: var(--text-muted);
+}
+
+.inventory-empty {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* Inventory Button */
+.character-card .btn-inventory {
+  background: #ffd700;
+  color: #1a1a2e;
+}
+
+.character-card .btn-inventory:hover {
+  background: #ffed4a;
+}
+
+/* Inventory Modal */
+.inventory-modal-content {
+  max-width: 500px;
+}
+
+.inventory-modal-gold {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 15px;
+  background: var(--bg-dark);
+  border-radius: 8px;
+  margin-bottom: 15px;
+}
+
+.inventory-modal-gold label {
+  color: #ffd700;
+  font-weight: bold;
+}
+
+.inventory-modal-gold input {
+  width: 100px;
+  padding: 8px;
+  border: none;
+  border-radius: 4px;
+  background: var(--bg-light);
+  color: var(--text);
+  font-size: 16px;
+}
+
+.inventory-modal-items {
+  background: var(--bg-dark);
+  border-radius: 8px;
+  padding: 15px;
+}
+
+.inventory-modal-items h3 {
+  color: var(--accent);
+  margin-bottom: 10px;
+  font-size: 14px;
+}
+
+#inventory-modal-list {
+  max-height: 200px;
+  overflow-y: auto;
+  margin-bottom: 15px;
+}
+
+.inventory-modal-item {
+  display: flex;
+  align-items: center;
+  padding: 8px;
+  background: var(--bg-light);
+  border-radius: 4px;
+  margin-bottom: 5px;
+}
+
+.inventory-modal-item .item-name {
+  flex: 1;
+}
+
+.inventory-modal-item .item-qty {
+  color: var(--text-muted);
+  margin-right: 10px;
+  font-size: 12px;
+}
+
+.inventory-add-item {
+  display: flex;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--bg-light);
+}
+
+.inventory-add-item input[type="text"] {
+  flex: 1;
+  padding: 8px;
+  border: none;
+  border-radius: 4px;
+  background: var(--bg-light);
+  color: var(--text);
+}
+
+.inventory-add-item input[type="number"] {
+  width: 60px;
+  padding: 8px;
+  border: none;
+  border-radius: 4px;
+  background: var(--bg-light);
+  color: var(--text);
+  text-align: center;
+}
+
+.btn-tiny {
+  padding: 4px 8px;
+  font-size: 12px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.btn-tiny:hover {
+  background: var(--accent-hover);
+}

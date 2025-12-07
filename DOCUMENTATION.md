@@ -17,6 +17,7 @@ A real-time multiplayer D&D (Dungeons & Dragons 5e) web application with an AI-p
 - **Frontend:** Vanilla HTML/CSS/JavaScript
 - **AI Integration:** OpenAI-compatible API (works with DeepSeek, OpenRouter, etc.)
 - **Auth:** bcrypt for password hashing
+- **Security:** express-rate-limit for brute force protection
 - **Deployment:** Docker
 
 ---
@@ -71,6 +72,8 @@ charisma INTEGER
 hp INTEGER
 max_hp INTEGER
 xp INTEGER DEFAULT 0
+gold INTEGER DEFAULT 0
+inventory TEXT DEFAULT '[]'  -- JSON array of {name, quantity}
 skills TEXT
 spells TEXT
 passives TEXT
@@ -132,6 +135,15 @@ created_at DATETIME
 - "Recalculate XP" button scans existing history for XP awards
 - D&D 5e XP table for leveling (Level 2 = 300 XP, Level 3 = 900 XP, etc.)
 
+### 5b. Gold & Inventory System
+- AI awards gold using format: `[GOLD: CharacterName +50, OtherCharacter -25]`
+- AI tracks items using format: `[ITEM: CharacterName +Sword of Fire, CharacterName +Health Potion x3]`
+- Items can be removed: `[ITEM: CharacterName -Health Potion]`
+- Gold and inventory automatically parsed and updated on character sheets
+- "Recalculate Loot" button scans existing history for GOLD and ITEM tags
+- Inventory displayed in character cards with collapsible view
+- Inventory modal for manual management (add/remove items, update gold)
+
 ### 6. AI-Assisted Level Up & Editing
 - Level up endpoint: `POST /api/characters/:id/levelup`
 - Edit endpoint: `POST /api/characters/:id/edit`
@@ -167,6 +179,9 @@ created_at DATETIME
 - `DELETE /api/characters/:id` - Delete character
 - `POST /api/characters/:id/levelup` - Level up character
 - `POST /api/characters/:id/edit` - AI-assisted editing
+- `POST /api/characters/:id/gold` - Update character gold
+- `GET /api/characters/:id/inventory` - Get character inventory
+- `POST /api/characters/:id/inventory` - Add/remove inventory items
 
 ### Sessions
 - `GET /api/sessions` - List all sessions
@@ -176,6 +191,7 @@ created_at DATETIME
 - `POST /api/sessions/:id/action` - Submit player action
 - `POST /api/sessions/:id/process` - Force process turn
 - `POST /api/sessions/:id/recalculate-xp` - Scan history for XP
+- `POST /api/sessions/:id/recalculate-loot` - Scan history for gold and items
 
 ---
 
@@ -201,8 +217,10 @@ The system prompt is hardcoded in `server/index.js` as `DEFAULT_SYSTEM_PROMPT`. 
 - Dice rolling format and calculation rules
 - Combat mechanics
 - XP award format: `[XP: CharacterName +100]`
+- Gold award format: `[GOLD: CharacterName +50]`
+- Item tracking format: `[ITEM: CharacterName +Sword of Fire]`
 
-**Important:** This is NOT editable via settings to ensure XP tracking always works.
+**Important:** This is NOT editable via settings to ensure XP/gold/inventory tracking always works.
 
 ---
 
@@ -323,7 +341,8 @@ The Dockerfile:
 
 ## Future Improvements (Ideas)
 
-- [ ] Inventory system
+- [x] Inventory system (implemented!)
+- [x] Gold tracking (implemented!)
 - [ ] Combat tracker with initiative
 - [ ] Map/image uploads
 - [ ] Multiple campaigns per session
@@ -331,6 +350,32 @@ The Dockerfile:
 - [ ] Dice roll history log
 - [ ] NPC/Monster database
 - [ ] Voice integration
+
+---
+
+## Git Repository
+
+**Repository:** https://github.com/jeromehbonaparte-star/dnd-multiplayer
+
+### Cloning
+```bash
+git clone https://github.com/jeromehbonaparte-star/dnd-multiplayer.git
+cd dnd-multiplayer
+npm install
+```
+
+### Running Locally
+```bash
+# Set environment variables (optional)
+export GAME_PASSWORD=yourpassword
+export ADMIN_PASSWORD=youradminpassword
+
+# Start the server
+npm start
+```
+
+### Deployment
+The project is deployed on Easypanel (Linode). Any push to `main` branch will trigger a rebuild.
 
 ---
 
