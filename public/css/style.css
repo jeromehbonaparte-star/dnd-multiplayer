@@ -232,20 +232,23 @@ nav {
 }
 
 .session-delete-btn {
-  padding: 4px 8px;
-  background: var(--bg-dark);
-  color: var(--text-muted);
+  padding: 2px 5px;
+  background: #dc3545;
+  color: white;
   border: none;
-  border-radius: 4px;
+  border-radius: 3px;
   cursor: pointer;
-  font-size: 11px;
-  opacity: 0.6;
+  font-size: 9px;
+  font-weight: bold;
+  opacity: 0.7;
   transition: all 0.2s;
+  min-width: 18px;
+  height: 18px;
+  line-height: 1;
 }
 
 .session-delete-btn:hover {
-  background: var(--accent);
-  color: white;
+  background: #c82333;
   opacity: 1;
 }
 
