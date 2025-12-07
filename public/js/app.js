@@ -538,6 +538,7 @@ function renderCharactersList() {
     const xpPercent = Math.min((xp / requiredXP) * 100, 100);
     const canLevel = canLevelUp(xp, c.level);
     const gold = c.gold || 0;
+    const ac = c.ac || 10;
     let inventory = [];
     try {
       inventory = JSON.parse(c.inventory || '[]');
@@ -545,6 +546,15 @@ function renderCharactersList() {
       inventory = [];
     }
     const itemCount = inventory.reduce((sum, item) => sum + (item.quantity || 1), 0);
+
+    // Parse spell slots
+    let spellSlots = {};
+    try {
+      spellSlots = JSON.parse(c.spell_slots || '{}');
+    } catch (e) {
+      spellSlots = {};
+    }
+    const spellSlotsDisplay = formatSpellSlots(spellSlots);
 
     return `
     <div class="character-card" data-id="${c.id}">
@@ -560,8 +570,12 @@ function renderCharactersList() {
         <div class="stat">${c.wisdom}<span>WIS</span></div>
         <div class="stat">${c.charisma}<span>CHA</span></div>
       </div>
-      <div class="hp">HP: ${c.hp}/${c.max_hp}</div>
+      <div class="combat-stats">
+        <div class="hp">HP: ${c.hp}/${c.max_hp}</div>
+        <div class="ac-display">AC: ${ac}</div>
+      </div>
       <div class="gold-display">Gold: ${gold}</div>
+      ${spellSlotsDisplay ? `<div class="spell-slots-display">${spellSlotsDisplay}</div>` : ''}
       <div class="xp-bar"><div class="xp-fill" style="width: ${xpPercent}%"></div></div>
       <div class="xp-text">XP: ${xp} / ${requiredXP}</div>
       ${c.skills ? `<div class="details"><strong>Skills:</strong> ${c.skills}</div>` : ''}
@@ -583,9 +597,21 @@ function renderCharactersList() {
       </div>
       <div class="btn-row">
         <button class="btn-reset-xp" onclick="resetXP('${c.id}', '${c.character_name.replace(/'/g, "\\'")}')">Reset XP</button>
+        <button class="btn-spells" onclick="openSpellSlotsModal('${c.id}')">Spell Slots</button>
       </div>
     </div>
   `}).join('');
+}
+
+function formatSpellSlots(spellSlots) {
+  const levels = Object.keys(spellSlots).sort((a, b) => parseInt(a) - parseInt(b));
+  if (levels.length === 0) return '';
+
+  return '<strong>Spell Slots:</strong> ' + levels.map(lvl => {
+    const slot = spellSlots[lvl];
+    const available = (slot.max || 0) - (slot.used || 0);
+    return `${lvl}st: ${available}/${slot.max || 0}`;
+  }).join(' | ').replace(/1st/g, '1st').replace(/2st/g, '2nd').replace(/3st/g, '3rd');
 }
 
 function toggleInventory(charId) {
@@ -610,6 +636,7 @@ function updatePartyList() {
     const xp = c.xp || 0;
     const requiredXP = getRequiredXP(c.level);
     const gold = c.gold || 0;
+    const ac = c.ac || 10;
     const canLevel = canLevelUp(xp, c.level);
     let inventory = [];
     try {
@@ -618,6 +645,16 @@ function updatePartyList() {
       inventory = [];
     }
     const itemCount = inventory.reduce((sum, item) => sum + (item.quantity || 1), 0);
+
+    // Parse spell slots for party display
+    let spellSlots = {};
+    try {
+      spellSlots = JSON.parse(c.spell_slots || '{}');
+    } catch (e) {
+      spellSlots = {};
+    }
+    const spellSlotsShort = formatSpellSlotsShort(spellSlots);
+
     return `
     <div class="party-item expanded">
       <div class="party-header">
@@ -625,8 +662,12 @@ function updatePartyList() {
         <div class="level">Lv.${c.level}</div>
       </div>
       <div class="info">${c.race} ${c.class}</div>
-      <div class="hp">HP: ${c.hp}/${c.max_hp}</div>
+      <div class="combat-info">
+        <span class="hp">HP: ${c.hp}/${c.max_hp}</span>
+        <span class="ac-info">AC: ${ac}</span>
+      </div>
       <div class="gold-info">Gold: ${gold}</div>
+      ${spellSlotsShort ? `<div class="spell-info">${spellSlotsShort}</div>` : ''}
       <div class="xp-info">XP: ${xp}/${requiredXP} ${canLevel ? '(Ready!)' : ''}</div>
       <div class="party-stats">
         <span>STR:${c.strength}</span>
@@ -641,11 +682,23 @@ function updatePartyList() {
       ${c.passives ? `<div class="party-detail"><strong>Passives:</strong> ${c.passives}</div>` : ''}
       <div class="party-detail"><strong>Items:</strong> ${itemCount > 0 ? inventory.map(i => `${i.name}${i.quantity > 1 ? ' x' + i.quantity : ''}`).join(', ') : 'None'}</div>
       <div class="party-actions">
-        <button class="party-btn" onclick="openInventoryModal('${c.id}')">Inventory</button>
+        <button class="party-btn" onclick="openInventoryModal('${c.id}')">Inv</button>
+        <button class="party-btn" onclick="openSpellSlotsModal('${c.id}')">Spells</button>
         <button class="party-btn ${canLevel ? 'party-btn-levelup' : ''}" onclick="levelUpCharacter('${c.id}')" ${canLevel ? '' : 'disabled'}>${canLevel ? 'Level Up!' : 'Need XP'}</button>
       </div>
     </div>
   `}).join('');
+}
+
+function formatSpellSlotsShort(spellSlots) {
+  const levels = Object.keys(spellSlots).sort((a, b) => parseInt(a) - parseInt(b));
+  if (levels.length === 0) return '';
+
+  return 'Slots: ' + levels.map(lvl => {
+    const slot = spellSlots[lvl];
+    const available = (slot.max || 0) - (slot.used || 0);
+    return `L${lvl}:${available}/${slot.max || 0}`;
+  }).join(' ');
 }
 
 
@@ -1175,6 +1228,199 @@ async function removeItemFromInventory(itemName) {
     loadCharacters();
   } catch (error) {
     alert('Failed to remove item: ' + error.message);
+  }
+}
+
+// Spell Slots Modal Functions
+let spellSlotsModalCharId = null;
+
+function openSpellSlotsModal(charId) {
+  spellSlotsModalCharId = charId;
+  const char = characters.find(c => c.id === charId);
+  if (!char) return;
+
+  document.getElementById('spell-slots-modal-title').textContent = `${char.character_name}'s Spell Slots & AC`;
+  document.getElementById('ac-input').value = char.ac || 10;
+
+  renderSpellSlotsList(char);
+
+  document.getElementById('spell-slots-modal').classList.add('active');
+}
+
+function closeSpellSlotsModal() {
+  document.getElementById('spell-slots-modal').classList.remove('active');
+  spellSlotsModalCharId = null;
+}
+
+function renderSpellSlotsList(char) {
+  let spellSlots = {};
+  try {
+    spellSlots = JSON.parse(char.spell_slots || '{}');
+  } catch (e) {
+    spellSlots = {};
+  }
+
+  const listEl = document.getElementById('spell-slots-list');
+  const levels = Object.keys(spellSlots).sort((a, b) => parseInt(a) - parseInt(b));
+
+  if (levels.length === 0) {
+    listEl.innerHTML = '<div class="spell-slots-empty">No spell slots configured. Add spell slot levels below.</div>';
+  } else {
+    listEl.innerHTML = levels.map(lvl => {
+      const slot = spellSlots[lvl];
+      const available = (slot.max || 0) - (slot.used || 0);
+      const levelName = lvl === '1' ? '1st' : lvl === '2' ? '2nd' : lvl === '3' ? '3rd' : `${lvl}th`;
+      return `
+        <div class="spell-slot-row">
+          <span class="slot-level">${levelName} Level</span>
+          <span class="slot-count">${available} / ${slot.max || 0}</span>
+          <button class="btn-tiny" onclick="useSpellSlot('${lvl}')" ${available <= 0 ? 'disabled' : ''}>Use</button>
+          <button class="btn-tiny btn-restore" onclick="restoreSpellSlot('${lvl}')" ${slot.used <= 0 ? 'disabled' : ''}>+1</button>
+          <button class="btn-tiny btn-remove" onclick="removeSpellSlotLevel('${lvl}')">X</button>
+        </div>
+      `;
+    }).join('');
+  }
+}
+
+async function updateAC() {
+  if (!spellSlotsModalCharId) return;
+
+  const ac = parseInt(document.getElementById('ac-input').value) || 10;
+
+  try {
+    await api(`/api/characters/${spellSlotsModalCharId}/ac`, 'POST', { ac });
+    loadCharacters();
+    showNotification('AC updated');
+  } catch (error) {
+    alert('Failed to update AC: ' + error.message);
+  }
+}
+
+async function useSpellSlot(level) {
+  if (!spellSlotsModalCharId) return;
+
+  try {
+    const result = await api(`/api/characters/${spellSlotsModalCharId}/spell-slots`, 'POST', {
+      action: 'use',
+      level: level
+    });
+
+    const charIdx = characters.findIndex(c => c.id === spellSlotsModalCharId);
+    if (charIdx !== -1) {
+      characters[charIdx] = result.character;
+      renderSpellSlotsList(result.character);
+    }
+    loadCharacters();
+  } catch (error) {
+    alert('Failed to use spell slot: ' + error.message);
+  }
+}
+
+async function restoreSpellSlot(level) {
+  if (!spellSlotsModalCharId) return;
+
+  try {
+    const result = await api(`/api/characters/${spellSlotsModalCharId}/spell-slots`, 'POST', {
+      action: 'restore',
+      level: level
+    });
+
+    const charIdx = characters.findIndex(c => c.id === spellSlotsModalCharId);
+    if (charIdx !== -1) {
+      characters[charIdx] = result.character;
+      renderSpellSlotsList(result.character);
+    }
+    loadCharacters();
+  } catch (error) {
+    alert('Failed to restore spell slot: ' + error.message);
+  }
+}
+
+async function longRest() {
+  if (!spellSlotsModalCharId) return;
+
+  try {
+    const result = await api(`/api/characters/${spellSlotsModalCharId}/spell-slots`, 'POST', {
+      action: 'rest'
+    });
+
+    const charIdx = characters.findIndex(c => c.id === spellSlotsModalCharId);
+    if (charIdx !== -1) {
+      characters[charIdx] = result.character;
+      renderSpellSlotsList(result.character);
+    }
+    loadCharacters();
+    showNotification('All spell slots restored!');
+  } catch (error) {
+    alert('Failed to restore spell slots: ' + error.message);
+  }
+}
+
+async function addSpellSlotLevel() {
+  if (!spellSlotsModalCharId) return;
+
+  const level = document.getElementById('new-slot-level').value;
+  const maxSlots = parseInt(document.getElementById('new-slot-max').value) || 2;
+
+  const char = characters.find(c => c.id === spellSlotsModalCharId);
+  if (!char) return;
+
+  let spellSlots = {};
+  try {
+    spellSlots = JSON.parse(char.spell_slots || '{}');
+  } catch (e) {
+    spellSlots = {};
+  }
+
+  spellSlots[level] = { max: maxSlots, used: 0 };
+
+  try {
+    const result = await api(`/api/characters/${spellSlotsModalCharId}/spell-slots`, 'POST', {
+      action: 'set',
+      slots: spellSlots
+    });
+
+    const charIdx = characters.findIndex(c => c.id === spellSlotsModalCharId);
+    if (charIdx !== -1) {
+      characters[charIdx] = result.character;
+      renderSpellSlotsList(result.character);
+    }
+    loadCharacters();
+  } catch (error) {
+    alert('Failed to add spell slot level: ' + error.message);
+  }
+}
+
+async function removeSpellSlotLevel(level) {
+  if (!spellSlotsModalCharId) return;
+
+  const char = characters.find(c => c.id === spellSlotsModalCharId);
+  if (!char) return;
+
+  let spellSlots = {};
+  try {
+    spellSlots = JSON.parse(char.spell_slots || '{}');
+  } catch (e) {
+    spellSlots = {};
+  }
+
+  delete spellSlots[level];
+
+  try {
+    const result = await api(`/api/characters/${spellSlotsModalCharId}/spell-slots`, 'POST', {
+      action: 'set',
+      slots: spellSlots
+    });
+
+    const charIdx = characters.findIndex(c => c.id === spellSlotsModalCharId);
+    if (charIdx !== -1) {
+      characters[charIdx] = result.character;
+      renderSpellSlotsList(result.character);
+    }
+    loadCharacters();
+  } catch (error) {
+    alert('Failed to remove spell slot level: ' + error.message);
   }
 }
 

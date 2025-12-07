@@ -114,6 +114,12 @@ if (!columns.includes('gold')) {
 if (!columns.includes('inventory')) {
   db.exec("ALTER TABLE characters ADD COLUMN inventory TEXT DEFAULT '[]'");
 }
+if (!columns.includes('ac')) {
+  db.exec('ALTER TABLE characters ADD COLUMN ac INTEGER DEFAULT 10');
+}
+if (!columns.includes('spell_slots')) {
+  db.exec("ALTER TABLE characters ADD COLUMN spell_slots TEXT DEFAULT '{}'");
+}
 
 // Migrate game_sessions table - add compacted_count column
 const sessionColumns = db.prepare("PRAGMA table_info(game_sessions)").all().map(c => c.name);
@@ -212,6 +218,18 @@ Examples:
 - "You find a chest containing 100 gold pieces! [GOLD: Thorin +50, Elara +50]"
 - "The merchant sells you a healing potion. [GOLD: Grimm -25] [ITEM: Grimm +Healing Potion]"
 - "Elara drinks her health potion. [ITEM: Elara -Health Potion]"
+
+SPELL SLOT TRACKING:
+When a spellcaster uses a spell slot, track it using this format:
+[SPELL: CharacterName -1st] (uses one 1st level slot)
+[SPELL: CharacterName -3rd] (uses one 3rd level slot)
+
+When spell slots are restored (long rest), use:
+[SPELL: CharacterName +REST] (restores all spell slots)
+
+Examples:
+- "Elara casts Magic Missile using a 1st level slot. [SPELL: Elara -1st]"
+- "The party takes a long rest. [SPELL: Elara +REST] [SPELL: Grimm +REST]"
 
 Wait for all players to submit their actions before narrating the outcome.`;
 
@@ -418,6 +436,65 @@ app.post('/api/characters/:id/reset-xp', checkPassword, (req, res) => {
   const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
   io.emit('character_updated', updatedChar);
   res.json({ character: updatedChar });
+});
+
+// Update AC
+app.post('/api/characters/:id/ac', checkPassword, (req, res) => {
+  const { ac } = req.body;
+  const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
+
+  if (!character) {
+    return res.status(404).json({ error: 'Character not found' });
+  }
+
+  db.prepare('UPDATE characters SET ac = ? WHERE id = ?').run(ac, req.params.id);
+
+  const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
+  io.emit('character_updated', updatedChar);
+  res.json({ character: updatedChar });
+});
+
+// Get/Update spell slots
+app.post('/api/characters/:id/spell-slots', checkPassword, (req, res) => {
+  const { action, level, slots } = req.body; // action: 'use', 'restore', 'rest', 'set'
+  const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
+
+  if (!character) {
+    return res.status(404).json({ error: 'Character not found' });
+  }
+
+  let spellSlots = {};
+  try {
+    spellSlots = JSON.parse(character.spell_slots || '{}');
+  } catch (e) {
+    spellSlots = {};
+  }
+
+  if (action === 'use' && level) {
+    // Use a spell slot
+    if (spellSlots[level]) {
+      spellSlots[level].used = Math.min((spellSlots[level].used || 0) + 1, spellSlots[level].max || 0);
+    }
+  } else if (action === 'restore' && level) {
+    // Restore a spell slot
+    if (spellSlots[level]) {
+      spellSlots[level].used = Math.max((spellSlots[level].used || 0) - 1, 0);
+    }
+  } else if (action === 'rest') {
+    // Long rest - restore all slots
+    for (const lvl in spellSlots) {
+      spellSlots[lvl].used = 0;
+    }
+  } else if (action === 'set' && slots) {
+    // Set spell slots directly (for character setup)
+    spellSlots = slots;
+  }
+
+  db.prepare('UPDATE characters SET spell_slots = ? WHERE id = ?').run(JSON.stringify(spellSlots), req.params.id);
+
+  const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
+  io.emit('character_updated', updatedChar);
+  res.json({ character: updatedChar, spellSlots });
 });
 
 // Update gold for a character
@@ -1372,6 +1449,60 @@ Please narrate the outcome of these actions and describe what happens next.`;
 
             db.prepare('UPDATE characters SET inventory = ? WHERE id = ?').run(JSON.stringify(inventory), char.id);
             io.emit('character_updated', { ...char, inventory: JSON.stringify(inventory) });
+          }
+        }
+      }
+    }
+  }
+
+  // Parse and update SPELL SLOTS from AI response
+  // Format: [SPELL: CharacterName -1st] or [SPELL: CharacterName +REST]
+  const spellMatches = aiResponse.match(/\[SPELL:([^\]]+)\]/gi);
+  if (spellMatches) {
+    for (const match of spellMatches) {
+      const spellAwards = match.replace(/\[SPELL:/i, '').replace(']', '').split(',');
+      for (const award of spellAwards) {
+        const spellMatch = award.trim().match(/(.+?)\s*([+-])(.+)/);
+        if (spellMatch) {
+          const charName = spellMatch[1].trim();
+          const isAdding = spellMatch[2] === '+';
+          const slotLevel = spellMatch[3].trim().toLowerCase();
+
+          const char = characters.find(c => c.character_name.toLowerCase() === charName.toLowerCase());
+          if (char) {
+            let spellSlots = {};
+            try {
+              spellSlots = JSON.parse(char.spell_slots || '{}');
+            } catch (e) {
+              spellSlots = {};
+            }
+
+            if (slotLevel === 'rest') {
+              // Restore all spell slots to max
+              for (const level in spellSlots) {
+                if (spellSlots[level].max) {
+                  spellSlots[level].used = 0;
+                }
+              }
+            } else {
+              // Parse slot level (1st, 2nd, 3rd, etc.)
+              const levelNum = slotLevel.replace(/[^0-9]/g, '');
+              if (levelNum && spellSlots[levelNum]) {
+                if (!isAdding) {
+                  // Using a spell slot
+                  spellSlots[levelNum].used = Math.min(
+                    (spellSlots[levelNum].used || 0) + 1,
+                    spellSlots[levelNum].max || 0
+                  );
+                } else {
+                  // Restoring a spell slot
+                  spellSlots[levelNum].used = Math.max((spellSlots[levelNum].used || 0) - 1, 0);
+                }
+              }
+            }
+
+            db.prepare('UPDATE characters SET spell_slots = ? WHERE id = ?').run(JSON.stringify(spellSlots), char.id);
+            io.emit('character_updated', { ...char, spell_slots: JSON.stringify(spellSlots) });
           }
         }
       }

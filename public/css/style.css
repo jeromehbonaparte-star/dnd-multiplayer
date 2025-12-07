@@ -1455,3 +1455,244 @@ nav {
 .party-btn-levelup:hover {
   background: #5eead4;
 }
+
+/* AC Display */
+.ac-display {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-dark);
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.ac-display .ac-label {
+  color: var(--text-muted);
+  font-weight: normal;
+}
+
+.ac-display .ac-value {
+  color: #60a5fa;
+}
+
+/* Spell Slots Display */
+.spell-slots-display {
+  font-size: 11px;
+  margin-top: 4px;
+  color: var(--text-muted);
+}
+
+.spell-slots-display .slot-level {
+  display: inline-block;
+  margin-right: 8px;
+}
+
+.spell-slots-display .slot-available {
+  color: #a78bfa;
+}
+
+.spell-slots-display .slot-used {
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+
+/* Spell Slots Button */
+.character-card .btn-spells {
+  background: #a78bfa;
+  color: #1a1a2e;
+}
+
+.character-card .btn-spells:hover {
+  background: #c4b5fd;
+}
+
+.party-btn-spells {
+  background: #a78bfa !important;
+  color: #1a1a2e !important;
+}
+
+.party-btn-spells:hover {
+  background: #c4b5fd !important;
+}
+
+/* Spell Slots Modal */
+.spell-slots-modal-content {
+  max-width: 500px;
+}
+
+.ac-section {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 15px;
+  background: var(--bg-dark);
+  border-radius: 8px;
+  margin-bottom: 15px;
+}
+
+.ac-section label {
+  color: #60a5fa;
+  font-weight: bold;
+}
+
+.ac-section input {
+  width: 80px;
+  padding: 8px;
+  border: none;
+  border-radius: 4px;
+  background: var(--bg-light);
+  color: var(--text);
+  font-size: 16px;
+  text-align: center;
+}
+
+.spell-slots-section {
+  background: var(--bg-dark);
+  border-radius: 8px;
+  padding: 15px;
+}
+
+.spell-slots-section h3 {
+  color: #a78bfa;
+  margin-bottom: 15px;
+  font-size: 14px;
+}
+
+#spell-slots-list {
+  max-height: 250px;
+  overflow-y: auto;
+  margin-bottom: 15px;
+}
+
+.spell-slot-row {
+  display: flex;
+  align-items: center;
+  padding: 10px;
+  background: var(--bg-light);
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+
+.spell-slot-level {
+  font-weight: bold;
+  color: #a78bfa;
+  min-width: 80px;
+}
+
+.spell-slot-pips {
+  display: flex;
+  gap: 6px;
+  flex: 1;
+  margin: 0 10px;
+}
+
+.spell-pip {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid #a78bfa;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.spell-pip.available {
+  background: #a78bfa;
+}
+
+.spell-pip.used {
+  background: transparent;
+}
+
+.spell-pip:hover {
+  transform: scale(1.1);
+  box-shadow: 0 0 8px #a78bfa;
+}
+
+.spell-slot-controls {
+  display: flex;
+  gap: 5px;
+}
+
+.spell-slot-controls button {
+  padding: 4px 8px;
+  font-size: 11px;
+  background: var(--bg-dark);
+  color: var(--text);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.spell-slot-controls button:hover {
+  background: var(--accent);
+}
+
+.spell-slot-controls .btn-remove {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--text-muted);
+}
+
+.spell-slot-controls .btn-remove:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.spell-slots-add {
+  display: flex;
+  gap: 10px;
+  padding-top: 15px;
+  border-top: 1px solid var(--bg-light);
+  margin-top: 10px;
+}
+
+.spell-slots-add select {
+  padding: 8px;
+  border: none;
+  border-radius: 4px;
+  background: var(--bg-light);
+  color: var(--text);
+  font-size: 14px;
+}
+
+.spell-slots-add input {
+  width: 80px;
+  padding: 8px;
+  border: none;
+  border-radius: 4px;
+  background: var(--bg-light);
+  color: var(--text);
+  text-align: center;
+}
+
+.btn-rest {
+  width: 100%;
+  margin-top: 15px;
+  padding: 12px;
+  background: #4ade80;
+  color: #1a1a2e;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background 0.3s;
+}
+
+.btn-rest:hover {
+  background: #86efac;
+}
+
+/* Party Spell Slots Display */
+.party-spells {
+  font-size: 10px;
+  color: #a78bfa;
+  margin-top: 2px;
+}
+
+.party-ac {
+  color: #60a5fa;
+  font-size: 11px;
+}

@@ -193,6 +193,42 @@
     </div>
   </div>
 
+  <!-- Spell Slots Modal -->
+  <div id="spell-slots-modal" class="modal">
+    <div class="modal-content spell-slots-modal-content">
+      <span class="modal-close" onclick="closeSpellSlotsModal()">&times;</span>
+      <h2 id="spell-slots-modal-title">Spell Slots & AC</h2>
+      <div class="ac-section">
+        <label>Armor Class (AC):</label>
+        <input type="number" id="ac-input" min="1" max="30" value="10">
+        <button onclick="updateAC()" class="btn-small">Update</button>
+      </div>
+      <div class="spell-slots-section">
+        <h3>Spell Slots</h3>
+        <div id="spell-slots-list"></div>
+        <div class="spell-slots-add">
+          <select id="new-slot-level">
+            <option value="1">1st Level</option>
+            <option value="2">2nd Level</option>
+            <option value="3">3rd Level</option>
+            <option value="4">4th Level</option>
+            <option value="5">5th Level</option>
+            <option value="6">6th Level</option>
+            <option value="7">7th Level</option>
+            <option value="8">8th Level</option>
+            <option value="9">9th Level</option>
+          </select>
+          <input type="number" id="new-slot-max" min="1" max="10" value="2" placeholder="Max slots">
+          <button onclick="addSpellSlotLevel()" class="btn-small">Add</button>
+        </div>
+        <button onclick="longRest()" class="btn-rest">Long Rest (Restore All)</button>
+      </div>
+      <div class="modal-buttons">
+        <button onclick="closeSpellSlotsModal()" class="btn-secondary">Close</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Admin Login Modal -->
   <div id="admin-modal" class="modal">
     <div class="modal-content admin-login-modal">
