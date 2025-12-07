@@ -8,6 +8,8 @@ A real-time multiplayer D&D (Dungeons & Dragons 5e) web application with an AI-p
 **Deployment:** Easypanel on Linode
 **Repository:** `github.com/jeromehbonaparte-star/dnd-multiplayer`
 
+> **Note:** See [UPDATE.md](UPDATE.md) for a guide on updating and maintaining this project.
+
 ---
 
 ## Tech Stack
@@ -53,7 +55,19 @@ dnd-multiplayer/
 key TEXT PRIMARY KEY
 value TEXT
 ```
-Keys: `game_password`, `admin_password`, `api_endpoint`, `api_key`, `api_model`, `max_tokens_before_compact`
+Keys: `game_password`, `admin_password`, `max_tokens_before_compact`
+(Note: API settings have been moved to `api_configs` table)
+
+**api_configs** (Multiple API Configuration Support)
+```sql
+id TEXT PRIMARY KEY
+name TEXT NOT NULL              -- Display name (e.g., "OpenAI GPT-4", "DeepSeek")
+endpoint TEXT NOT NULL          -- API endpoint URL
+api_key TEXT NOT NULL           -- API key (masked in UI)
+model TEXT NOT NULL             -- Model name
+is_active INTEGER DEFAULT 0     -- Only one can be active at a time
+created_at DATETIME
+```
 
 **characters**
 ```sql
@@ -61,8 +75,9 @@ id TEXT PRIMARY KEY
 player_name TEXT
 character_name TEXT
 race TEXT
-class TEXT
-level INTEGER DEFAULT 1
+class TEXT                      -- Primary class (highest level)
+classes TEXT DEFAULT '{}'       -- JSON: {"Fighter": 5, "Wizard": 2} for multiclass
+level INTEGER DEFAULT 1         -- Total character level
 strength INTEGER
 dexterity INTEGER
 constitution INTEGER
@@ -73,9 +88,10 @@ hp INTEGER
 max_hp INTEGER
 xp INTEGER DEFAULT 0
 gold INTEGER DEFAULT 0
-inventory TEXT DEFAULT '[]'  -- JSON array of {name, quantity}
-ac INTEGER DEFAULT 10        -- Armor Class with all bonuses
-spell_slots TEXT DEFAULT '{}' -- JSON object {level: {current, max}}
+inventory TEXT DEFAULT '[]'     -- JSON array of {name, quantity}
+ac INTEGER DEFAULT 10           -- Armor Class with all bonuses
+spell_slots TEXT DEFAULT '{}'   -- JSON object {level: {current, max}}
+feats TEXT DEFAULT ''           -- Comma-separated feats
 skills TEXT
 spells TEXT
 passives TEXT
@@ -116,7 +132,8 @@ created_at DATETIME
 ### 2. AI-Guided Character Creation
 - Chat-based character creation flow
 - AI guides player through race, class, stats, skills, spells selection
-- Creates Level 1 D&D 5e characters
+- **Variant Human** support with starting feat selection
+- Creates Level 1 D&D 5e characters with proper `classes` JSON
 - Endpoint: `POST /api/characters/ai-create`
 
 ### 3. Turn-Based Gameplay
@@ -195,20 +212,77 @@ created_at DATETIME
 **Level Up (Interactive Chat):**
 - Opens a chat modal when clicking "Level Up" button
 - AI guides player through the level up process conversationally
+- **Multiclass support:** AI asks if player wants to continue in current class or multiclass
+- Shows multiclass requirements (13+ in key ability for each class)
 - Covers: HP increase (rolls hit die + CON mod), new class features, spell selection
-- At levels 4, 8, 12, 16, 19: AI asks about Ability Score Improvements
+- At class levels 4, 8, 12, 16, 19: AI offers **ASI or Feat** choice
+- Properly updates `classes` JSON for multiclass tracking
 - Player can discuss choices before finalizing
 - Endpoint: `POST /api/characters/:id/levelup` (with `messages` array for conversation)
 
 **Character Editing:**
 - Opens chat modal for free-form editing
-- Can update stats, equipment, spells, skills, backstory, etc.
+- Can update stats, equipment, spells, skills, backstory, **feats, multiclass info**
+- Supports editing `classes` JSON directly
 - AI confirms changes before applying
 - Endpoint: `POST /api/characters/:id/edit`
 
 **Party Sidebar Quick Actions:**
 - Inventory button: Opens inventory management modal
 - Level Up button: Highlighted green when ready, disabled when not enough XP
+
+### 6b. Feats & Multiclassing System
+
+**Feats:**
+- Characters can have feats (special abilities)
+- Variant Humans get one feat at level 1
+- Other characters can take a feat instead of ASI at levels 4, 8, 12, 16, 19
+- Feats are comma-separated in the database
+- Common feats: Great Weapon Master, Sharpshooter, Sentinel, Lucky, War Caster, Alert, Mobile, Tough, Polearm Master, Crossbow Expert
+- DM AI is aware of feat mechanics and uses them in combat narration
+
+**Multiclassing:**
+- Characters can have levels in multiple classes
+- Stored as JSON: `{"Fighter": 5, "Wizard": 2}`
+- `class` field holds the primary class (highest level)
+- `level` is total character level (sum of all classes)
+- Display format: "Fighter 5 / Wizard 2"
+- Level up asks which class to level
+- Multiclass requirements enforced (13+ in key ability)
+
+**Multiclass Requirements:**
+| Class | Required Ability Score |
+|-------|----------------------|
+| Barbarian | STR 13 |
+| Bard | CHA 13 |
+| Cleric | WIS 13 |
+| Druid | WIS 13 |
+| Fighter | STR 13 or DEX 13 |
+| Monk | DEX 13 and WIS 13 |
+| Paladin | STR 13 and CHA 13 |
+| Ranger | DEX 13 and WIS 13 |
+| Rogue | DEX 13 |
+| Sorcerer | CHA 13 |
+| Warlock | CHA 13 |
+| Wizard | INT 13 |
+
+### 6c. Multiple API Configurations
+
+**Features:**
+- Store multiple API providers (OpenAI, DeepSeek, local LLMs, etc.)
+- Each config has: name, endpoint, API key, model
+- Only one config can be active at a time
+- Switch between providers by activating different configs
+- Test connections before adding or after configuring
+- Cannot delete the last remaining config
+
+**API Config Management:**
+- View all configs as cards in Settings tab
+- Active config highlighted with gold border
+- Add new configurations with optional "set as active" checkbox
+- Edit existing configurations (API key optional - leave blank to keep current)
+- Delete inactive configurations
+- Test any configuration
 
 ### 7. Built-in Dice Rolling
 - AI DM rolls dice and calculates results
@@ -228,10 +302,18 @@ created_at DATETIME
 - `POST /api/auth` - Verify game password
 - `POST /api/admin-auth` - Verify admin password
 
-### Settings (Admin only)
-- `GET /api/settings` - Get all settings
-- `POST /api/settings` - Update settings
-- `POST /api/test-connection` - Test AI API connection
+### Settings
+- `GET /api/settings` - Get general settings (admin only)
+- `POST /api/settings` - Update general settings (admin only)
+- `POST /api/test-connection` - Test AI API connection with provided credentials
+
+### API Configurations
+- `GET /api/api-configs` - List all API configurations (keys masked)
+- `POST /api/api-configs` - Create new API configuration
+- `PUT /api/api-configs/:id` - Update API configuration
+- `DELETE /api/api-configs/:id` - Delete API configuration
+- `POST /api/api-configs/:id/activate` - Set configuration as active
+- `POST /api/test-connection/:id` - Test specific API configuration
 
 ### Characters
 - `GET /api/characters` - List all characters
@@ -356,6 +438,8 @@ Nav bar uses `position: sticky; top: 0; z-index: 100;` to stay visible on scroll
 ### Character Cards (Characters Tab)
 Each character card displays:
 - Character name, player name, race/class/level
+- **Multiclass display:** Shows "Fighter 5 / Wizard 2" format if multiclassed
+- **Feats:** Shows list of character feats (if any)
 - 6 ability scores (STR, DEX, CON, INT, WIS, CHA)
 - HP bar, AC, and gold amount
 - Spell slots (if any) with available/used display
@@ -367,19 +451,21 @@ Each character card displays:
 ### Party Sidebar (Game Tab)
 Shows all characters with:
 - Name and level
-- Race/class info
+- Race/class info (multiclass format if applicable)
 - HP, AC, gold, XP (with "Ready!" indicator)
 - Spell slots (if any)
+- Feats (if any)
 - All 6 stats in compact view
 - Skills, spells, passives, items
 - Quick action buttons: Inventory, Spells, Level Up
 
 ### Modals
-- **Edit Modal:** Chat interface for AI-assisted character editing
-- **Level Up Modal:** Chat interface for guided level up
+- **Edit Modal:** Chat interface for AI-assisted character editing (supports feats and multiclass)
+- **Level Up Modal:** Chat interface for guided level up (multiclass and ASI/Feat choices)
 - **Inventory Modal:** Direct management of gold and items
 - **Spell Slots Modal:** AC editor and visual spell slot management with pip interface
 - **Admin Login Modal:** Password entry for settings access
+- **API Edit Modal:** Edit existing API configurations (name, endpoint, model, key)
 
 ### Helper Functions (Frontend)
 - `escapeHtml(str)` - Prevents XSS in user-generated content
@@ -483,6 +569,9 @@ The Dockerfile:
 - [x] Party sidebar quick actions (implemented!)
 - [x] AC (Armor Class) tracking (implemented!)
 - [x] Spell Slots tracking with visual UI (implemented!)
+- [x] Feats system with Variant Human support (implemented!)
+- [x] Multiclassing with JSON class tracking (implemented!)
+- [x] Multiple API configurations (implemented!)
 - [ ] Combat tracker with initiative
 - [ ] Map/image uploads
 - [ ] Multiple campaigns per session
