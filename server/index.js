@@ -65,7 +65,8 @@ db.exec(`
 
 // Initialize default settings if not exist
 const initSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
-initSetting.run('game_password', bcrypt.hashSync('khrisjeromednd', 10));
+const defaultPassword = process.env.GAME_PASSWORD || 'changeme';
+initSetting.run('game_password', bcrypt.hashSync(defaultPassword, 10));
 initSetting.run('api_endpoint', 'https://api.openai.com/v1/chat/completions');
 initSetting.run('api_key', '');
 initSetting.run('api_model', 'gpt-4');
