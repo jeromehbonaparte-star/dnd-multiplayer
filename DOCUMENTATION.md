@@ -74,6 +74,8 @@ max_hp INTEGER
 xp INTEGER DEFAULT 0
 gold INTEGER DEFAULT 0
 inventory TEXT DEFAULT '[]'  -- JSON array of {name, quantity}
+ac INTEGER DEFAULT 10        -- Armor Class with all bonuses
+spell_slots TEXT DEFAULT '{}' -- JSON object {level: {current, max}}
 skills TEXT
 spells TEXT
 passives TEXT
@@ -168,6 +170,22 @@ created_at DATETIME
 - Inventory displayed in character cards with collapsible view
 - Inventory modal for manual management (add/remove items, update gold)
 
+### 5c. AC & Spell Slots System
+**Armor Class (AC):**
+- AC is tracked with all bonuses applied
+- Default AC is 10
+- Can be manually updated via Spell Slots modal
+- Displayed in character cards and party sidebar
+
+**Spell Slots:**
+- AI tracks spell slot usage using format: `[SPELL: CharacterName -1st]` (uses one 1st level slot)
+- AI tracks spell slot restoration: `[SPELL: CharacterName +REST]` (restores all slots)
+- Spell slots stored as JSON: `{level: {current: X, max: Y}}`
+- Visual pip interface in Spell Slots modal (click to use/restore)
+- Long Rest button restores all spell slots
+- Add/remove spell slot levels for class flexibility
+- Displayed in character cards and party sidebar
+
 ### 6. AI-Assisted Level Up & Editing
 
 **Level Up (Interactive Chat):**
@@ -223,6 +241,8 @@ created_at DATETIME
 - `POST /api/characters/:id/gold` - Update character gold (`{ amount: number }`)
 - `GET /api/characters/:id/inventory` - Get character inventory and gold
 - `POST /api/characters/:id/inventory` - Manage inventory (`{ action: 'add'|'remove'|'set', item: string, quantity: number }`)
+- `POST /api/characters/:id/ac` - Update character AC (`{ ac: number }`)
+- `POST /api/characters/:id/spell-slots` - Manage spell slots (`{ action: 'use'|'restore'|'set'|'rest'|'add'|'remove', level: number, current?: number, max?: number }`)
 
 ### Sessions
 - `GET /api/sessions` - List all sessions
@@ -260,8 +280,9 @@ The system prompt is hardcoded in `server/index.js` as `DEFAULT_SYSTEM_PROMPT`. 
 - XP award format: `[XP: CharacterName +100]`
 - Gold award format: `[GOLD: CharacterName +50]`
 - Item tracking format: `[ITEM: CharacterName +Sword of Fire]`
+- Spell slot tracking format: `[SPELL: CharacterName -1st]` or `[SPELL: CharacterName +REST]`
 
-**Important:** This is NOT editable via settings to ensure XP/gold/inventory tracking always works.
+**Important:** This is NOT editable via settings to ensure XP/gold/inventory/spell tracking always works.
 
 ---
 
@@ -314,25 +335,28 @@ Nav bar uses `position: sticky; top: 0; z-index: 100;` to stay visible on scroll
 Each character card displays:
 - Character name, player name, race/class/level
 - 6 ability scores (STR, DEX, CON, INT, WIS, CHA)
-- HP bar and gold amount
+- HP bar, AC, and gold amount
+- Spell slots (if any) with available/used display
 - XP progress bar with current/required XP
 - Collapsible inventory section
 - Skills, spells, and passives (if any)
-- Action buttons: Edit, Inventory, Level Up, Reset XP
+- Action buttons: Edit, Inventory, Spells, Level Up, Reset XP
 
 ### Party Sidebar (Game Tab)
 Shows all characters with:
 - Name and level
 - Race/class info
-- HP, gold, XP (with "Ready!" indicator)
+- HP, AC, gold, XP (with "Ready!" indicator)
+- Spell slots (if any)
 - All 6 stats in compact view
 - Skills, spells, passives, items
-- Quick action buttons: Inventory, Level Up
+- Quick action buttons: Inventory, Spells, Level Up
 
 ### Modals
 - **Edit Modal:** Chat interface for AI-assisted character editing
 - **Level Up Modal:** Chat interface for guided level up
 - **Inventory Modal:** Direct management of gold and items
+- **Spell Slots Modal:** AC editor and visual spell slot management with pip interface
 - **Admin Login Modal:** Password entry for settings access
 
 ### Helper Functions (Frontend)
@@ -340,6 +364,8 @@ Shows all characters with:
 - `formatChatMessage(msg)` - Converts markdown-like formatting to HTML
 - `getRequiredXP(level)` - Returns XP needed for next level
 - `canLevelUp(xp, level)` - Checks if character can level up
+- `formatSpellSlots(spellSlots)` - Formats spell slots for character cards
+- `formatSpellSlotsShort(spellSlots)` - Compact format for party sidebar
 
 ---
 
@@ -433,6 +459,8 @@ The Dockerfile:
 - [x] Interactive level up with AI chat (implemented!)
 - [x] Reset XP feature (implemented!)
 - [x] Party sidebar quick actions (implemented!)
+- [x] AC (Armor Class) tracking (implemented!)
+- [x] Spell Slots tracking with visual UI (implemented!)
 - [ ] Combat tracker with initiative
 - [ ] Map/image uploads
 - [ ] Multiple campaigns per session
