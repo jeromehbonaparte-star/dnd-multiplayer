@@ -34,6 +34,15 @@ function initSocket() {
       }
     }
   });
+
+  socket.on('character_updated', (character) => {
+    loadCharacters();
+  });
+
+  socket.on('character_leveled_up', ({ character, summary }) => {
+    loadCharacters();
+    showNotification(`${character.character_name} leveled up to ${character.level}! ${summary}`);
+  });
 }
 
 // API helper
@@ -303,11 +312,28 @@ async function loadCharacters() {
   }
 }
 
+// XP requirements for each level
+const XP_TABLE = [0, 300, 900, 2700, 6500, 14000, 23000, 34000, 48000, 64000, 85000, 100000, 120000, 140000, 165000, 195000, 225000, 265000, 305000, 355000];
+
+function getRequiredXP(level) {
+  return XP_TABLE[level] || 355000;
+}
+
+function canLevelUp(xp, level) {
+  return xp >= getRequiredXP(level);
+}
+
 function renderCharactersList() {
   const grid = document.getElementById('characters-grid');
-  grid.innerHTML = characters.map(c => `
-    <div class="character-card">
-      <button class="delete-btn" onclick="deleteCharacter('${c.id}')">Delete</button>
+  grid.innerHTML = characters.map(c => {
+    const xp = c.xp || 0;
+    const requiredXP = getRequiredXP(c.level);
+    const xpPercent = Math.min((xp / requiredXP) * 100, 100);
+    const canLevel = canLevelUp(xp, c.level);
+
+    return `
+    <div class="character-card" data-id="${c.id}">
+      <button class="delete-btn" onclick="deleteCharacter('${c.id}')">X</button>
       <h3>${c.character_name}</h3>
       <div class="player">Played by ${c.player_name}</div>
       <div class="race-class">${c.race} ${c.class} (Level ${c.level})</div>
@@ -320,8 +346,17 @@ function renderCharactersList() {
         <div class="stat">${c.charisma}<span>CHA</span></div>
       </div>
       <div class="hp">HP: ${c.hp}/${c.max_hp}</div>
+      <div class="xp-bar"><div class="xp-fill" style="width: ${xpPercent}%"></div></div>
+      <div class="xp-text">XP: ${xp} / ${requiredXP}</div>
+      ${c.skills ? `<div class="details"><strong>Skills:</strong> ${c.skills}</div>` : ''}
+      ${c.spells ? `<div class="details"><strong>Spells:</strong> ${c.spells}</div>` : ''}
+      ${c.passives ? `<div class="details"><strong>Passives:</strong> ${c.passives}</div>` : ''}
+      <div class="btn-row">
+        <button class="btn-edit" onclick="openEditModal('${c.id}')">Edit</button>
+        <button class="btn-levelup" onclick="levelUpCharacter('${c.id}')" ${canLevel ? '' : 'disabled'}>${canLevel ? 'Level Up!' : 'Need XP'}</button>
+      </div>
     </div>
-  `).join('');
+  `}).join('');
 }
 
 function updateCharacterSelect() {
@@ -495,10 +530,114 @@ async function forceProcessTurn() {
 }
 
 function showNotification(message) {
-  alert(message); // Simple notification for now
+  const notif = document.getElementById('levelup-notification');
+  notif.querySelector('.notification-text').textContent = message;
+  notif.classList.remove('hidden');
 }
 
-// Enter key for login
+function hideLevelUpNotification() {
+  document.getElementById('levelup-notification').classList.add('hidden');
+}
+
+// Mobile menu toggle
+function toggleMobileMenu() {
+  document.getElementById('nav-tabs').classList.toggle('active');
+}
+
+// Modal functions
+let modalCharacterId = null;
+let modalMessages = [];
+let modalMode = 'edit'; // 'edit' or 'levelup'
+
+function openEditModal(charId) {
+  modalCharacterId = charId;
+  modalMessages = [];
+  modalMode = 'edit';
+
+  const char = characters.find(c => c.id === charId);
+  document.getElementById('modal-title').textContent = `Edit ${char.character_name}`;
+  document.getElementById('modal-chat-messages').innerHTML = `
+    <div class="chat-message assistant">
+      <div class="message-content">What would you like to change about ${char.character_name}? You can ask me to update stats, equipment, spells, skills, or anything else.</div>
+    </div>
+  `;
+  document.getElementById('modal-input').value = '';
+  document.getElementById('char-modal').classList.add('active');
+}
+
+function closeModal() {
+  document.getElementById('char-modal').classList.remove('active');
+  modalCharacterId = null;
+  modalMessages = [];
+}
+
+async function sendModalMessage() {
+  const input = document.getElementById('modal-input');
+  const message = input.value.trim();
+
+  if (!message || !modalCharacterId) return;
+
+  input.value = '';
+  const messagesContainer = document.getElementById('modal-chat-messages');
+
+  // Add user message
+  messagesContainer.innerHTML += `<div class="chat-message user"><div class="message-content">${escapeHtml(message)}</div></div>`;
+  messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+  modalMessages.push({ role: 'user', content: message });
+
+  // Add loading indicator
+  messagesContainer.innerHTML += '<div class="chat-message assistant" id="modal-loading"><div class="message-content">Thinking...</div></div>';
+  messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+  try {
+    const result = await api(`/api/characters/${modalCharacterId}/edit`, 'POST', {
+      editRequest: modalMessages.length === 1 ? message : undefined,
+      messages: modalMessages
+    });
+
+    document.getElementById('modal-loading')?.remove();
+
+    modalMessages.push({ role: 'assistant', content: result.message });
+    messagesContainer.innerHTML += `<div class="chat-message assistant"><div class="message-content">${formatChatMessage(result.message)}</div></div>`;
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+    if (result.complete) {
+      loadCharacters();
+      messagesContainer.innerHTML += `<div class="chat-message assistant"><div class="message-content"><strong>Changes saved!</strong></div></div>`;
+    }
+  } catch (error) {
+    document.getElementById('modal-loading')?.remove();
+    messagesContainer.innerHTML += `<div class="chat-message assistant"><div class="message-content">Error: ${error.message}</div></div>`;
+  }
+}
+
+async function levelUpCharacter(charId) {
+  const char = characters.find(c => c.id === charId);
+  if (!char) return;
+
+  if (!confirm(`Level up ${char.character_name} to level ${char.level + 1}?`)) return;
+
+  try {
+    const result = await api(`/api/characters/${charId}/levelup`, 'POST');
+
+    if (result.levelUp) {
+      showNotification(`${char.character_name} is now level ${result.character.level}! ${result.levelUp.summary}`);
+    } else {
+      showNotification(`${char.character_name} leveled up! HP increased by ${result.hpIncrease}.`);
+    }
+
+    loadCharacters();
+  } catch (error) {
+    alert('Level up failed: ' + error.message);
+  }
+}
+
+// Enter key handlers
 document.getElementById('password-input').addEventListener('keypress', (e) => {
   if (e.key === 'Enter') login();
+});
+
+document.getElementById('modal-input')?.addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') sendModalMessage();
 });

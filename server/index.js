@@ -38,6 +38,7 @@ db.exec(`
     race TEXT,
     class TEXT,
     level INTEGER DEFAULT 1,
+    xp INTEGER DEFAULT 0,
     strength INTEGER,
     dexterity INTEGER,
     constitution INTEGER,
@@ -48,6 +49,9 @@ db.exec(`
     max_hp INTEGER,
     background TEXT,
     equipment TEXT,
+    spells TEXT,
+    skills TEXT,
+    passives TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
@@ -70,6 +74,32 @@ db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 `);
+
+// Migrate existing databases - add new columns if they don't exist
+const columns = db.prepare("PRAGMA table_info(characters)").all().map(c => c.name);
+if (!columns.includes('xp')) {
+  db.exec('ALTER TABLE characters ADD COLUMN xp INTEGER DEFAULT 0');
+}
+if (!columns.includes('spells')) {
+  db.exec('ALTER TABLE characters ADD COLUMN spells TEXT');
+}
+if (!columns.includes('skills')) {
+  db.exec('ALTER TABLE characters ADD COLUMN skills TEXT');
+}
+if (!columns.includes('passives')) {
+  db.exec('ALTER TABLE characters ADD COLUMN passives TEXT');
+}
+
+// XP requirements for each level
+const XP_TABLE = [0, 300, 900, 2700, 6500, 14000, 23000, 34000, 48000, 64000, 85000, 100000, 120000, 140000, 165000, 195000, 225000, 265000, 305000, 355000];
+
+function getRequiredXP(level) {
+  return XP_TABLE[level] || 355000;
+}
+
+function canLevelUp(xp, level) {
+  return xp >= getRequiredXP(level);
+}
 
 // Initialize default settings if not exist
 const initSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
@@ -228,6 +258,259 @@ app.delete('/api/characters/:id', checkPassword, (req, res) => {
   res.json({ success: true });
 });
 
+// Award XP to a character
+app.post('/api/characters/:id/xp', checkPassword, (req, res) => {
+  const { amount } = req.body;
+  const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
+
+  if (!character) {
+    return res.status(404).json({ error: 'Character not found' });
+  }
+
+  const newXP = (character.xp || 0) + amount;
+  db.prepare('UPDATE characters SET xp = ? WHERE id = ?').run(newXP, req.params.id);
+
+  const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
+  const canLevel = canLevelUp(newXP, updatedChar.level);
+
+  io.emit('character_updated', updatedChar);
+  res.json({ character: updatedChar, canLevelUp: canLevel, requiredXP: getRequiredXP(updatedChar.level) });
+});
+
+// Level up a character (AI-assisted)
+app.post('/api/characters/:id/levelup', checkPassword, async (req, res) => {
+  const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
+
+  if (!character) {
+    return res.status(404).json({ error: 'Character not found' });
+  }
+
+  if (!canLevelUp(character.xp || 0, character.level)) {
+    return res.status(400).json({
+      error: 'Not enough XP to level up',
+      currentXP: character.xp || 0,
+      requiredXP: getRequiredXP(character.level)
+    });
+  }
+
+  const settings = {};
+  db.prepare('SELECT key, value FROM settings').all().forEach(row => settings[row.key] = row.value);
+
+  if (!settings.api_key) {
+    return res.status(400).json({ error: 'API key not configured' });
+  }
+
+  const newLevel = character.level + 1;
+  const levelUpPrompt = `You are a D&D 5e level up assistant. A character is leveling up from ${character.level} to ${newLevel}.
+
+CHARACTER INFO:
+- Name: ${character.character_name}
+- Race: ${character.race}
+- Class: ${character.class}
+- Current Level: ${character.level}
+- Stats: STR ${character.strength}, DEX ${character.dexterity}, CON ${character.constitution}, INT ${character.intelligence}, WIS ${character.wisdom}, CHA ${character.charisma}
+- Current HP: ${character.max_hp}
+- Current Spells: ${character.spells || 'None'}
+- Current Skills: ${character.skills || 'None'}
+- Current Passives: ${character.passives || 'None'}
+
+Calculate the level up benefits and respond with ONLY this JSON format (no other text):
+LEVELUP_COMPLETE:{"hp_increase":N,"new_spells":"any new spells or cantrips gained","new_skills":"any new skill proficiencies","new_passives":"any new class features or abilities","summary":"Brief description of what the character gained"}
+
+Consider:
+- HP increase: Roll class hit die + CON modifier (${Math.floor((character.constitution - 10) / 2)})
+- New spells for spellcasters at this level
+- New class features (Extra Attack at 5, etc.)
+- Ability Score Improvement at levels 4, 8, 12, 16, 19`;
+
+  try {
+    const response = await fetch(settings.api_endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${settings.api_key}`
+      },
+      body: JSON.stringify({
+        model: settings.api_model,
+        messages: [{ role: 'user', content: levelUpPrompt }],
+        max_tokens: 500
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error('AI API error');
+    }
+
+    const data = await response.json();
+    const aiMessage = extractAIMessage(data);
+
+    if (aiMessage && aiMessage.includes('LEVELUP_COMPLETE:')) {
+      const jsonMatch = aiMessage.match(/LEVELUP_COMPLETE:(\{.*\})/);
+      if (jsonMatch) {
+        const levelData = JSON.parse(jsonMatch[1]);
+
+        // Update character
+        const newMaxHP = character.max_hp + (levelData.hp_increase || 0);
+        const newSpells = character.spells ? `${character.spells}, ${levelData.new_spells}` : levelData.new_spells;
+        const newSkills = character.skills ? `${character.skills}, ${levelData.new_skills}` : levelData.new_skills;
+        const newPassives = character.passives ? `${character.passives}, ${levelData.new_passives}` : levelData.new_passives;
+
+        db.prepare(`
+          UPDATE characters SET level = ?, hp = ?, max_hp = ?, spells = ?, skills = ?, passives = ? WHERE id = ?
+        `).run(newLevel, newMaxHP, newMaxHP, newSpells, newSkills, newPassives, req.params.id);
+
+        const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
+        io.emit('character_updated', updatedChar);
+        io.emit('character_leveled_up', { character: updatedChar, summary: levelData.summary });
+
+        return res.json({ character: updatedChar, levelUp: levelData });
+      }
+    }
+
+    // Fallback manual level up
+    const hpIncrease = Math.floor(Math.random() * 8) + 1 + Math.floor((character.constitution - 10) / 2);
+    db.prepare('UPDATE characters SET level = ?, hp = hp + ?, max_hp = max_hp + ? WHERE id = ?')
+      .run(newLevel, hpIncrease, hpIncrease, req.params.id);
+
+    const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
+    io.emit('character_updated', updatedChar);
+    io.emit('character_leveled_up', { character: updatedChar, summary: `Leveled up to ${newLevel}! HP increased by ${hpIncrease}.` });
+
+    res.json({ character: updatedChar, hpIncrease });
+  } catch (error) {
+    console.error('Level up error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get level up info for a character
+app.get('/api/characters/:id/levelinfo', checkPassword, (req, res) => {
+  const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
+
+  if (!character) {
+    return res.status(404).json({ error: 'Character not found' });
+  }
+
+  res.json({
+    level: character.level,
+    xp: character.xp || 0,
+    requiredXP: getRequiredXP(character.level),
+    canLevelUp: canLevelUp(character.xp || 0, character.level),
+    nextLevelXP: getRequiredXP(character.level)
+  });
+});
+
+// AI-assisted character editing
+app.post('/api/characters/:id/edit', checkPassword, async (req, res) => {
+  const { editRequest, messages } = req.body;
+  const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
+
+  if (!character) {
+    return res.status(404).json({ error: 'Character not found' });
+  }
+
+  const settings = {};
+  db.prepare('SELECT key, value FROM settings').all().forEach(row => settings[row.key] = row.value);
+
+  if (!settings.api_key) {
+    return res.status(400).json({ error: 'API key not configured' });
+  }
+
+  const editPrompt = `You are a D&D 5e character editor assistant. Help modify this character based on the user's request.
+
+CURRENT CHARACTER:
+- Player: ${character.player_name}
+- Name: ${character.character_name}
+- Race: ${character.race}
+- Class: ${character.class}
+- Level: ${character.level}
+- XP: ${character.xp || 0}
+- Stats: STR ${character.strength}, DEX ${character.dexterity}, CON ${character.constitution}, INT ${character.intelligence}, WIS ${character.wisdom}, CHA ${character.charisma}
+- HP: ${character.hp}/${character.max_hp}
+- Background: ${character.background}
+- Equipment: ${character.equipment}
+- Spells: ${character.spells || 'None'}
+- Skills: ${character.skills || 'None'}
+- Passives: ${character.passives || 'None'}
+
+USER'S EDIT REQUEST: ${editRequest}
+
+Discuss the changes with the user. When you have confirmed ALL changes, output the updated character in this EXACT JSON format:
+EDIT_COMPLETE:{"character_name":"...","race":"...","class":"...","strength":N,"dexterity":N,"constitution":N,"intelligence":N,"wisdom":N,"charisma":N,"hp":N,"max_hp":N,"background":"...","equipment":"...","spells":"...","skills":"...","passives":"..."}
+
+Only include fields that should be changed. Keep the conversation helpful and ensure changes are valid for D&D 5e.`;
+
+  try {
+    const allMessages = [
+      { role: 'system', content: editPrompt },
+      ...(messages || [])
+    ];
+
+    const response = await fetch(settings.api_endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${settings.api_key}`
+      },
+      body: JSON.stringify({
+        model: settings.api_model,
+        messages: allMessages,
+        max_tokens: 1000
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error('AI API error');
+    }
+
+    const data = await response.json();
+    const aiMessage = extractAIMessage(data);
+
+    if (!aiMessage) {
+      throw new Error('Could not parse AI response');
+    }
+
+    // Check if edit is complete
+    if (aiMessage.includes('EDIT_COMPLETE:')) {
+      const jsonMatch = aiMessage.match(/EDIT_COMPLETE:(\{.*\})/);
+      if (jsonMatch) {
+        const editData = JSON.parse(jsonMatch[1]);
+
+        // Build update query dynamically
+        const updates = [];
+        const values = [];
+
+        const fields = ['character_name', 'race', 'class', 'strength', 'dexterity', 'constitution',
+                       'intelligence', 'wisdom', 'charisma', 'hp', 'max_hp', 'background',
+                       'equipment', 'spells', 'skills', 'passives'];
+
+        fields.forEach(field => {
+          if (editData[field] !== undefined) {
+            updates.push(`${field} = ?`);
+            values.push(editData[field]);
+          }
+        });
+
+        if (updates.length > 0) {
+          values.push(req.params.id);
+          db.prepare(`UPDATE characters SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+        }
+
+        const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
+        io.emit('character_updated', updatedChar);
+
+        const cleanMessage = aiMessage.replace(/EDIT_COMPLETE:\{.*\}/, '').trim();
+        return res.json({ message: cleanMessage || 'Character updated!', complete: true, character: updatedChar });
+      }
+    }
+
+    res.json({ message: aiMessage, complete: false });
+  } catch (error) {
+    console.error('Character edit error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Helper function to extract message from different API response formats
 function extractAIMessage(data) {
   // OpenAI / DeepSeek standard format
@@ -256,7 +539,7 @@ function extractAIMessage(data) {
 }
 
 // AI Character Creation
-const CHARACTER_CREATION_PROMPT = `You are a friendly D&D 5e character creation assistant. Help the player create their character through conversation.
+const CHARACTER_CREATION_PROMPT = `You are a friendly D&D 5e character creation assistant. Help the player create their Level 1 character through conversation.
 
 You must guide them through these steps IN ORDER:
 1. Ask for their PLAYER NAME (the real person's name)
@@ -264,12 +547,29 @@ You must guide them through these steps IN ORDER:
 3. Ask what CLASS they want (Fighter, Wizard, Rogue, Cleric, Barbarian, Bard, Druid, Monk, Paladin, Ranger, Sorcerer, Warlock)
 4. Ask for their CHARACTER NAME
 5. Help them with a brief BACKSTORY (2-3 sentences)
-6. Ask about starting EQUIPMENT based on their class
+6. Confirm their starting SPELLS (if spellcaster), SKILLS (based on class), and EQUIPMENT
 
-For STATS, you will roll 4d6 drop lowest for each stat and assign them appropriately for their class.
+For STATS, roll 4d6 drop lowest for each stat and assign them appropriately for their class.
+
+SKILLS by class (choose proficiencies):
+- Fighter: Acrobatics, Animal Handling, Athletics, History, Insight, Intimidation, Perception, Survival (pick 2)
+- Wizard: Arcana, History, Insight, Investigation, Medicine, Religion (pick 2)
+- Rogue: Acrobatics, Athletics, Deception, Insight, Intimidation, Investigation, Perception, Performance, Persuasion, Sleight of Hand, Stealth (pick 4)
+- Cleric: History, Insight, Medicine, Persuasion, Religion (pick 2)
+- Other classes: Choose 2-3 appropriate skills
+
+PASSIVES to include:
+- Passive Perception (10 + Wisdom modifier + proficiency if proficient)
+- Racial abilities (Darkvision, etc.)
+- Class features (Fighting Style, Spellcasting, Sneak Attack, etc.)
+
+SPELLS for Level 1 spellcasters:
+- Wizard: 3 cantrips, 6 spells in spellbook (prepare Int mod + 1)
+- Cleric: 3 cantrips, prepare Wis mod + 1 spells
+- Other casters: Appropriate cantrips and spells for level 1
 
 When you have ALL information needed, output the final character in this EXACT JSON format on a single line:
-CHARACTER_COMPLETE:{"player_name":"...","character_name":"...","race":"...","class":"...","strength":N,"dexterity":N,"constitution":N,"intelligence":N,"wisdom":N,"charisma":N,"background":"...","equipment":"..."}
+CHARACTER_COMPLETE:{"player_name":"...","character_name":"...","race":"...","class":"...","strength":N,"dexterity":N,"constitution":N,"intelligence":N,"wisdom":N,"charisma":N,"background":"...","equipment":"...","spells":"Cantrips: X, Y. Spells: A, B, C","skills":"Skill1, Skill2 (proficient), Skill3","passives":"Passive Perception: N, Darkvision 60ft, Feature Name"}
 
 Be encouraging, creative, and help new players understand their choices. Keep responses concise but helpful.`;
 
@@ -328,11 +628,12 @@ app.post('/api/characters/ai-create', checkPassword, async (req, res) => {
           const hp = 10 + Math.floor((charData.constitution - 10) / 2);
 
           db.prepare(`
-            INSERT INTO characters (id, player_name, character_name, race, class, level, strength, dexterity, constitution, intelligence, wisdom, charisma, hp, max_hp, background, equipment)
-            VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO characters (id, player_name, character_name, race, class, level, xp, strength, dexterity, constitution, intelligence, wisdom, charisma, hp, max_hp, background, equipment, spells, skills, passives)
+            VALUES (?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `).run(id, charData.player_name, charData.character_name, charData.race, charData.class,
                  charData.strength, charData.dexterity, charData.constitution, charData.intelligence,
-                 charData.wisdom, charData.charisma, hp, hp, charData.background, charData.equipment);
+                 charData.wisdom, charData.charisma, hp, hp, charData.background, charData.equipment,
+                 charData.spells || '', charData.skills || '', charData.passives || '');
 
           const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(id);
           io.emit('character_created', character);
