@@ -4,6 +4,88 @@ let currentSession = null;
 let characters = [];
 let socket = null;
 
+// State persistence for mobile tab switching
+function saveAppState() {
+  const state = {
+    password: password,
+    currentSessionId: currentSession ? currentSession.id : null,
+    currentTab: document.querySelector('.tab-btn.active')?.dataset.tab || 'game',
+    charCreationInProgress: charCreationInProgress,
+    charCreationMessages: charCreationMessages
+  };
+  sessionStorage.setItem('dnd-app-state', JSON.stringify(state));
+}
+
+function loadAppState() {
+  try {
+    const saved = sessionStorage.getItem('dnd-app-state');
+    if (saved) {
+      return JSON.parse(saved);
+    }
+  } catch (e) {
+    console.error('Failed to load app state:', e);
+  }
+  return null;
+}
+
+// Auto-restore session on page load
+async function restoreSession() {
+  const state = loadAppState();
+  if (state && state.password) {
+    password = state.password;
+
+    try {
+      // Verify password is still valid
+      await api('/api/auth', 'POST', { password });
+
+      // Restore app screen
+      document.getElementById('login-screen').classList.remove('active');
+      document.getElementById('app-screen').classList.add('active');
+
+      initSocket();
+      await loadInitialData();
+
+      // Restore active tab
+      if (state.currentTab) {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        document.querySelector(`.tab-btn[data-tab="${state.currentTab}"]`)?.classList.add('active');
+        document.getElementById(`${state.currentTab}-tab`)?.classList.add('active');
+      }
+
+      // Restore current session
+      if (state.currentSessionId) {
+        await loadSession(state.currentSessionId);
+      }
+
+      // Restore character creation state
+      if (state.charCreationInProgress && state.charCreationMessages) {
+        charCreationInProgress = true;
+        charCreationMessages = state.charCreationMessages;
+
+        document.getElementById('start-creation-btn').disabled = true;
+        document.getElementById('char-chat-input').disabled = false;
+        document.getElementById('char-chat-send').disabled = false;
+
+        // Restore chat messages
+        const messagesContainer = document.getElementById('char-chat-messages');
+        messagesContainer.innerHTML = state.charCreationMessages
+          .filter(m => m.role !== 'system')
+          .map(m => `<div class="chat-message ${m.role === 'user' ? 'user' : 'assistant'}"><div class="message-content">${m.role === 'user' ? escapeHtml(m.content) : formatChatMessage(m.content)}</div></div>`)
+          .join('');
+        scrollChatToBottom();
+      }
+
+      return true;
+    } catch (e) {
+      // Password invalid or session expired
+      sessionStorage.removeItem('dnd-app-state');
+      return false;
+    }
+  }
+  return false;
+}
+
 // Initialize Socket.IO
 function initSocket() {
   socket = io();
@@ -79,7 +161,8 @@ async function login() {
     document.getElementById('login-screen').classList.remove('active');
     document.getElementById('app-screen').classList.add('active');
     initSocket();
-    loadInitialData();
+    await loadInitialData();
+    saveAppState(); // Save state after successful login
   } catch (error) {
     document.getElementById('login-error').textContent = 'Invalid password';
   }
@@ -98,6 +181,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 
     btn.classList.add('active');
     document.getElementById(`${btn.dataset.tab}-tab`).classList.add('active');
+    saveAppState(); // Save state when tab changes
   });
 });
 
@@ -198,6 +282,7 @@ async function startCharacterCreation() {
 
     messagesContainer.innerHTML = `<div class="chat-message assistant"><div class="message-content">${formatChatMessage(result.message)}</div></div>`;
     scrollChatToBottom();
+    saveAppState(); // Save state after AI response
 
     document.getElementById('char-chat-input').focus();
   } catch (error) {
@@ -248,10 +333,12 @@ async function sendCharacterMessage() {
       scrollChatToBottom();
       loadCharacters();
       document.getElementById('start-creation-btn').disabled = false;
+      saveAppState(); // Save state after completion
     } else {
       input.disabled = false;
       document.getElementById('char-chat-send').disabled = false;
       input.focus();
+      saveAppState(); // Save state after AI response
     }
   } catch (error) {
     document.getElementById('loading-msg')?.remove();
@@ -275,6 +362,7 @@ function resetCharacterCreation() {
       <div class="message-content">Click "Start Character Creation" to begin creating your Level 1 character with AI guidance!</div>
     </div>
   `;
+  saveAppState(); // Save state after reset
 }
 
 function scrollChatToBottom() {
@@ -441,6 +529,7 @@ async function loadSession(id) {
 
     // Update session list to show active
     loadSessions();
+    saveAppState(); // Save state when session changes
   } catch (error) {
     console.error('Failed to load session:', error);
   }
@@ -686,3 +775,25 @@ document.getElementById('action-text')?.addEventListener('keydown', (e) => {
     submitAction();
   }
 });
+
+// Save state before page unloads or becomes hidden (mobile tab switch)
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden' && password) {
+    saveAppState();
+  }
+});
+
+window.addEventListener('beforeunload', () => {
+  if (password) {
+    saveAppState();
+  }
+});
+
+// Try to restore session on page load
+(async function init() {
+  const restored = await restoreSession();
+  if (!restored) {
+    // No saved state, show login screen
+    document.getElementById('login-screen').classList.add('active');
+  }
+})();

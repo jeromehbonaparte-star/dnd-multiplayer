@@ -360,7 +360,7 @@ Consider:
       body: JSON.stringify({
         model: settings.api_model,
         messages: [{ role: 'user', content: levelUpPrompt }],
-        max_tokens: 500
+        max_tokens: 64000
       })
     });
 
@@ -482,7 +482,7 @@ Only include fields that should be changed. Keep the conversation helpful and en
       body: JSON.stringify({
         model: settings.api_model,
         messages: allMessages,
-        max_tokens: 1000
+        max_tokens: 64000
       })
     });
 
@@ -623,7 +623,7 @@ app.post('/api/characters/ai-create', checkPassword, async (req, res) => {
           { role: 'system', content: CHARACTER_CREATION_PROMPT },
           ...messages
         ],
-        max_tokens: 1000
+        max_tokens: 64000
       })
     });
 
@@ -812,7 +812,7 @@ Please narrate the outcome of these actions and describe what happens next.`;
     body: JSON.stringify({
       model: settings.api_model,
       messages: messages,
-      max_tokens: 2000
+      max_tokens: 64000
     })
   });
 
@@ -893,7 +893,7 @@ Provide an updated comprehensive summary:`;
     body: JSON.stringify({
       model: settings.api_model,
       messages: [{ role: 'user', content: compactPrompt }],
-      max_tokens: 1500
+      max_tokens: 64000
     })
   });
 
