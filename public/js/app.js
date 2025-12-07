@@ -540,10 +540,8 @@ async function loadSession(id) {
     document.getElementById('turn-counter').textContent = `Turn: ${currentSession.current_turn}`;
     document.getElementById('token-counter').textContent = `Tokens: ${currentSession.total_tokens}`;
 
-    // Render story
-    const summary = document.getElementById('story-summary');
-    summary.textContent = currentSession.story_summary || '';
-
+    // Render story - summary is now backend-only for AI context
+    // Players see the full chat history
     const history = JSON.parse(currentSession.full_history || '[]');
     const historyContainer = document.getElementById('story-history');
     historyContainer.innerHTML = history.map(entry => `

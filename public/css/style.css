@@ -300,24 +300,9 @@ nav {
   overflow-y: auto;
 }
 
+/* Story summary is now backend-only for AI context - hidden from players */
 #story-summary {
-  padding: 15px;
-  margin-bottom: 20px;
-  background: var(--bg-light);
-  border-radius: 8px;
-  border-left: 3px solid var(--warning);
-}
-
-#story-summary:empty {
   display: none;
-}
-
-#story-summary::before {
-  content: 'Story Summary';
-  display: block;
-  color: var(--warning);
-  font-weight: bold;
-  margin-bottom: 10px;
 }
 
 .story-entry {

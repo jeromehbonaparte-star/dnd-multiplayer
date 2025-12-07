@@ -90,6 +90,12 @@ if (!columns.includes('passives')) {
   db.exec('ALTER TABLE characters ADD COLUMN passives TEXT');
 }
 
+// Migrate game_sessions table - add compacted_count column
+const sessionColumns = db.prepare("PRAGMA table_info(game_sessions)").all().map(c => c.name);
+if (!sessionColumns.includes('compacted_count')) {
+  db.exec('ALTER TABLE game_sessions ADD COLUMN compacted_count INTEGER DEFAULT 0');
+}
+
 // XP requirements for each level
 const XP_TABLE = [0, 300, 900, 2700, 6500, 14000, 23000, 34000, 48000, 64000, 85000, 100000, 120000, 140000, 165000, 195000, 225000, 265000, 305000, 355000];
 
@@ -792,7 +798,8 @@ async function processAITurn(sessionId, pendingActions, characters) {
     throw new Error('API key not configured');
   }
 
-  let history = JSON.parse(session.full_history || '[]');
+  let fullHistory = JSON.parse(session.full_history || '[]');
+  const compactedCount = session.compacted_count || 0;
 
   // Build character info
   const characterInfo = characters.map(c => {
@@ -821,12 +828,14 @@ ${actionSummary}
 
 Please narrate the outcome of these actions and describe what happens next.`;
 
-  history.push({ role: 'user', content: userMessage });
+  fullHistory.push({ role: 'user', content: userMessage });
 
-  // Build messages array
+  // Build messages array for AI - only send messages after compacted_count
+  // The summary covers messages 0 to compactedCount-1
+  const recentHistory = fullHistory.slice(compactedCount);
   const messages = [
     { role: 'system', content: settings.system_prompt + (session.story_summary ? `\n\nSTORY SO FAR:\n${session.story_summary}` : '') },
-    ...history
+    ...recentHistory
   ];
 
   // Call AI API
@@ -858,7 +867,7 @@ Please narrate the outcome of these actions and describe what happens next.`;
 
   const tokensUsed = data.usage?.total_tokens || estimateTokens(JSON.stringify(messages) + aiResponse);
 
-  history.push({ role: 'assistant', content: aiResponse });
+  fullHistory.push({ role: 'assistant', content: aiResponse });
 
   // Update session
   const newTotalTokens = (session.total_tokens || 0) + tokensUsed;
@@ -866,16 +875,20 @@ Please narrate the outcome of these actions and describe what happens next.`;
   // Check if we need to compact
   const maxTokens = parseInt(settings.max_tokens_before_compact);
   let newSummary = session.story_summary;
+  let newCompactedCount = compactedCount;
 
   if (newTotalTokens > maxTokens) {
-    // Compact the history
-    newSummary = await compactHistory(settings, session.story_summary, history);
-    history = []; // Reset history after compaction
-    db.prepare('UPDATE game_sessions SET story_summary = ?, full_history = ?, total_tokens = 0, current_turn = current_turn + 1 WHERE id = ?')
-      .run(newSummary, '[]', sessionId);
+    // Compact the recent history (messages since last compaction)
+    const recentHistoryToCompact = fullHistory.slice(compactedCount);
+    newSummary = await compactHistory(settings, session.story_summary, recentHistoryToCompact);
+    // Mark all current messages as compacted
+    newCompactedCount = fullHistory.length;
+    // Keep full history for display, but reset token count since we'll use summary for AI context
+    db.prepare('UPDATE game_sessions SET story_summary = ?, full_history = ?, compacted_count = ?, total_tokens = 0, current_turn = current_turn + 1 WHERE id = ?')
+      .run(newSummary, JSON.stringify(fullHistory), newCompactedCount, sessionId);
   } else {
     db.prepare('UPDATE game_sessions SET full_history = ?, total_tokens = ?, current_turn = current_turn + 1 WHERE id = ?')
-      .run(JSON.stringify(history), newTotalTokens, sessionId);
+      .run(JSON.stringify(fullHistory), newTotalTokens, sessionId);
   }
 
   // Clear pending actions
