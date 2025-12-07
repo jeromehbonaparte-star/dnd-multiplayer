@@ -228,6 +228,33 @@ app.delete('/api/characters/:id', checkPassword, (req, res) => {
   res.json({ success: true });
 });
 
+// Helper function to extract message from different API response formats
+function extractAIMessage(data) {
+  // OpenAI / DeepSeek standard format
+  if (data.choices && data.choices[0]) {
+    const choice = data.choices[0];
+    if (choice.message && choice.message.content) {
+      return choice.message.content;
+    }
+    if (choice.text) {
+      return choice.text;
+    }
+    if (choice.content) {
+      return choice.content;
+    }
+  }
+  // Alternative formats
+  if (data.output) return data.output;
+  if (data.response) return data.response;
+  if (data.result) return data.result;
+  if (data.content) return data.content;
+  if (data.text) return data.text;
+
+  // Log for debugging
+  console.log('Unknown API response format:', JSON.stringify(data, null, 2));
+  return null;
+}
+
 // AI Character Creation
 const CHARACTER_CREATION_PROMPT = `You are a friendly D&D 5e character creation assistant. Help the player create their character through conversation.
 
@@ -274,12 +301,20 @@ app.post('/api/characters/ai-create', checkPassword, async (req, res) => {
     });
 
     if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`API Error: ${error}`);
+      const errorText = await response.text();
+      console.log('API Error Response:', response.status, errorText);
+      throw new Error(`API Error (${response.status}): ${errorText || 'No error details'}`);
     }
 
     const data = await response.json();
-    const aiMessage = data.choices[0].message.content;
+    console.log('AI Response received:', JSON.stringify(data).substring(0, 500));
+
+    const aiMessage = extractAIMessage(data);
+
+    if (!aiMessage) {
+      console.log('Failed to extract AI message from response:', JSON.stringify(data, null, 2));
+      throw new Error('Could not parse AI response. Check server logs for details.');
+    }
 
     // Check if character is complete
     if (aiMessage.includes('CHARACTER_COMPLETE:')) {
@@ -459,7 +494,13 @@ Please narrate the outcome of these actions and describe what happens next.`;
   }
 
   const data = await response.json();
-  const aiResponse = data.choices[0].message.content;
+  const aiResponse = extractAIMessage(data);
+
+  if (!aiResponse) {
+    console.log('Failed to extract AI response:', JSON.stringify(data, null, 2));
+    throw new Error('Could not parse AI response. Check server logs.');
+  }
+
   const tokensUsed = data.usage?.total_tokens || estimateTokens(JSON.stringify(messages) + aiResponse);
 
   history.push({ role: 'assistant', content: aiResponse });
@@ -533,7 +574,8 @@ Provide an updated comprehensive summary:`;
   }
 
   const data = await response.json();
-  return data.choices[0].message.content;
+  const summary = extractAIMessage(data);
+  return summary || existingSummary + '\n\n[Compaction failed - could not parse response]';
 }
 
 function estimateTokens(text) {
