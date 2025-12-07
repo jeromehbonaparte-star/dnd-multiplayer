@@ -297,6 +297,30 @@ The Dockerfile:
 
 ---
 
+## Security Features
+
+### Authentication
+- **Game Password:** bcrypt hashed, required for all API endpoints
+- **Admin Password:** Separate password for settings access
+- Both passwords configurable via environment variables
+
+### Rate Limiting
+- **Auth endpoints:** 10 attempts per 15 minutes (prevents brute force)
+- **General API:** 100 requests per minute
+- Uses `express-rate-limit` package
+
+### API Key Protection
+- API key is masked in settings response (shows only `****xxxx`)
+- Full key never sent to frontend after initial setup
+- Key only updated if new value provided (not masked value)
+
+### Admin Access
+- Settings tab requires admin password
+- Proper modal dialog (not browser prompt)
+- Admin auth state stored in memory (not persisted)
+
+---
+
 ## Future Improvements (Ideas)
 
 - [ ] Inventory system

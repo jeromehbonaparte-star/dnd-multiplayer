@@ -7,8 +7,27 @@ const fs = require('fs');
 const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
 const Database = require('better-sqlite3');
+const rateLimit = require('express-rate-limit');
 
 const app = express();
+
+// Rate limiting for auth endpoints (prevent brute force)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // 10 attempts per window
+  message: { error: 'Too many login attempts, please try again after 15 minutes' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// General API rate limiting
+const apiLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 100, // 100 requests per minute
+  message: { error: 'Too many requests, please slow down' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 const server = http.createServer(app);
 const io = new Server(server);
 
@@ -203,7 +222,12 @@ const checkAdminPassword = (req, res, next) => {
 };
 
 // API Routes
-app.post('/api/auth', (req, res) => {
+
+// Apply general rate limiting to all API routes
+app.use('/api/', apiLimiter);
+
+// Game login - with stricter rate limiting
+app.post('/api/auth', authLimiter, (req, res) => {
   const { password } = req.body;
   const storedHash = db.prepare('SELECT value FROM settings WHERE key = ?').get('game_password');
 
@@ -214,8 +238,8 @@ app.post('/api/auth', (req, res) => {
   }
 });
 
-// Admin auth endpoint
-app.post('/api/admin-auth', checkPassword, (req, res) => {
+// Admin auth endpoint - with stricter rate limiting
+app.post('/api/admin-auth', authLimiter, checkPassword, (req, res) => {
   const { adminPassword } = req.body;
   const storedHash = db.prepare('SELECT value FROM settings WHERE key = ?').get('admin_password');
 
@@ -230,8 +254,14 @@ app.get('/api/settings', checkPassword, checkAdminPassword, (req, res) => {
   const settings = {};
   const rows = db.prepare('SELECT key, value FROM settings').all();
   rows.forEach(row => {
-    if (row.key !== 'game_password') {
-      settings[row.key] = row.value;
+    if (row.key !== 'game_password' && row.key !== 'admin_password') {
+      // Mask API key - only show last 4 characters
+      if (row.key === 'api_key' && row.value && row.value.length > 4) {
+        settings[row.key] = '****' + row.value.slice(-4);
+        settings['api_key_set'] = true; // Flag to indicate key is set
+      } else {
+        settings[row.key] = row.value;
+      }
     }
   });
   res.json(settings);

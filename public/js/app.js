@@ -185,9 +185,29 @@ async function api(endpoint, method = 'GET', body = null, requireAdmin = false) 
 }
 
 // Admin authentication
-async function promptAdminLogin() {
-  const pwd = prompt('Enter admin password to access settings:');
-  if (!pwd) return false;
+let adminLoginResolve = null;
+
+function showAdminModal() {
+  document.getElementById('admin-modal').classList.add('active');
+  document.getElementById('admin-password-input').value = '';
+  document.getElementById('admin-login-error').textContent = '';
+  document.getElementById('admin-password-input').focus();
+}
+
+function closeAdminModal() {
+  document.getElementById('admin-modal').classList.remove('active');
+  if (adminLoginResolve) {
+    adminLoginResolve(false);
+    adminLoginResolve = null;
+  }
+}
+
+async function submitAdminLogin() {
+  const pwd = document.getElementById('admin-password-input').value;
+  if (!pwd) {
+    document.getElementById('admin-login-error').textContent = 'Please enter a password';
+    return;
+  }
 
   try {
     const result = await fetch('/api/admin-auth', {
@@ -202,16 +222,36 @@ async function promptAdminLogin() {
     if (result.ok) {
       adminPassword = pwd;
       isAdminAuthenticated = true;
-      return true;
+      document.getElementById('admin-modal').classList.remove('active');
+      if (adminLoginResolve) {
+        adminLoginResolve(true);
+        adminLoginResolve = null;
+      }
     } else {
-      alert('Invalid admin password');
-      return false;
+      const data = await result.json();
+      document.getElementById('admin-login-error').textContent = data.error || 'Invalid admin password';
     }
   } catch (error) {
-    alert('Failed to authenticate: ' + error.message);
-    return false;
+    document.getElementById('admin-login-error').textContent = 'Failed to authenticate';
   }
 }
+
+function promptAdminLogin() {
+  return new Promise((resolve) => {
+    adminLoginResolve = resolve;
+    showAdminModal();
+  });
+}
+
+// Handle Enter key in admin password input
+document.addEventListener('DOMContentLoaded', () => {
+  const adminInput = document.getElementById('admin-password-input');
+  if (adminInput) {
+    adminInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') submitAdminLogin();
+    });
+  }
+});
 
 // Authentication
 async function login() {
@@ -270,22 +310,31 @@ async function loadInitialData() {
 }
 
 // Settings
+let originalMaskedApiKey = ''; // Store the masked key to detect changes
+
 async function loadSettings() {
   try {
     const settings = await api('/api/settings');
     document.getElementById('api-endpoint').value = settings.api_endpoint || '';
     document.getElementById('api-key').value = settings.api_key || '';
+    document.getElementById('api-key').placeholder = settings.api_key_set ? 'Key is set (enter new key to change)' : 'sk-...';
     document.getElementById('api-model').value = settings.api_model || '';
     document.getElementById('max-tokens').value = settings.max_tokens_before_compact || 8000;
+    originalMaskedApiKey = settings.api_key || '';
   } catch (error) {
     console.error('Failed to load settings:', error);
   }
 }
 
 async function saveSettings() {
+  const apiKeyInput = document.getElementById('api-key').value;
+
+  // Only send API key if it was changed (not the masked value)
+  const apiKeyChanged = apiKeyInput && apiKeyInput !== originalMaskedApiKey && !apiKeyInput.startsWith('****');
+
   const settings = {
     api_endpoint: document.getElementById('api-endpoint').value,
-    api_key: document.getElementById('api-key').value,
+    api_key: apiKeyChanged ? apiKeyInput : undefined,
     api_model: document.getElementById('api-model').value,
     max_tokens_before_compact: document.getElementById('max-tokens').value,
     new_password: document.getElementById('new-password').value || undefined
@@ -297,6 +346,8 @@ async function saveSettings() {
     if (settings.new_password) {
       password = settings.new_password;
     }
+    // Reload settings to get updated masked key
+    await loadSettings();
     setTimeout(() => {
       document.getElementById('settings-status').textContent = '';
     }, 3000);

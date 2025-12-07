@@ -804,6 +804,47 @@ nav {
   margin: 10px 0;
 }
 
+/* Admin Login Modal */
+.admin-login-modal {
+  max-width: 400px;
+  text-align: center;
+}
+
+.admin-login-modal h2 {
+  margin-bottom: 10px;
+}
+
+.admin-login-modal p {
+  color: var(--text-muted);
+  margin-bottom: 20px;
+}
+
+.admin-login-modal .form-group {
+  margin-bottom: 15px;
+}
+
+.admin-login-modal input {
+  width: 100%;
+  padding: 12px;
+  border: none;
+  border-radius: 6px;
+  background: var(--bg-light);
+  color: var(--text);
+  font-size: 16px;
+  text-align: center;
+}
+
+.admin-login-modal .error {
+  color: var(--accent);
+  margin-bottom: 15px;
+  min-height: 20px;
+}
+
+.btn-primary {
+  background: var(--accent) !important;
+  color: white !important;
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar {
   width: 8px;

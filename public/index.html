@@ -167,6 +167,22 @@
     <button onclick="hideLevelUpNotification()">Dismiss</button>
   </div>
 
+  <!-- Admin Login Modal -->
+  <div id="admin-modal" class="modal">
+    <div class="modal-content admin-login-modal">
+      <h2>Admin Access Required</h2>
+      <p>Enter admin password to access settings</p>
+      <div class="form-group">
+        <input type="password" id="admin-password-input" placeholder="Admin Password">
+      </div>
+      <p id="admin-login-error" class="error"></p>
+      <div class="modal-buttons">
+        <button onclick="submitAdminLogin()" class="btn-primary">Login</button>
+        <button onclick="closeAdminModal()" class="btn-secondary">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <script src="/socket.io/socket.io.js"></script>
   <script src="/js/app.js"></script>
 </body>
