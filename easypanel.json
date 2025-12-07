@@ -1,0 +1,37 @@
+{
+  "$schema": "https://easypanel.io/schema",
+  "services": [
+    {
+      "type": "app",
+      "name": "dnd-multiplayer",
+      "source": {
+        "type": "github",
+        "owner": "YOUR_GITHUB_USERNAME",
+        "repo": "dnd-multiplayer"
+      },
+      "build": {
+        "type": "dockerfile",
+        "file": "Dockerfile"
+      },
+      "domains": [
+        {
+          "host": "dnd.romyromulus.com"
+        }
+      ],
+      "ports": [
+        {
+          "published": 443,
+          "target": 3000
+        }
+      ],
+      "mounts": [
+        {
+          "type": "volume",
+          "name": "dnd-data",
+          "mountPath": "/app/data"
+        }
+      ],
+      "env": "PORT=3000\nNODE_ENV=production\nDB_PATH=/app/data/dnd.db"
+    }
+  ]
+}

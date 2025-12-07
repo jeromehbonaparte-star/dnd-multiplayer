@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>D&D Multiplayer</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <!-- Login Screen -->
+  <div id="login-screen" class="screen active">
+    <div class="login-box">
+      <h1>D&D Multiplayer</h1>
+      <p>Enter the game password to continue</p>
+      <input type="password" id="password-input" placeholder="Password">
+      <button onclick="login()">Enter</button>
+      <p id="login-error" class="error"></p>
+    </div>
+  </div>
+
+  <!-- Main App -->
+  <div id="app-screen" class="screen">
+    <nav>
+      <div class="nav-brand">D&D Multiplayer</div>
+      <div class="nav-tabs">
+        <button class="tab-btn active" data-tab="game">Game</button>
+        <button class="tab-btn" data-tab="characters">Characters</button>
+        <button class="tab-btn" data-tab="settings">Settings</button>
+      </div>
+    </nav>
+
+    <!-- Game Tab -->
+    <div id="game-tab" class="tab-content active">
+      <div class="game-container">
+        <div class="sidebar">
+          <h3>Sessions</h3>
+          <button onclick="createSession()">New Session</button>
+          <div id="session-list"></div>
+
+          <h3>Party</h3>
+          <div id="party-list"></div>
+
+          <h3>Pending Actions</h3>
+          <div id="pending-actions"></div>
+          <button onclick="forceProcessTurn()" class="btn-secondary">Force Process Turn</button>
+        </div>
+
+        <div class="main-content">
+          <div id="story-container">
+            <div id="story-summary"></div>
+            <div id="story-history"></div>
+          </div>
+
+          <div class="action-input">
+            <select id="action-character">
+              <option value="">Select your character</option>
+            </select>
+            <textarea id="action-text" placeholder="Describe your action..."></textarea>
+            <button onclick="submitAction()">Submit Action</button>
+          </div>
+
+          <div class="game-info">
+            <span id="turn-counter">Turn: 0</span>
+            <span id="token-counter">Tokens: 0</span>
+            <span id="waiting-counter">Waiting for: 0 players</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Characters Tab -->
+    <div id="characters-tab" class="tab-content">
+      <div class="characters-container">
+        <div class="character-form">
+          <h2>Create Character</h2>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Player Name</label>
+              <input type="text" id="char-player-name">
+            </div>
+            <div class="form-group">
+              <label>Character Name</label>
+              <input type="text" id="char-name">
+            </div>
+            <div class="form-group">
+              <label>Race</label>
+              <select id="char-race">
+                <option value="Human">Human</option>
+                <option value="Elf">Elf</option>
+                <option value="Dwarf">Dwarf</option>
+                <option value="Halfling">Halfling</option>
+                <option value="Dragonborn">Dragonborn</option>
+                <option value="Gnome">Gnome</option>
+                <option value="Half-Elf">Half-Elf</option>
+                <option value="Half-Orc">Half-Orc</option>
+                <option value="Tiefling">Tiefling</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Class</label>
+              <select id="char-class">
+                <option value="Fighter">Fighter</option>
+                <option value="Wizard">Wizard</option>
+                <option value="Rogue">Rogue</option>
+                <option value="Cleric">Cleric</option>
+                <option value="Barbarian">Barbarian</option>
+                <option value="Bard">Bard</option>
+                <option value="Druid">Druid</option>
+                <option value="Monk">Monk</option>
+                <option value="Paladin">Paladin</option>
+                <option value="Ranger">Ranger</option>
+                <option value="Sorcerer">Sorcerer</option>
+                <option value="Warlock">Warlock</option>
+              </select>
+            </div>
+          </div>
+
+          <h3>Stats <button type="button" onclick="rollAllStats()" class="btn-small">Roll All (4d6 drop lowest)</button></h3>
+          <div class="stats-grid">
+            <div class="stat-input">
+              <label>STR</label>
+              <input type="number" id="char-str" min="1" max="20" value="10">
+              <button type="button" onclick="rollStat('str')">Roll</button>
+            </div>
+            <div class="stat-input">
+              <label>DEX</label>
+              <input type="number" id="char-dex" min="1" max="20" value="10">
+              <button type="button" onclick="rollStat('dex')">Roll</button>
+            </div>
+            <div class="stat-input">
+              <label>CON</label>
+              <input type="number" id="char-con" min="1" max="20" value="10">
+              <button type="button" onclick="rollStat('con')">Roll</button>
+            </div>
+            <div class="stat-input">
+              <label>INT</label>
+              <input type="number" id="char-int" min="1" max="20" value="10">
+              <button type="button" onclick="rollStat('int')">Roll</button>
+            </div>
+            <div class="stat-input">
+              <label>WIS</label>
+              <input type="number" id="char-wis" min="1" max="20" value="10">
+              <button type="button" onclick="rollStat('wis')">Roll</button>
+            </div>
+            <div class="stat-input">
+              <label>CHA</label>
+              <input type="number" id="char-cha" min="1" max="20" value="10">
+              <button type="button" onclick="rollStat('cha')">Roll</button>
+            </div>
+          </div>
+
+          <div class="form-group full-width">
+            <label>Background</label>
+            <textarea id="char-background" placeholder="Your character's backstory..."></textarea>
+          </div>
+
+          <div class="form-group full-width">
+            <label>Starting Equipment</label>
+            <textarea id="char-equipment" placeholder="List your equipment..."></textarea>
+          </div>
+
+          <button onclick="createCharacter()">Create Character</button>
+        </div>
+
+        <div class="character-list">
+          <h2>Characters</h2>
+          <div id="characters-grid"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings Tab -->
+    <div id="settings-tab" class="tab-content">
+      <div class="settings-container">
+        <h2>API Settings</h2>
+        <div class="form-group">
+          <label>API Endpoint (OpenAI Compatible)</label>
+          <input type="text" id="api-endpoint" placeholder="https://api.openai.com/v1/chat/completions">
+        </div>
+        <div class="form-group">
+          <label>API Key</label>
+          <input type="password" id="api-key" placeholder="sk-...">
+        </div>
+        <div class="form-group">
+          <label>Model</label>
+          <input type="text" id="api-model" placeholder="gpt-4">
+        </div>
+
+        <h2>Game Settings</h2>
+        <div class="form-group">
+          <label>Max Tokens Before Auto-Compact</label>
+          <input type="number" id="max-tokens" min="1000" max="100000" value="8000">
+        </div>
+        <div class="form-group">
+          <label>System Prompt (DM Instructions)</label>
+          <textarea id="system-prompt" rows="10"></textarea>
+        </div>
+
+        <h2>Security</h2>
+        <div class="form-group">
+          <label>Change Game Password</label>
+          <input type="password" id="new-password" placeholder="Leave blank to keep current">
+        </div>
+
+        <button onclick="saveSettings()">Save Settings</button>
+        <p id="settings-status"></p>
+      </div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>
