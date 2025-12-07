@@ -3,6 +3,7 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
+const fs = require('fs');
 const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
 const Database = require('better-sqlite3');
@@ -11,8 +12,15 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
+// Ensure data directory exists
+const dbPath = process.env.DB_PATH || './data/dnd.db';
+const dbDir = path.dirname(dbPath);
+if (!fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir, { recursive: true });
+}
+
 // Database setup
-const db = new Database(process.env.DB_PATH || './data/dnd.db');
+const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');
 
 // Initialize database tables
