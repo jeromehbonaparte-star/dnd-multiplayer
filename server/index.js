@@ -487,8 +487,9 @@ app.post('/api/characters/:id/inventory', checkPassword, (req, res) => {
   res.json({ character: updatedChar, inventory });
 });
 
-// Level up a character (AI-assisted)
+// Level up a character (AI-assisted, conversational)
 app.post('/api/characters/:id/levelup', checkPassword, async (req, res) => {
+  const { messages } = req.body;
   const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
 
   if (!character) {
@@ -511,9 +512,11 @@ app.post('/api/characters/:id/levelup', checkPassword, async (req, res) => {
   }
 
   const newLevel = character.level + 1;
-  const levelUpPrompt = `You are a D&D 5e level up assistant. A character is leveling up from ${character.level} to ${newLevel}.
+  const conMod = Math.floor((character.constitution - 10) / 2);
 
-CHARACTER INFO:
+  const levelUpSystemPrompt = `You are a friendly D&D 5e level up assistant. Help ${character.character_name} level up from ${character.level} to ${newLevel}.
+
+CURRENT CHARACTER:
 - Name: ${character.character_name}
 - Race: ${character.race}
 - Class: ${character.class}
@@ -522,18 +525,23 @@ CHARACTER INFO:
 - Current HP: ${character.max_hp}
 - Current Spells: ${character.spells || 'None'}
 - Current Skills: ${character.skills || 'None'}
-- Current Passives: ${character.passives || 'None'}
+- Current Passives/Features: ${character.passives || 'None'}
 
-Calculate the level up benefits and respond with ONLY this JSON format (no other text):
-LEVELUP_COMPLETE:{"hp_increase":N,"new_spells":"any new spells or cantrips gained","new_skills":"any new skill proficiencies","new_passives":"any new class features or abilities","summary":"Brief description of what the character gained"}
+LEVEL UP RULES:
+1. HP Increase: Roll class hit die + CON modifier (${conMod}). For a ${character.class}, that's typically 1d${character.class === 'Barbarian' ? '12' : character.class === 'Fighter' || character.class === 'Paladin' || character.class === 'Ranger' ? '10' : character.class === 'Wizard' || character.class === 'Sorcerer' ? '6' : '8'}+${conMod}.
+2. Check if this level grants new class features (Extra Attack at 5, etc.)
+3. Check if this is an Ability Score Improvement level (4, 8, 12, 16, 19) - ask player what stats to increase
+4. For spellcasters, check for new spell slots and spells known/prepared
 
-Consider:
-- HP increase: Roll class hit die + CON modifier (${Math.floor((character.constitution - 10) / 2)})
-- New spells for spellcasters at this level
-- New class features (Extra Attack at 5, etc.)
-- Ability Score Improvement at levels 4, 8, 12, 16, 19`;
+Guide the player through their choices conversationally. When ALL choices are finalized, output:
+LEVELUP_COMPLETE:{"hp_increase":N,"new_spells":"spells gained or None","new_skills":"skills gained or None","new_passives":"features gained or None","stat_changes":"any stat increases or None","summary":"Brief exciting summary"}`;
 
   try {
+    const allMessages = [
+      { role: 'system', content: levelUpSystemPrompt },
+      ...(messages || [])
+    ];
+
     const response = await fetch(settings.api_endpoint, {
       method: 'POST',
       headers: {
@@ -542,7 +550,7 @@ Consider:
       },
       body: JSON.stringify({
         model: settings.api_model,
-        messages: [{ role: 'user', content: levelUpPrompt }],
+        messages: allMessages,
         max_tokens: 64000
       })
     });
@@ -554,39 +562,42 @@ Consider:
     const data = await response.json();
     const aiMessage = extractAIMessage(data);
 
-    if (aiMessage && aiMessage.includes('LEVELUP_COMPLETE:')) {
+    if (!aiMessage) {
+      throw new Error('Could not parse AI response');
+    }
+
+    // Check if level up is complete
+    if (aiMessage.includes('LEVELUP_COMPLETE:')) {
       const jsonMatch = aiMessage.match(/LEVELUP_COMPLETE:(\{.*\})/);
       if (jsonMatch) {
         const levelData = JSON.parse(jsonMatch[1]);
 
         // Update character
         const newMaxHP = character.max_hp + (levelData.hp_increase || 0);
-        const newSpells = character.spells ? `${character.spells}, ${levelData.new_spells}` : levelData.new_spells;
-        const newSkills = character.skills ? `${character.skills}, ${levelData.new_skills}` : levelData.new_skills;
-        const newPassives = character.passives ? `${character.passives}, ${levelData.new_passives}` : levelData.new_passives;
+        const newSpells = levelData.new_spells && levelData.new_spells !== 'None'
+          ? (character.spells ? `${character.spells}, ${levelData.new_spells}` : levelData.new_spells)
+          : character.spells;
+        const newSkills = levelData.new_skills && levelData.new_skills !== 'None'
+          ? (character.skills ? `${character.skills}, ${levelData.new_skills}` : levelData.new_skills)
+          : character.skills;
+        const newPassives = levelData.new_passives && levelData.new_passives !== 'None'
+          ? (character.passives ? `${character.passives}, ${levelData.new_passives}` : levelData.new_passives)
+          : character.passives;
 
         db.prepare(`
           UPDATE characters SET level = ?, hp = ?, max_hp = ?, spells = ?, skills = ?, passives = ? WHERE id = ?
-        `).run(newLevel, newMaxHP, newMaxHP, newSpells, newSkills, newPassives, req.params.id);
+        `).run(newLevel, newMaxHP, newMaxHP, newSpells || '', newSkills || '', newPassives || '', req.params.id);
 
         const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
         io.emit('character_updated', updatedChar);
         io.emit('character_leveled_up', { character: updatedChar, summary: levelData.summary });
 
-        return res.json({ character: updatedChar, levelUp: levelData });
+        const cleanMessage = aiMessage.replace(/LEVELUP_COMPLETE:\{.*\}/, '').trim();
+        return res.json({ message: cleanMessage || 'Level up complete!', complete: true, character: updatedChar, levelUp: levelData });
       }
     }
 
-    // Fallback manual level up
-    const hpIncrease = Math.floor(Math.random() * 8) + 1 + Math.floor((character.constitution - 10) / 2);
-    db.prepare('UPDATE characters SET level = ?, hp = hp + ?, max_hp = max_hp + ? WHERE id = ?')
-      .run(newLevel, hpIncrease, hpIncrease, req.params.id);
-
-    const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
-    io.emit('character_updated', updatedChar);
-    io.emit('character_leveled_up', { character: updatedChar, summary: `Leveled up to ${newLevel}! HP increased by ${hpIncrease}.` });
-
-    res.json({ character: updatedChar, hpIncrease });
+    res.json({ message: aiMessage, complete: false });
   } catch (error) {
     console.error('Level up error:', error);
     res.status(500).json({ error: error.message });

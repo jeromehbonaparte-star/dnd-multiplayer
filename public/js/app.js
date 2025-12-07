@@ -607,6 +607,7 @@ function updatePartyList() {
     const xp = c.xp || 0;
     const requiredXP = getRequiredXP(c.level);
     const gold = c.gold || 0;
+    const canLevel = canLevelUp(xp, c.level);
     let inventory = [];
     try {
       inventory = JSON.parse(c.inventory || '[]');
@@ -623,7 +624,7 @@ function updatePartyList() {
       <div class="info">${c.race} ${c.class}</div>
       <div class="hp">HP: ${c.hp}/${c.max_hp}</div>
       <div class="gold-info">Gold: ${gold}</div>
-      <div class="xp-info">XP: ${xp}/${requiredXP}</div>
+      <div class="xp-info">XP: ${xp}/${requiredXP} ${canLevel ? '(Ready!)' : ''}</div>
       <div class="party-stats">
         <span>STR:${c.strength}</span>
         <span>DEX:${c.dexterity}</span>
@@ -636,6 +637,10 @@ function updatePartyList() {
       ${c.spells ? `<div class="party-detail"><strong>Spells:</strong> ${c.spells}</div>` : ''}
       ${c.passives ? `<div class="party-detail"><strong>Passives:</strong> ${c.passives}</div>` : ''}
       <div class="party-detail"><strong>Items:</strong> ${itemCount > 0 ? inventory.map(i => `${i.name}${i.quantity > 1 ? ' x' + i.quantity : ''}`).join(', ') : 'None'}</div>
+      <div class="party-actions">
+        <button class="party-btn" onclick="openInventoryModal('${c.id}')">Inventory</button>
+        <button class="party-btn ${canLevel ? 'party-btn-levelup' : ''}" onclick="levelUpCharacter('${c.id}')" ${canLevel ? '' : 'disabled'}>${canLevel ? 'Level Up!' : 'Need XP'}</button>
+      </div>
     </div>
   `}).join('');
 }
@@ -911,13 +916,19 @@ function closeModal() {
   document.getElementById('char-modal').classList.remove('active');
   modalCharacterId = null;
   modalMessages = [];
+  levelUpModalCharId = null;
+  levelUpMessages = [];
 }
 
 async function sendModalMessage() {
   const input = document.getElementById('modal-input');
   const message = input.value.trim();
 
-  if (!message || !modalCharacterId) return;
+  // Determine which mode we're in
+  const isLevelUp = levelUpModalCharId !== null;
+  const charId = isLevelUp ? levelUpModalCharId : modalCharacterId;
+
+  if (!message || !charId) return;
 
   input.value = '';
   const messagesContainer = document.getElementById('modal-chat-messages');
@@ -926,27 +937,44 @@ async function sendModalMessage() {
   messagesContainer.innerHTML += `<div class="chat-message user"><div class="message-content">${escapeHtml(message)}</div></div>`;
   messagesContainer.scrollTop = messagesContainer.scrollHeight;
 
-  modalMessages.push({ role: 'user', content: message });
+  if (isLevelUp) {
+    levelUpMessages.push({ role: 'user', content: message });
+  } else {
+    modalMessages.push({ role: 'user', content: message });
+  }
 
   // Add loading indicator
   messagesContainer.innerHTML += '<div class="chat-message assistant" id="modal-loading"><div class="message-content">Thinking...</div></div>';
   messagesContainer.scrollTop = messagesContainer.scrollHeight;
 
   try {
-    const result = await api(`/api/characters/${modalCharacterId}/edit`, 'POST', {
-      editRequest: modalMessages.length === 1 ? message : undefined,
-      messages: modalMessages
-    });
+    let result;
+    if (isLevelUp) {
+      result = await api(`/api/characters/${charId}/levelup`, 'POST', {
+        messages: levelUpMessages
+      });
+      levelUpMessages.push({ role: 'assistant', content: result.message });
+    } else {
+      result = await api(`/api/characters/${charId}/edit`, 'POST', {
+        editRequest: modalMessages.length === 1 ? message : undefined,
+        messages: modalMessages
+      });
+      modalMessages.push({ role: 'assistant', content: result.message });
+    }
 
     document.getElementById('modal-loading')?.remove();
 
-    modalMessages.push({ role: 'assistant', content: result.message });
     messagesContainer.innerHTML += `<div class="chat-message assistant"><div class="message-content">${formatChatMessage(result.message)}</div></div>`;
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
 
     if (result.complete) {
       loadCharacters();
-      messagesContainer.innerHTML += `<div class="chat-message assistant"><div class="message-content"><strong>Changes saved!</strong></div></div>`;
+      if (isLevelUp) {
+        messagesContainer.innerHTML += `<div class="chat-message assistant"><div class="message-content"><strong>Level up complete!</strong></div></div>`;
+        showNotification(`${result.character.character_name} is now level ${result.character.level}!`);
+      } else {
+        messagesContainer.innerHTML += `<div class="chat-message assistant"><div class="message-content"><strong>Changes saved!</strong></div></div>`;
+      }
     }
   } catch (error) {
     document.getElementById('modal-loading')?.remove();
@@ -958,20 +986,63 @@ async function levelUpCharacter(charId) {
   const char = characters.find(c => c.id === charId);
   if (!char) return;
 
-  if (!confirm(`Level up ${char.character_name} to level ${char.level + 1}?`)) return;
+  // Check if can level up
+  const canLevel = canLevelUp(char.xp || 0, char.level);
+  if (!canLevel) {
+    alert(`${char.character_name} needs ${getRequiredXP(char.level)} XP to level up. Current: ${char.xp || 0} XP`);
+    return;
+  }
+
+  // Open level up modal
+  openLevelUpModal(charId);
+}
+
+// Level Up Modal Functions
+let levelUpModalCharId = null;
+let levelUpMessages = [];
+
+function openLevelUpModal(charId) {
+  levelUpModalCharId = charId;
+  levelUpMessages = [];
+
+  const char = characters.find(c => c.id === charId);
+  if (!char) return;
+
+  document.getElementById('modal-title').textContent = `Level Up ${char.character_name} to Level ${char.level + 1}`;
+  document.getElementById('modal-chat-messages').innerHTML = `
+    <div class="chat-message assistant">
+      <div class="message-content">Starting level up process...</div>
+    </div>
+  `;
+  document.getElementById('modal-input').value = '';
+  document.getElementById('char-modal').classList.add('active');
+
+  // Start the level up conversation
+  startLevelUpConversation(charId);
+}
+
+async function startLevelUpConversation(charId) {
+  levelUpMessages = [{ role: 'user', content: 'I want to level up my character. Please guide me through the process.' }];
 
   try {
-    const result = await api(`/api/characters/${charId}/levelup`, 'POST');
+    const result = await api(`/api/characters/${charId}/levelup`, 'POST', {
+      messages: levelUpMessages
+    });
 
-    if (result.levelUp) {
-      showNotification(`${char.character_name} is now level ${result.character.level}! ${result.levelUp.summary}`);
-    } else {
-      showNotification(`${char.character_name} leveled up! HP increased by ${result.hpIncrease}.`);
+    levelUpMessages.push({ role: 'assistant', content: result.message });
+
+    const messagesContainer = document.getElementById('modal-chat-messages');
+    messagesContainer.innerHTML = `<div class="chat-message assistant"><div class="message-content">${formatChatMessage(result.message)}</div></div>`;
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+    if (result.complete) {
+      messagesContainer.innerHTML += `<div class="chat-message assistant"><div class="message-content"><strong>Level up complete!</strong></div></div>`;
+      loadCharacters();
+      showNotification(`${result.character.character_name} is now level ${result.character.level}!`);
     }
-
-    loadCharacters();
   } catch (error) {
-    alert('Level up failed: ' + error.message);
+    const messagesContainer = document.getElementById('modal-chat-messages');
+    messagesContainer.innerHTML = `<div class="chat-message assistant"><div class="message-content">Error: ${error.message}</div></div>`;
   }
 }
 

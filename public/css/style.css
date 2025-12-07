@@ -1405,3 +1405,41 @@ nav {
 .btn-tiny:hover {
   background: var(--accent-hover);
 }
+
+/* Party Actions in Sidebar */
+.party-actions {
+  display: flex;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.party-btn {
+  flex: 1;
+  padding: 5px 8px;
+  font-size: 10px;
+  background: var(--bg-dark);
+  color: var(--text);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.3s;
+}
+
+.party-btn:hover:not(:disabled) {
+  background: var(--accent);
+}
+
+.party-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.party-btn-levelup {
+  background: var(--success);
+  color: var(--bg-dark);
+  font-weight: bold;
+}
+
+.party-btn-levelup:hover {
+  background: #5eead4;
+}
