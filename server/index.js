@@ -115,7 +115,9 @@ initSetting.run('api_endpoint', 'https://api.openai.com/v1/chat/completions');
 initSetting.run('api_key', '');
 initSetting.run('api_model', 'gpt-4');
 initSetting.run('max_tokens_before_compact', '8000');
-initSetting.run('system_prompt', `You are a creative and engaging Dungeon Master for a D&D 5e game.
+
+// Default DM Instructions - always used (not editable via settings)
+const DEFAULT_SYSTEM_PROMPT = `You are a creative and engaging Dungeon Master for a D&D 5e game.
 
 YOUR ROLE:
 - Narrate the story vividly and immersively
@@ -144,14 +146,19 @@ COMBAT:
 - Describe hits, misses, and critical hits (nat 20) dramatically
 - Critical hits deal double dice damage
 
-XP AWARDS (announce these):
+XP AWARDS - ALWAYS USE THIS FORMAT:
 - Easy encounter: 50 XP per character
 - Medium encounter: 100 XP per character
 - Hard encounter: 200 XP per character
 - Boss/deadly: 300+ XP per character
 - Good roleplay/clever solutions: 25-50 XP
 
-Wait for all players to submit their actions before narrating the outcome.`);
+**IMPORTANT: When awarding XP, you MUST use this exact format so the system can track it:**
+[XP: CharacterName +100, OtherCharacter +100]
+
+Example: "The party defeats the goblins! [XP: Thorin +50, Elara +50, Grimm +50]"
+
+Wait for all players to submit their actions before narrating the outcome.`;
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../public')));
@@ -785,6 +792,56 @@ app.post('/api/sessions/:id/process', checkPassword, async (req, res) => {
   }
 });
 
+// Recalculate XP from session history (for existing sessions)
+app.post('/api/sessions/:id/recalculate-xp', checkPassword, (req, res) => {
+  const sessionId = req.params.id;
+  const session = db.prepare('SELECT * FROM game_sessions WHERE id = ?').get(sessionId);
+
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  const characters = db.prepare('SELECT * FROM characters').all();
+  const history = JSON.parse(session.full_history || '[]');
+  const xpAwarded = {};
+
+  // Scan all assistant messages for XP awards
+  for (const entry of history) {
+    if (entry.role === 'assistant') {
+      const xpMatches = entry.content.match(/\[XP:([^\]]+)\]/gi);
+      if (xpMatches) {
+        for (const match of xpMatches) {
+          const xpAwards = match.replace(/\[XP:/i, '').replace(']', '').split(',');
+          for (const award of xpAwards) {
+            const xpMatch = award.trim().match(/(.+?)\s*\+(\d+)/);
+            if (xpMatch) {
+              const charName = xpMatch[1].trim();
+              const xpAmount = parseInt(xpMatch[2]);
+              const char = characters.find(c => c.character_name.toLowerCase() === charName.toLowerCase());
+              if (char) {
+                xpAwarded[char.id] = (xpAwarded[char.id] || 0) + xpAmount;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Update character XP
+  for (const [charId, xp] of Object.entries(xpAwarded)) {
+    db.prepare('UPDATE characters SET xp = ? WHERE id = ?').run(xp, charId);
+  }
+
+  // Notify clients
+  const updatedCharacters = db.prepare('SELECT * FROM characters').all();
+  for (const char of updatedCharacters) {
+    io.emit('character_updated', char);
+  }
+
+  res.json({ success: true, xpAwarded });
+});
+
 // AI Processing function
 async function processAITurn(sessionId, pendingActions, characters) {
   // Notify all clients that processing has started
@@ -834,7 +891,7 @@ Please narrate the outcome of these actions and describe what happens next.`;
   // The summary covers messages 0 to compactedCount-1
   const recentHistory = fullHistory.slice(compactedCount);
   const messages = [
-    { role: 'system', content: settings.system_prompt + (session.story_summary ? `\n\nSTORY SO FAR:\n${session.story_summary}` : '') },
+    { role: 'system', content: DEFAULT_SYSTEM_PROMPT + (session.story_summary ? `\n\nSTORY SO FAR:\n${session.story_summary}` : '') },
     ...recentHistory
   ];
 
@@ -868,6 +925,28 @@ Please narrate the outcome of these actions and describe what happens next.`;
   const tokensUsed = data.usage?.total_tokens || estimateTokens(JSON.stringify(messages) + aiResponse);
 
   fullHistory.push({ role: 'assistant', content: aiResponse });
+
+  // Parse and award XP from AI response
+  // Format: [XP: CharacterName +100, OtherCharacter +50]
+  const xpMatches = aiResponse.match(/\[XP:([^\]]+)\]/gi);
+  if (xpMatches) {
+    for (const match of xpMatches) {
+      const xpAwards = match.replace(/\[XP:/i, '').replace(']', '').split(',');
+      for (const award of xpAwards) {
+        const xpMatch = award.trim().match(/(.+?)\s*\+(\d+)/);
+        if (xpMatch) {
+          const charName = xpMatch[1].trim();
+          const xpAmount = parseInt(xpMatch[2]);
+          // Find character by name and update XP
+          const char = characters.find(c => c.character_name.toLowerCase() === charName.toLowerCase());
+          if (char) {
+            db.prepare('UPDATE characters SET xp = xp + ? WHERE id = ?').run(xpAmount, char.id);
+            io.emit('character_updated', { ...char, xp: (char.xp || 0) + xpAmount });
+          }
+        }
+      }
+    }
+  }
 
   // Update session
   const newTotalTokens = (session.total_tokens || 0) + tokensUsed;

@@ -48,6 +48,7 @@
           <h3>Pending Actions</h3>
           <div id="pending-actions"></div>
           <button onclick="forceProcessTurn()" class="btn-secondary">Force Process Turn</button>
+          <button onclick="recalculateXP()" class="btn-secondary">Recalculate XP</button>
         </div>
 
         <div class="main-content">
@@ -130,10 +131,7 @@
           <label>Max Tokens Before Auto-Compact</label>
           <input type="number" id="max-tokens" min="1000" max="100000" value="8000">
         </div>
-        <div class="form-group">
-          <label>System Prompt (DM Instructions)</label>
-          <textarea id="system-prompt" rows="10"></textarea>
-        </div>
+        <p class="settings-note">DM Instructions are built-in and automatically updated with new features (XP tracking, dice rolling, etc.)</p>
 
         <h2>Security</h2>
         <div class="form-group">

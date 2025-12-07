@@ -222,7 +222,6 @@ async function loadSettings() {
     document.getElementById('api-key').value = settings.api_key || '';
     document.getElementById('api-model').value = settings.api_model || '';
     document.getElementById('max-tokens').value = settings.max_tokens_before_compact || 8000;
-    document.getElementById('system-prompt').value = settings.system_prompt || '';
   } catch (error) {
     console.error('Failed to load settings:', error);
   }
@@ -234,7 +233,6 @@ async function saveSettings() {
     api_key: document.getElementById('api-key').value,
     api_model: document.getElementById('api-model').value,
     max_tokens_before_compact: document.getElementById('max-tokens').value,
-    system_prompt: document.getElementById('system-prompt').value,
     new_password: document.getElementById('new-password').value || undefined
   };
 
@@ -470,13 +468,31 @@ function updateCharacterSelect() {
 
 function updatePartyList() {
   const list = document.getElementById('party-list');
-  list.innerHTML = characters.map(c => `
-    <div class="party-item">
-      <div class="name">${c.character_name}</div>
+  list.innerHTML = characters.map(c => {
+    const xp = c.xp || 0;
+    const requiredXP = getRequiredXP(c.level);
+    return `
+    <div class="party-item expanded">
+      <div class="party-header">
+        <div class="name">${c.character_name}</div>
+        <div class="level">Lv.${c.level}</div>
+      </div>
       <div class="info">${c.race} ${c.class}</div>
       <div class="hp">HP: ${c.hp}/${c.max_hp}</div>
+      <div class="xp-info">XP: ${xp}/${requiredXP}</div>
+      <div class="party-stats">
+        <span>STR:${c.strength}</span>
+        <span>DEX:${c.dexterity}</span>
+        <span>CON:${c.constitution}</span>
+        <span>INT:${c.intelligence}</span>
+        <span>WIS:${c.wisdom}</span>
+        <span>CHA:${c.charisma}</span>
+      </div>
+      ${c.skills ? `<div class="party-detail"><strong>Skills:</strong> ${c.skills}</div>` : ''}
+      ${c.spells ? `<div class="party-detail"><strong>Spells:</strong> ${c.spells}</div>` : ''}
+      ${c.passives ? `<div class="party-detail"><strong>Passives:</strong> ${c.passives}</div>` : ''}
     </div>
-  `).join('');
+  `}).join('');
 }
 
 
@@ -641,6 +657,29 @@ async function forceProcessTurn() {
   } catch (error) {
     console.error('Failed to process turn:', error);
     alert('Failed to process turn: ' + error.message);
+  }
+}
+
+async function recalculateXP() {
+  if (!currentSession) {
+    alert('Please select a session first');
+    return;
+  }
+
+  if (!confirm('Recalculate XP from session history? This will scan all DM responses for [XP: ...] tags.')) return;
+
+  try {
+    const result = await api(`/api/sessions/${currentSession.id}/recalculate-xp`, 'POST');
+    if (result.success) {
+      const xpSummary = Object.entries(result.xpAwarded).length > 0
+        ? 'XP recalculated successfully!'
+        : 'No XP tags found in session history.';
+      alert(xpSummary);
+      loadCharacters();
+    }
+  } catch (error) {
+    console.error('Failed to recalculate XP:', error);
+    alert('Failed to recalculate XP: ' + error.message);
   }
 }
 
