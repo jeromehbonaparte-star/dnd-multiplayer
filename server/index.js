@@ -170,12 +170,30 @@ app.post('/api/test-connection', checkPassword, async (req, res) => {
     }
 
     const data = await response.json();
-    const message = data.choices?.[0]?.message?.content || 'Response received';
+    console.log('API Response:', JSON.stringify(data, null, 2));
+
+    // Handle different response formats (OpenAI, DeepSeek, etc.)
+    let message = 'Response received';
+    if (data.choices && data.choices[0]) {
+      const choice = data.choices[0];
+      message = choice.message?.content || choice.text || choice.content || message;
+    } else if (data.output) {
+      message = data.output;
+    } else if (data.response) {
+      message = data.response;
+    } else if (data.result) {
+      message = data.result;
+    }
+
+    // Clean up message if it's still an object
+    if (typeof message === 'object') {
+      message = JSON.stringify(message);
+    }
 
     res.json({
       success: true,
-      message: message,
-      model: data.model || api_model
+      message: message.substring(0, 200),
+      model: data.model || data.model_name || api_model
     });
   } catch (error) {
     res.status(500).json({ error: `Connection failed: ${error.message}` });
