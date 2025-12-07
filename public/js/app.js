@@ -295,11 +295,6 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
-// Enter key for character chat
-document.getElementById('char-chat-input')?.addEventListener('keypress', (e) => {
-  if (e.key === 'Enter') sendCharacterMessage();
-});
-
 // Characters
 async function loadCharacters() {
   try {
@@ -633,11 +628,61 @@ async function levelUpCharacter(charId) {
   }
 }
 
-// Enter key handlers
+// Theme toggle
+function toggleTheme() {
+  const html = document.documentElement;
+  const currentTheme = html.getAttribute('data-theme') || 'dark';
+  const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+
+  html.setAttribute('data-theme', newTheme);
+  localStorage.setItem('dnd-theme', newTheme);
+  updateThemeButton(newTheme);
+}
+
+function updateThemeButton(theme) {
+  const icon = document.getElementById('theme-icon');
+  const label = document.getElementById('theme-label');
+  if (theme === 'light') {
+    icon.textContent = '☀️';
+    label.textContent = 'Light';
+  } else {
+    icon.textContent = '🌙';
+    label.textContent = 'Dark';
+  }
+}
+
+// Load saved theme
+function loadTheme() {
+  const savedTheme = localStorage.getItem('dnd-theme') || 'dark';
+  document.documentElement.setAttribute('data-theme', savedTheme);
+  updateThemeButton(savedTheme);
+}
+loadTheme();
+
+// Enter key handlers - Enter for new line, Shift+Enter to send
 document.getElementById('password-input').addEventListener('keypress', (e) => {
   if (e.key === 'Enter') login();
 });
 
-document.getElementById('modal-input')?.addEventListener('keypress', (e) => {
-  if (e.key === 'Enter') sendModalMessage();
+// Shift+Enter to send in chat inputs
+document.getElementById('char-chat-input')?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.shiftKey) {
+    e.preventDefault();
+    sendCharacterMessage();
+  }
+});
+
+document.getElementById('modal-input')?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.shiftKey) {
+    e.preventDefault();
+    sendModalMessage();
+  }
+});
+
+// Shift+Enter to submit action
+document.getElementById('action-text')?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.shiftKey) {
+    e.preventDefault();
+    submitAction();
+  }
 });

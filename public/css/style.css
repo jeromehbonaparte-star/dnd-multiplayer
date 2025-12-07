@@ -4,7 +4,8 @@
   padding: 0;
 }
 
-:root {
+/* Dark Theme (Default) */
+:root, [data-theme="dark"] {
   --bg-dark: #1a1a2e;
   --bg-medium: #16213e;
   --bg-light: #0f3460;
@@ -14,6 +15,21 @@
   --text-muted: #aaa;
   --success: #4ade80;
   --warning: #fbbf24;
+  --shadow: rgba(0, 0, 0, 0.3);
+}
+
+/* Light Theme */
+[data-theme="light"] {
+  --bg-dark: #f5f5f5;
+  --bg-medium: #ffffff;
+  --bg-light: #e8e8e8;
+  --accent: #d63384;
+  --accent-hover: #e85a9c;
+  --text: #333333;
+  --text-muted: #666666;
+  --success: #28a745;
+  --warning: #ffc107;
+  --shadow: rgba(0, 0, 0, 0.1);
 }
 
 body {
@@ -21,6 +37,7 @@ body {
   background: var(--bg-dark);
   color: var(--text);
   min-height: 100vh;
+  transition: background-color 0.3s, color 0.3s;
 }
 
 .screen {
@@ -904,6 +921,29 @@ nav {
   background: var(--bg-light);
   color: var(--text-muted);
   cursor: not-allowed;
+}
+
+/* Theme Toggle */
+.theme-toggle {
+  padding: 8px 12px;
+  background: var(--bg-light);
+  color: var(--text);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 0.3s;
+}
+
+.theme-toggle:hover {
+  background: var(--accent);
+}
+
+.theme-icon {
+  font-size: 16px;
 }
 
 /* Mobile Menu */
