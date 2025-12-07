@@ -133,7 +133,31 @@ created_at DATETIME
 - AI awards XP using format: `[XP: CharacterName +100, OtherCharacter +50]`
 - XP is automatically parsed and added to character sheets
 - "Recalculate XP" button scans existing history for XP awards
-- D&D 5e XP table for leveling (Level 2 = 300 XP, Level 3 = 900 XP, etc.)
+- "Reset XP" button on character cards to reset XP to 0
+- Party sidebar shows "(Ready!)" when character has enough XP to level up
+
+**D&D 5e XP Thresholds:**
+| Level | XP Required |
+|-------|-------------|
+| 2 | 300 |
+| 3 | 900 |
+| 4 | 2,700 |
+| 5 | 6,500 |
+| 6 | 14,000 |
+| 7 | 23,000 |
+| 8 | 34,000 |
+| 9 | 48,000 |
+| 10 | 64,000 |
+| 11 | 85,000 |
+| 12 | 100,000 |
+| 13 | 120,000 |
+| 14 | 140,000 |
+| 15 | 165,000 |
+| 16 | 195,000 |
+| 17 | 225,000 |
+| 18 | 265,000 |
+| 19 | 305,000 |
+| 20 | 355,000 |
 
 ### 5b. Gold & Inventory System
 - AI awards gold using format: `[GOLD: CharacterName +50, OtherCharacter -25]`
@@ -145,9 +169,24 @@ created_at DATETIME
 - Inventory modal for manual management (add/remove items, update gold)
 
 ### 6. AI-Assisted Level Up & Editing
-- Level up endpoint: `POST /api/characters/:id/levelup`
-- Edit endpoint: `POST /api/characters/:id/edit`
-- AI guides stat increases, new abilities, spell selection
+
+**Level Up (Interactive Chat):**
+- Opens a chat modal when clicking "Level Up" button
+- AI guides player through the level up process conversationally
+- Covers: HP increase (rolls hit die + CON mod), new class features, spell selection
+- At levels 4, 8, 12, 16, 19: AI asks about Ability Score Improvements
+- Player can discuss choices before finalizing
+- Endpoint: `POST /api/characters/:id/levelup` (with `messages` array for conversation)
+
+**Character Editing:**
+- Opens chat modal for free-form editing
+- Can update stats, equipment, spells, skills, backstory, etc.
+- AI confirms changes before applying
+- Endpoint: `POST /api/characters/:id/edit`
+
+**Party Sidebar Quick Actions:**
+- Inventory button: Opens inventory management modal
+- Level Up button: Highlighted green when ready, disabled when not enough XP
 
 ### 7. Built-in Dice Rolling
 - AI DM rolls dice and calculates results
@@ -177,11 +216,13 @@ created_at DATETIME
 - `POST /api/characters` - Create character (manual)
 - `POST /api/characters/ai-create` - AI-guided creation
 - `DELETE /api/characters/:id` - Delete character
-- `POST /api/characters/:id/levelup` - Level up character
+- `POST /api/characters/:id/levelup` - Level up character (interactive chat)
 - `POST /api/characters/:id/edit` - AI-assisted editing
-- `POST /api/characters/:id/gold` - Update character gold
-- `GET /api/characters/:id/inventory` - Get character inventory
-- `POST /api/characters/:id/inventory` - Add/remove inventory items
+- `POST /api/characters/:id/xp` - Award/adjust XP (`{ amount: number }`)
+- `POST /api/characters/:id/reset-xp` - Reset XP to 0
+- `POST /api/characters/:id/gold` - Update character gold (`{ amount: number }`)
+- `GET /api/characters/:id/inventory` - Get character inventory and gold
+- `POST /api/characters/:id/inventory` - Manage inventory (`{ action: 'add'|'remove'|'set', item: string, quantity: number }`)
 
 ### Sessions
 - `GET /api/sessions` - List all sessions
@@ -267,6 +308,41 @@ Nav bar uses `position: sticky; top: 0; z-index: 100;` to stay visible on scroll
 
 ---
 
+## UI Components
+
+### Character Cards (Characters Tab)
+Each character card displays:
+- Character name, player name, race/class/level
+- 6 ability scores (STR, DEX, CON, INT, WIS, CHA)
+- HP bar and gold amount
+- XP progress bar with current/required XP
+- Collapsible inventory section
+- Skills, spells, and passives (if any)
+- Action buttons: Edit, Inventory, Level Up, Reset XP
+
+### Party Sidebar (Game Tab)
+Shows all characters with:
+- Name and level
+- Race/class info
+- HP, gold, XP (with "Ready!" indicator)
+- All 6 stats in compact view
+- Skills, spells, passives, items
+- Quick action buttons: Inventory, Level Up
+
+### Modals
+- **Edit Modal:** Chat interface for AI-assisted character editing
+- **Level Up Modal:** Chat interface for guided level up
+- **Inventory Modal:** Direct management of gold and items
+- **Admin Login Modal:** Password entry for settings access
+
+### Helper Functions (Frontend)
+- `escapeHtml(str)` - Prevents XSS in user-generated content
+- `formatChatMessage(msg)` - Converts markdown-like formatting to HTML
+- `getRequiredXP(level)` - Returns XP needed for next level
+- `canLevelUp(xp, level)` - Checks if character can level up
+
+---
+
 ## Deployment (Easypanel)
 
 ### Environment Variables
@@ -313,6 +389,17 @@ The Dockerfile:
 - Fixed with sessionStorage persistence
 - State saved on `visibilitychange` and `beforeunload` events
 
+### 6. Gold/Items not updating
+- AI must use exact format: `[GOLD: CharacterName +50]` or `[ITEM: CharacterName +ItemName]`
+- Use "Recalculate Loot" button to scan existing history
+- Check character name matches exactly (case-insensitive)
+- Items with quantity: `[ITEM: CharacterName +Health Potion x3]`
+
+### 7. Level up not working
+- Character must have enough XP (check XP thresholds table above)
+- Button is disabled if not enough XP
+- Level up is now interactive - chat with the AI to complete
+
 ---
 
 ## Security Features
@@ -343,6 +430,9 @@ The Dockerfile:
 
 - [x] Inventory system (implemented!)
 - [x] Gold tracking (implemented!)
+- [x] Interactive level up with AI chat (implemented!)
+- [x] Reset XP feature (implemented!)
+- [x] Party sidebar quick actions (implemented!)
 - [ ] Combat tracker with initiative
 - [ ] Map/image uploads
 - [ ] Multiple campaigns per session
@@ -350,6 +440,8 @@ The Dockerfile:
 - [ ] Dice roll history log
 - [ ] NPC/Monster database
 - [ ] Voice integration
+- [ ] Session-specific party loot pool
+- [ ] Equipment vs consumable item distinction
 
 ---
 
