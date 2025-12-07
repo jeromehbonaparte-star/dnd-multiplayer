@@ -139,6 +139,158 @@ async function saveSettings() {
   }
 }
 
+// Test Connection
+async function testConnection() {
+  const statusEl = document.getElementById('test-status');
+  statusEl.textContent = 'Testing connection...';
+  statusEl.className = '';
+
+  const testData = {
+    api_endpoint: document.getElementById('api-endpoint').value,
+    api_key: document.getElementById('api-key').value,
+    api_model: document.getElementById('api-model').value
+  };
+
+  try {
+    const result = await api('/api/test-connection', 'POST', testData);
+    statusEl.textContent = `Success! Model: ${result.model} - Response: "${result.message}"`;
+    statusEl.className = 'success';
+  } catch (error) {
+    statusEl.textContent = error.message || 'Connection failed';
+    statusEl.className = 'error';
+  }
+}
+
+// AI Character Creation
+let charCreationMessages = [];
+let charCreationInProgress = false;
+
+async function startCharacterCreation() {
+  if (charCreationInProgress) return;
+
+  charCreationMessages = [];
+  charCreationInProgress = true;
+
+  document.getElementById('start-creation-btn').disabled = true;
+  document.getElementById('char-chat-input').disabled = false;
+  document.getElementById('char-chat-send').disabled = false;
+
+  const messagesContainer = document.getElementById('char-chat-messages');
+  messagesContainer.innerHTML = '<div class="chat-message assistant"><div class="message-content">Starting character creation...</div></div>';
+
+  // Send initial message to AI
+  try {
+    const result = await api('/api/characters/ai-create', 'POST', {
+      messages: [{ role: 'user', content: 'I want to create a new character. Please guide me through the process.' }]
+    });
+
+    charCreationMessages.push({ role: 'user', content: 'I want to create a new character. Please guide me through the process.' });
+    charCreationMessages.push({ role: 'assistant', content: result.message });
+
+    messagesContainer.innerHTML = `<div class="chat-message assistant"><div class="message-content">${formatChatMessage(result.message)}</div></div>`;
+    scrollChatToBottom();
+
+    document.getElementById('char-chat-input').focus();
+  } catch (error) {
+    messagesContainer.innerHTML = `<div class="chat-message assistant"><div class="message-content">Error: ${error.message}. Make sure your API is configured in Settings.</div></div>`;
+    resetCharacterCreation();
+  }
+}
+
+async function sendCharacterMessage() {
+  const input = document.getElementById('char-chat-input');
+  const message = input.value.trim();
+
+  if (!message || !charCreationInProgress) return;
+
+  input.value = '';
+  input.disabled = true;
+  document.getElementById('char-chat-send').disabled = true;
+
+  const messagesContainer = document.getElementById('char-chat-messages');
+
+  // Add user message
+  messagesContainer.innerHTML += `<div class="chat-message user"><div class="message-content">${escapeHtml(message)}</div></div>`;
+  scrollChatToBottom();
+
+  charCreationMessages.push({ role: 'user', content: message });
+
+  // Add loading indicator
+  messagesContainer.innerHTML += '<div class="chat-message assistant" id="loading-msg"><div class="message-content">Thinking...</div></div>';
+  scrollChatToBottom();
+
+  try {
+    const result = await api('/api/characters/ai-create', 'POST', {
+      messages: charCreationMessages
+    });
+
+    // Remove loading indicator
+    document.getElementById('loading-msg')?.remove();
+
+    charCreationMessages.push({ role: 'assistant', content: result.message });
+
+    messagesContainer.innerHTML += `<div class="chat-message assistant"><div class="message-content">${formatChatMessage(result.message)}</div></div>`;
+    scrollChatToBottom();
+
+    if (result.complete) {
+      // Character created!
+      charCreationInProgress = false;
+      messagesContainer.innerHTML += `<div class="chat-message assistant"><div class="message-content"><strong>Character created successfully!</strong> Check the Characters list.</div></div>`;
+      scrollChatToBottom();
+      loadCharacters();
+      document.getElementById('start-creation-btn').disabled = false;
+    } else {
+      input.disabled = false;
+      document.getElementById('char-chat-send').disabled = false;
+      input.focus();
+    }
+  } catch (error) {
+    document.getElementById('loading-msg')?.remove();
+    messagesContainer.innerHTML += `<div class="chat-message assistant"><div class="message-content">Error: ${error.message}</div></div>`;
+    input.disabled = false;
+    document.getElementById('char-chat-send').disabled = false;
+  }
+}
+
+function resetCharacterCreation() {
+  charCreationMessages = [];
+  charCreationInProgress = false;
+
+  document.getElementById('start-creation-btn').disabled = false;
+  document.getElementById('char-chat-input').disabled = true;
+  document.getElementById('char-chat-input').value = '';
+  document.getElementById('char-chat-send').disabled = true;
+
+  document.getElementById('char-chat-messages').innerHTML = `
+    <div class="chat-message assistant">
+      <div class="message-content">Click "Start Character Creation" to begin creating your Level 1 character with AI guidance!</div>
+    </div>
+  `;
+}
+
+function scrollChatToBottom() {
+  const container = document.getElementById('char-chat-messages');
+  container.scrollTop = container.scrollHeight;
+}
+
+function formatChatMessage(text) {
+  return escapeHtml(text)
+    .replace(/\n/g, '<br>')
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.*?)\*/g, '<em>$1</em>');
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// Enter key for character chat
+document.getElementById('char-chat-input')?.addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') sendCharacterMessage();
+});
+
 // Characters
 async function loadCharacters() {
   try {
@@ -189,62 +341,6 @@ function updatePartyList() {
   `).join('');
 }
 
-// Roll stats
-function rollD6() {
-  return Math.floor(Math.random() * 6) + 1;
-}
-
-function roll4d6DropLowest() {
-  const rolls = [rollD6(), rollD6(), rollD6(), rollD6()];
-  rolls.sort((a, b) => b - a);
-  return rolls[0] + rolls[1] + rolls[2];
-}
-
-function rollStat(stat) {
-  const value = roll4d6DropLowest();
-  document.getElementById(`char-${stat}`).value = value;
-}
-
-function rollAllStats() {
-  ['str', 'dex', 'con', 'int', 'wis', 'cha'].forEach(stat => rollStat(stat));
-}
-
-async function createCharacter() {
-  const character = {
-    player_name: document.getElementById('char-player-name').value,
-    character_name: document.getElementById('char-name').value,
-    race: document.getElementById('char-race').value,
-    class: document.getElementById('char-class').value,
-    strength: parseInt(document.getElementById('char-str').value),
-    dexterity: parseInt(document.getElementById('char-dex').value),
-    constitution: parseInt(document.getElementById('char-con').value),
-    intelligence: parseInt(document.getElementById('char-int').value),
-    wisdom: parseInt(document.getElementById('char-wis').value),
-    charisma: parseInt(document.getElementById('char-cha').value),
-    background: document.getElementById('char-background').value,
-    equipment: document.getElementById('char-equipment').value
-  };
-
-  if (!character.player_name || !character.character_name) {
-    alert('Please fill in player name and character name');
-    return;
-  }
-
-  try {
-    await api('/api/characters', 'POST', character);
-    // Reset form
-    document.getElementById('char-player-name').value = '';
-    document.getElementById('char-name').value = '';
-    document.getElementById('char-background').value = '';
-    document.getElementById('char-equipment').value = '';
-    ['str', 'dex', 'con', 'int', 'wis', 'cha'].forEach(stat => {
-      document.getElementById(`char-${stat}`).value = 10;
-    });
-  } catch (error) {
-    console.error('Failed to create character:', error);
-    alert('Failed to create character');
-  }
-}
 
 async function deleteCharacter(id) {
   if (!confirm('Are you sure you want to delete this character?')) return;

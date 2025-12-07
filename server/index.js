@@ -142,6 +142,46 @@ app.post('/api/settings', checkPassword, (req, res) => {
   res.json({ success: true });
 });
 
+// Test API Connection
+app.post('/api/test-connection', checkPassword, async (req, res) => {
+  const { api_endpoint, api_key, api_model } = req.body;
+
+  if (!api_endpoint || !api_key || !api_model) {
+    return res.status(400).json({ error: 'Please fill in all API fields' });
+  }
+
+  try {
+    const response = await fetch(api_endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${api_key}`
+      },
+      body: JSON.stringify({
+        model: api_model,
+        messages: [{ role: 'user', content: 'Say "Connection successful!" in exactly those words.' }],
+        max_tokens: 50
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return res.status(response.status).json({ error: `API Error (${response.status}): ${errorText}` });
+    }
+
+    const data = await response.json();
+    const message = data.choices?.[0]?.message?.content || 'Response received';
+
+    res.json({
+      success: true,
+      message: message,
+      model: data.model || api_model
+    });
+  } catch (error) {
+    res.status(500).json({ error: `Connection failed: ${error.message}` });
+  }
+});
+
 // Character routes
 app.get('/api/characters', checkPassword, (req, res) => {
   const characters = db.prepare('SELECT * FROM characters ORDER BY created_at DESC').all();
@@ -168,6 +208,101 @@ app.delete('/api/characters/:id', checkPassword, (req, res) => {
   db.prepare('DELETE FROM characters WHERE id = ?').run(req.params.id);
   io.emit('character_deleted', req.params.id);
   res.json({ success: true });
+});
+
+// AI Character Creation
+const CHARACTER_CREATION_PROMPT = `You are a friendly D&D 5e character creation assistant. Help the player create their character through conversation.
+
+You must guide them through these steps IN ORDER:
+1. Ask for their PLAYER NAME (the real person's name)
+2. Ask what RACE they want (Human, Elf, Dwarf, Halfling, Dragonborn, Gnome, Half-Elf, Half-Orc, Tiefling)
+3. Ask what CLASS they want (Fighter, Wizard, Rogue, Cleric, Barbarian, Bard, Druid, Monk, Paladin, Ranger, Sorcerer, Warlock)
+4. Ask for their CHARACTER NAME
+5. Help them with a brief BACKSTORY (2-3 sentences)
+6. Ask about starting EQUIPMENT based on their class
+
+For STATS, you will roll 4d6 drop lowest for each stat and assign them appropriately for their class.
+
+When you have ALL information needed, output the final character in this EXACT JSON format on a single line:
+CHARACTER_COMPLETE:{"player_name":"...","character_name":"...","race":"...","class":"...","strength":N,"dexterity":N,"constitution":N,"intelligence":N,"wisdom":N,"charisma":N,"background":"...","equipment":"..."}
+
+Be encouraging, creative, and help new players understand their choices. Keep responses concise but helpful.`;
+
+app.post('/api/characters/ai-create', checkPassword, async (req, res) => {
+  const { messages } = req.body;
+
+  const settings = {};
+  db.prepare('SELECT key, value FROM settings').all().forEach(row => settings[row.key] = row.value);
+
+  if (!settings.api_key) {
+    return res.status(400).json({ error: 'API key not configured. Please set up your API in Settings.' });
+  }
+
+  try {
+    const response = await fetch(settings.api_endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${settings.api_key}`
+      },
+      body: JSON.stringify({
+        model: settings.api_model,
+        messages: [
+          { role: 'system', content: CHARACTER_CREATION_PROMPT },
+          ...messages
+        ],
+        max_tokens: 1000
+      })
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`API Error: ${error}`);
+    }
+
+    const data = await response.json();
+    const aiMessage = data.choices[0].message.content;
+
+    // Check if character is complete
+    if (aiMessage.includes('CHARACTER_COMPLETE:')) {
+      const jsonMatch = aiMessage.match(/CHARACTER_COMPLETE:(\{.*\})/);
+      if (jsonMatch) {
+        try {
+          const charData = JSON.parse(jsonMatch[1]);
+
+          // Create the character
+          const id = uuidv4();
+          const hp = 10 + Math.floor((charData.constitution - 10) / 2);
+
+          db.prepare(`
+            INSERT INTO characters (id, player_name, character_name, race, class, level, strength, dexterity, constitution, intelligence, wisdom, charisma, hp, max_hp, background, equipment)
+            VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(id, charData.player_name, charData.character_name, charData.race, charData.class,
+                 charData.strength, charData.dexterity, charData.constitution, charData.intelligence,
+                 charData.wisdom, charData.charisma, hp, hp, charData.background, charData.equipment);
+
+          const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(id);
+          io.emit('character_created', character);
+
+          // Clean up the message for display
+          const cleanMessage = aiMessage.replace(/CHARACTER_COMPLETE:\{.*\}/, '').trim();
+
+          return res.json({
+            message: cleanMessage || 'Your character has been created!',
+            complete: true,
+            character
+          });
+        } catch (parseError) {
+          console.error('Failed to parse character JSON:', parseError);
+        }
+      }
+    }
+
+    res.json({ message: aiMessage, complete: false });
+  } catch (error) {
+    console.error('AI character creation error:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Game session routes

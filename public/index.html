@@ -71,95 +71,23 @@
     <!-- Characters Tab -->
     <div id="characters-tab" class="tab-content">
       <div class="characters-container">
-        <div class="character-form">
-          <h2>Create Character</h2>
-          <div class="form-grid">
-            <div class="form-group">
-              <label>Player Name</label>
-              <input type="text" id="char-player-name">
+        <div class="character-creator">
+          <h2>Create Character (AI Guided)</h2>
+          <div class="chat-container" id="char-chat-container">
+            <div class="chat-messages" id="char-chat-messages">
+              <div class="chat-message assistant">
+                <div class="message-content">Click "Start Character Creation" to begin creating your Level 1 character with AI guidance!</div>
+              </div>
             </div>
-            <div class="form-group">
-              <label>Character Name</label>
-              <input type="text" id="char-name">
-            </div>
-            <div class="form-group">
-              <label>Race</label>
-              <select id="char-race">
-                <option value="Human">Human</option>
-                <option value="Elf">Elf</option>
-                <option value="Dwarf">Dwarf</option>
-                <option value="Halfling">Halfling</option>
-                <option value="Dragonborn">Dragonborn</option>
-                <option value="Gnome">Gnome</option>
-                <option value="Half-Elf">Half-Elf</option>
-                <option value="Half-Orc">Half-Orc</option>
-                <option value="Tiefling">Tiefling</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>Class</label>
-              <select id="char-class">
-                <option value="Fighter">Fighter</option>
-                <option value="Wizard">Wizard</option>
-                <option value="Rogue">Rogue</option>
-                <option value="Cleric">Cleric</option>
-                <option value="Barbarian">Barbarian</option>
-                <option value="Bard">Bard</option>
-                <option value="Druid">Druid</option>
-                <option value="Monk">Monk</option>
-                <option value="Paladin">Paladin</option>
-                <option value="Ranger">Ranger</option>
-                <option value="Sorcerer">Sorcerer</option>
-                <option value="Warlock">Warlock</option>
-              </select>
+            <div class="chat-input-area">
+              <input type="text" id="char-chat-input" placeholder="Type your response..." disabled>
+              <button id="char-chat-send" onclick="sendCharacterMessage()" disabled>Send</button>
             </div>
           </div>
-
-          <h3>Stats <button type="button" onclick="rollAllStats()" class="btn-small">Roll All (4d6 drop lowest)</button></h3>
-          <div class="stats-grid">
-            <div class="stat-input">
-              <label>STR</label>
-              <input type="number" id="char-str" min="1" max="20" value="10">
-              <button type="button" onclick="rollStat('str')">Roll</button>
-            </div>
-            <div class="stat-input">
-              <label>DEX</label>
-              <input type="number" id="char-dex" min="1" max="20" value="10">
-              <button type="button" onclick="rollStat('dex')">Roll</button>
-            </div>
-            <div class="stat-input">
-              <label>CON</label>
-              <input type="number" id="char-con" min="1" max="20" value="10">
-              <button type="button" onclick="rollStat('con')">Roll</button>
-            </div>
-            <div class="stat-input">
-              <label>INT</label>
-              <input type="number" id="char-int" min="1" max="20" value="10">
-              <button type="button" onclick="rollStat('int')">Roll</button>
-            </div>
-            <div class="stat-input">
-              <label>WIS</label>
-              <input type="number" id="char-wis" min="1" max="20" value="10">
-              <button type="button" onclick="rollStat('wis')">Roll</button>
-            </div>
-            <div class="stat-input">
-              <label>CHA</label>
-              <input type="number" id="char-cha" min="1" max="20" value="10">
-              <button type="button" onclick="rollStat('cha')">Roll</button>
-            </div>
+          <div class="creator-buttons">
+            <button onclick="startCharacterCreation()" id="start-creation-btn">Start Character Creation</button>
+            <button onclick="resetCharacterCreation()" class="btn-secondary">Reset</button>
           </div>
-
-          <div class="form-group full-width">
-            <label>Background</label>
-            <textarea id="char-background" placeholder="Your character's backstory..."></textarea>
-          </div>
-
-          <div class="form-group full-width">
-            <label>Starting Equipment</label>
-            <textarea id="char-equipment" placeholder="List your equipment..."></textarea>
-          </div>
-
-          <button onclick="createCharacter()">Create Character</button>
         </div>
 
         <div class="character-list">
@@ -185,6 +113,8 @@
           <label>Model</label>
           <input type="text" id="api-model" placeholder="gpt-4">
         </div>
+        <button onclick="testConnection()" class="btn-test">Test Connection</button>
+        <p id="test-status"></p>
 
         <h2>Game Settings</h2>
         <div class="form-group">
