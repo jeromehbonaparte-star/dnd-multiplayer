@@ -181,6 +181,33 @@ created_at DATETIME
 - "Force Process Turn" button for DM override
 - Real-time updates via Socket.IO
 
+### 3b. Scenario Selection (New Session)
+When creating a new session, players can choose from predefined scenarios:
+
+| Scenario | Description |
+|----------|-------------|
+| Classic Fantasy | Traditional D&D with dungeons and dragons |
+| Tavern Meeting | Classic "you all meet in a tavern" opening |
+| Modern Urban Fantasy | Magic hidden in the modern world |
+| Zombie Apocalypse | Survival horror with the undead |
+| Space Opera | Sci-fi adventure among the stars |
+| Noir Detective | 1940s gritty detective story |
+| Pirate Adventure | High seas treasure hunting |
+| Post-Apocalyptic | Wasteland survival |
+| Horror Mystery | Lovecraftian cosmic horror |
+| Custom Setting | User-defined world and scenario |
+
+- AI generates an atmospheric opening scene based on selected scenario
+- Custom setting allows free-form world description
+- Opening scene introduces existing party characters if any
+
+### 3c. Beautified Session UI
+- Character sheets sent as hidden context (AI sees them, players don't clutter)
+- Player actions displayed as individual styled bubbles per character
+- Each character has unique color for visual distinction
+- DM narrations styled separately with gradient background
+- Legacy message format supported for backward compatibility
+
 ### 4. Auto-Compact System
 - When tokens exceed `max_tokens_before_compact`, history is summarized
 - **Backend only:** Players always see full chat history
@@ -217,14 +244,32 @@ created_at DATETIME
 | 19 | 305,000 |
 | 20 | 355,000 |
 
-### 5b. Gold & Inventory System
-- AI awards gold using format: `[GOLD: CharacterName +50, OtherCharacter -25]`
+### 5b. Money & Inventory System
+- AI awards money using format: `[MONEY: CharacterName +50, OtherCharacter -25]`
+- `[GOLD:]` tag also works for backward compatibility
+- Currency is setting-agnostic (gp for fantasy, USD for modern, credits for sci-fi)
 - AI tracks items using format: `[ITEM: CharacterName +Sword of Fire, CharacterName +Health Potion x3]`
 - Items can be removed: `[ITEM: CharacterName -Health Potion]`
-- Gold and inventory automatically parsed and updated on character sheets
-- "Recalculate Loot" button scans existing history for GOLD and ITEM tags
+- Item matching uses fuzzy search (partial name matches work)
+- Money and inventory automatically parsed and updated on character sheets
+- "Recalculate Loot" button scans existing history for MONEY/GOLD and ITEM tags
 - Inventory displayed in character cards with collapsible view
-- Inventory modal for manual management (add/remove items, update gold)
+- Inventory modal for manual management (add/remove items, update money)
+
+### 5b2. HP Tracking System
+- AI can modify character HP using format:
+  - `[HP: CharacterName -10]` - Deal damage
+  - `[HP: CharacterName +5]` - Heal (capped at max HP)
+  - `[HP: CharacterName =20]` - Set HP to specific value
+- HP changes are automatically applied and broadcast to all clients
+
+### 5b3. Combat Control Tags
+- DM can control combat through narrative:
+  - `[COMBAT: START Combat Name]` - Start combat, auto-roll party initiative
+  - `[COMBAT: END]` - End the current combat
+  - `[COMBAT: NEXT]` - Advance to next turn
+  - `[COMBAT: PREV]` - Go back one turn
+- Combat tracker syncs automatically across all clients
 
 ### 5c. AC Effects & Spell Slots System
 **Armor Class (AC) with Effects Tracking:**
@@ -550,11 +595,14 @@ The system prompt is hardcoded in `server/index.js` as `DEFAULT_SYSTEM_PROMPT`. 
 - Dice rolling format and calculation rules
 - Combat mechanics with dramatic descriptions
 - XP award format: `[XP: CharacterName +100]`
-- Gold award format: `[GOLD: CharacterName +50]`
+- Money award format: `[MONEY: CharacterName +50]` (or `[GOLD:]` for compatibility)
 - Item tracking format: `[ITEM: CharacterName +Sword of Fire]`
 - Spell slot tracking format: `[SPELL: CharacterName -1st]` or `[SPELL: CharacterName +REST]`
+- HP tracking format: `[HP: CharacterName -10]`, `[HP: CharacterName +5]`, `[HP: CharacterName =20]`
+- Combat control format: `[COMBAT: START Name]`, `[COMBAT: END]`, `[COMBAT: NEXT]`, `[COMBAT: PREV]`
+- Player Agency rules: Never give numbered lists of choices, let players discover and decide
 
-**Important:** This is NOT editable via settings to ensure XP/gold/inventory/spell tracking always works.
+**Important:** This is NOT editable via settings to ensure tracking always works.
 
 ---
 

@@ -485,7 +485,14 @@ console.log('All characters:', all);
 ## Version History
 
 ### Latest Features
-- **Beautified Session UI** - Character sheets hidden from main chat, player actions shown as individual character bubbles with avatars and colors
+- **Scenario Selection** - Choose from 10 preset scenarios (Fantasy, Modern, Zombie, Sci-Fi, etc.) or custom setting when creating sessions
+- **AI-Generated Opening Scenes** - DM automatically sets the scene based on selected scenario
+- **DM HP Control** - `[HP: Character -10]`, `[HP: Character +5]`, `[HP: Character =20]` tags for damage/healing
+- **DM Combat Control** - `[COMBAT: START]`, `[COMBAT: END]`, `[COMBAT: NEXT]`, `[COMBAT: PREV]` tags
+- **Setting-Agnostic Currency** - "Money" instead of "Gold", works with any setting (gp, USD, credits)
+- **Collapsible Character Cards** - Click to expand/collapse, shows summary when minimized
+- **Player Agency Rules** - DM no longer gives numbered choice lists, lets players discover options
+- **Beautified Session UI** - Player actions as individual bubbles, character sheets hidden from chat
 - **Combat Tracker with Initiative** - Full turn-based combat management
 - **Class Features tracking** - Fighter's Second Wind, Bard's Song of Rest, etc.
 - **Appearance & Backstory** - Character descriptions and history
@@ -493,7 +500,7 @@ console.log('All characters:', all);
 - Multiple API configurations
 - Feats and multiclassing support
 - AC and spell slot tracking
-- Gold and inventory system
+- Inventory system with fuzzy item matching
 - XP system with level up
 - AI-guided character creation and editing
 
