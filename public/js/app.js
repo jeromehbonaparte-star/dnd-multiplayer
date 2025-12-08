@@ -1077,12 +1077,7 @@ async function loadSession(id) {
     // Players see the full chat history
     const history = JSON.parse(currentSession.full_history || '[]');
     const historyContainer = document.getElementById('story-history');
-    historyContainer.innerHTML = history.map(entry => `
-      <div class="story-entry ${entry.role}">
-        <div class="role">${entry.role === 'user' ? 'Players' : 'Dungeon Master'}</div>
-        <div class="content">${formatContent(entry.content)}</div>
-      </div>
-    `).join('');
+    historyContainer.innerHTML = renderStoryHistory(history);
 
     // Scroll to bottom
     document.getElementById('story-container').scrollTop =
@@ -1124,6 +1119,112 @@ function formatContent(content) {
     .replace(/\n/g, '<br>')
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.*?)\*/g, '<em>$1</em>');
+}
+
+// Render story history with beautified player actions
+function renderStoryHistory(history) {
+  let html = '';
+  let turnActions = []; // Collect actions for a turn
+
+  for (const entry of history) {
+    // Skip hidden context messages (character sheets)
+    if (entry.hidden || entry.type === 'context') {
+      continue;
+    }
+
+    // Handle player actions - collect and display as a group
+    if (entry.type === 'action') {
+      turnActions.push(entry);
+      continue;
+    }
+
+    // When we hit a narration or legacy assistant message, first render any collected actions
+    if (entry.role === 'assistant' || entry.type === 'narration') {
+      if (turnActions.length > 0) {
+        html += renderPlayerActionsGroup(turnActions);
+        turnActions = [];
+      }
+
+      // Render DM narration
+      html += `
+        <div class="story-entry assistant narration">
+          <div class="role">Dungeon Master</div>
+          <div class="content">${formatContent(entry.content)}</div>
+        </div>
+      `;
+      continue;
+    }
+
+    // Legacy format - user messages without type
+    if (entry.role === 'user' && !entry.type) {
+      // Check if it looks like old combined format
+      if (entry.content.includes('PARTY STATUS:') || entry.content.includes('PLAYER ACTIONS THIS TURN:')) {
+        // Parse legacy format - extract actions if possible
+        const actionsMatch = entry.content.match(/PLAYER ACTIONS THIS TURN:\s*([\s\S]*?)(?:Please narrate|$)/i);
+        if (actionsMatch) {
+          const actionLines = actionsMatch[1].trim().split('\n').filter(l => l.trim());
+          for (const line of actionLines) {
+            const colonIdx = line.indexOf(':');
+            if (colonIdx > 0) {
+              const charName = line.substring(0, colonIdx).trim();
+              const action = line.substring(colonIdx + 1).trim();
+              turnActions.push({
+                character_name: charName,
+                content: action,
+                type: 'action'
+              });
+            }
+          }
+        }
+      } else {
+        // Just a plain user message
+        html += `
+          <div class="story-entry user">
+            <div class="role">Players</div>
+            <div class="content">${formatContent(entry.content)}</div>
+          </div>
+        `;
+      }
+    }
+  }
+
+  // Render any remaining actions at the end
+  if (turnActions.length > 0) {
+    html += renderPlayerActionsGroup(turnActions);
+  }
+
+  return html;
+}
+
+// Render a group of player actions as individual character bubbles
+function renderPlayerActionsGroup(actions) {
+  if (actions.length === 0) return '';
+
+  let html = '<div class="player-actions-group">';
+  html += '<div class="actions-header">Player Actions</div>';
+
+  for (const action of actions) {
+    const charName = action.character_name || 'Unknown';
+    const playerName = action.player_name || '';
+    const initial = charName.charAt(0).toUpperCase();
+
+    // Generate a consistent color based on character name
+    const colorIndex = charName.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % 6;
+    const colorClass = `char-color-${colorIndex}`;
+
+    html += `
+      <div class="player-action-bubble ${colorClass}">
+        <div class="action-avatar">${initial}</div>
+        <div class="action-content">
+          <div class="action-character-name">${escapeHtml(charName)}${playerName ? ` <span class="action-player-name">(${escapeHtml(playerName)})</span>` : ''}</div>
+          <div class="action-text">${formatContent(action.content)}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  html += '</div>';
+  return html;
 }
 
 // Actions

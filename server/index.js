@@ -2567,14 +2567,14 @@ async function processAITurn(sessionId, pendingActions, characters) {
     return info;
   }).join('\n\n');
 
-  // Build action summary
+  // Build action summary for AI
   const actionSummary = pendingActions.map(pa => {
     const char = characters.find(c => c.id === pa.character_id);
     return `${char ? char.character_name : 'Unknown'}: ${pa.action}`;
   }).join('\n');
 
-  // Add user message for this turn
-  const userMessage = `
+  // Build the full AI message (includes everything for AI context)
+  const aiUserMessage = `
 PARTY STATUS:
 ${characterInfo}
 
@@ -2583,14 +2583,68 @@ ${actionSummary}
 
 Please narrate the outcome of these actions and describe what happens next.`;
 
-  fullHistory.push({ role: 'user', content: userMessage });
+  // Store character context as hidden system context (not shown in UI but sent to AI)
+  fullHistory.push({
+    role: 'user',
+    content: characterInfo,
+    type: 'context',
+    hidden: true
+  });
+
+  // Store each player action as a separate entry for display
+  for (const pa of pendingActions) {
+    const char = characters.find(c => c.id === pa.character_id);
+    if (char) {
+      fullHistory.push({
+        role: 'user',
+        content: pa.action,
+        type: 'action',
+        character_id: char.id,
+        character_name: char.character_name,
+        player_name: char.player_name
+      });
+    }
+  }
 
   // Build messages array for AI - only send messages after compacted_count
   // The summary covers messages 0 to compactedCount-1
+  // For AI, we combine the stored entries into proper user/assistant messages
   const recentHistory = fullHistory.slice(compactedCount);
+
+  // Convert stored history to AI-compatible format
+  // Combine context + actions into single user messages for AI
+  const aiMessages = [];
+  let currentUserContent = [];
+
+  for (const entry of recentHistory) {
+    if (entry.role === 'assistant') {
+      // Flush any pending user content
+      if (currentUserContent.length > 0) {
+        aiMessages.push({ role: 'user', content: currentUserContent.join('\n\n') });
+        currentUserContent = [];
+      }
+      aiMessages.push({ role: 'assistant', content: entry.content });
+    } else if (entry.role === 'user') {
+      if (entry.type === 'context') {
+        currentUserContent.push(`PARTY STATUS:\n${entry.content}`);
+      } else if (entry.type === 'action') {
+        currentUserContent.push(`${entry.character_name}: ${entry.content}`);
+      } else {
+        // Legacy format - use content as-is
+        currentUserContent.push(entry.content);
+      }
+    }
+  }
+
+  // Flush remaining user content and add the prompt
+  if (currentUserContent.length > 0) {
+    currentUserContent.push('Please narrate the outcome of these actions and describe what happens next.');
+    aiMessages.push({ role: 'user', content: currentUserContent.join('\n\n') });
+  }
+
   const messages = [
     { role: 'system', content: DEFAULT_SYSTEM_PROMPT + (session.story_summary ? `\n\nSTORY SO FAR:\n${session.story_summary}` : '') },
-    ...recentHistory
+    ...aiMessages
   ];
 
   // Call AI API
@@ -2622,7 +2676,7 @@ Please narrate the outcome of these actions and describe what happens next.`;
 
   const tokensUsed = data.usage?.total_tokens || estimateTokens(JSON.stringify(messages) + aiResponse);
 
-  fullHistory.push({ role: 'assistant', content: aiResponse });
+  fullHistory.push({ role: 'assistant', content: aiResponse, type: 'narration' });
 
   // Parse and award XP from AI response
   // Format: [XP: CharacterName +100, OtherCharacter +50]

@@ -107,13 +107,48 @@ created_at DATETIME
 id TEXT PRIMARY KEY
 name TEXT
 story_summary TEXT          # AI-generated summary for context (backend only)
-full_history TEXT           # JSON array of all messages (always shown to players)
+full_history TEXT           # JSON array of messages with metadata (see format below)
 compacted_count INTEGER     # Number of messages summarized
 current_turn INTEGER
 total_tokens INTEGER
 is_active INTEGER
 created_at DATETIME
 ```
+
+**full_history Message Format:**
+The `full_history` field stores a JSON array of message objects with the following types:
+
+```json
+[
+  // Character context (hidden from UI, sent to AI)
+  {
+    "role": "user",
+    "content": "Character stats...",
+    "type": "context",
+    "hidden": true
+  },
+  // Individual player action (displayed as character bubble)
+  {
+    "role": "user",
+    "content": "I attack the goblin with my sword",
+    "type": "action",
+    "character_id": "uuid",
+    "character_name": "Thorin",
+    "player_name": "John"
+  },
+  // DM narration response
+  {
+    "role": "assistant",
+    "content": "Thorin swings his mighty sword...",
+    "type": "narration"
+  }
+]
+```
+
+This format enables:
+- Character sheets to be sent to AI without cluttering player UI
+- Player actions displayed as individual styled chat bubbles per character
+- Backward compatibility with legacy messages (no `type` field)
 
 **pending_actions**
 ```sql

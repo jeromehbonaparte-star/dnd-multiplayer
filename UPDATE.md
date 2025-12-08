@@ -485,9 +485,11 @@ console.log('All characters:', all);
 ## Version History
 
 ### Latest Features
+- **Beautified Session UI** - Character sheets hidden from main chat, player actions shown as individual character bubbles with avatars and colors
 - **Combat Tracker with Initiative** - Full turn-based combat management
 - **Class Features tracking** - Fighter's Second Wind, Bard's Song of Rest, etc.
 - **Appearance & Backstory** - Character descriptions and history
+- **Quick Edit modal** - Direct editing of text fields without AI
 - Multiple API configurations
 - Feats and multiclassing support
 - AC and spell slot tracking

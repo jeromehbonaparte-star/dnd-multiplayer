@@ -1349,3 +1349,162 @@ nav {
   color: var(--text-muted);
   font-style: italic;
 }
+
+/* ============================================
+   PLAYER ACTION BUBBLES
+   ============================================ */
+
+.player-actions-group {
+  margin: 12px 0;
+  padding: 12px;
+  background: var(--bg-dark);
+  border-radius: 8px;
+  border-left: 3px solid var(--primary);
+}
+
+.actions-header {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.player-action-bubble {
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+  margin: 8px 0;
+  background: var(--bg-medium);
+  border-radius: 8px;
+  border-left: 3px solid var(--primary);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.player-action-bubble:hover {
+  transform: translateX(3px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.action-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  font-size: 1rem;
+  color: var(--text-bright);
+  flex-shrink: 0;
+  background: var(--primary);
+}
+
+.action-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.action-character-name {
+  font-weight: 600;
+  color: var(--text-bright);
+  font-size: 0.9rem;
+  margin-bottom: 4px;
+}
+
+.action-player-name {
+  font-weight: 400;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.action-text {
+  color: var(--text);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+/* Character color classes for variety */
+.char-color-0 {
+  border-left-color: #e74c3c;
+}
+.char-color-0 .action-avatar {
+  background: #e74c3c;
+}
+
+.char-color-1 {
+  border-left-color: #3498db;
+}
+.char-color-1 .action-avatar {
+  background: #3498db;
+}
+
+.char-color-2 {
+  border-left-color: #2ecc71;
+}
+.char-color-2 .action-avatar {
+  background: #2ecc71;
+}
+
+.char-color-3 {
+  border-left-color: #9b59b6;
+}
+.char-color-3 .action-avatar {
+  background: #9b59b6;
+}
+
+.char-color-4 {
+  border-left-color: #f39c12;
+}
+.char-color-4 .action-avatar {
+  background: #f39c12;
+}
+
+.char-color-5 {
+  border-left-color: #1abc9c;
+}
+.char-color-5 .action-avatar {
+  background: #1abc9c;
+}
+
+/* DM Narration styling */
+.story-entry.narration {
+  background: linear-gradient(135deg, var(--bg-medium) 0%, var(--bg-dark) 100%);
+  border-left: 3px solid var(--secondary);
+  padding: 16px;
+  margin: 12px 0;
+  border-radius: 8px;
+}
+
+.story-entry.narration .role {
+  color: var(--secondary);
+  font-weight: 600;
+}
+
+.story-entry.narration .content {
+  font-size: 1rem;
+  line-height: 1.7;
+}
+
+/* Mobile responsive */
+@media (max-width: 600px) {
+  .player-action-bubble {
+    padding: 8px;
+  }
+
+  .action-avatar {
+    width: 30px;
+    height: 30px;
+    font-size: 0.85rem;
+  }
+
+  .action-character-name {
+    font-size: 0.85rem;
+  }
+
+  .action-text {
+    font-size: 0.9rem;
+  }
+}
