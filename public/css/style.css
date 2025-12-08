@@ -565,7 +565,26 @@ nav {
 .character-card .stat { text-align: center; padding: 8px 4px; background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: 6px; font-size: 12px; font-family: var(--font-mono); }
 .character-card .stat span { display: block; font-size: 10px; color: var(--text-muted); font-family: var(--font-display); }
 
-.character-card .delete-btn { position: absolute; top: 12px; right: 12px; padding: 6px 12px; background: var(--danger); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; }
+.character-card .delete-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  padding: 4px 10px;
+  background: var(--danger);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  z-index: 10;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+
+.character-card .delete-btn:hover {
+  opacity: 1;
+}
 
 .character-card .xp-bar { height: 8px; background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: 4px; margin: 12px 0; overflow: hidden; }
 .character-card .xp-fill { height: 100%; background: linear-gradient(90deg, var(--xp-color), #9d88d9); transition: width 0.5s; border-radius: 3px; }
@@ -1582,24 +1601,26 @@ nav {
 .character-card .card-header {
   cursor: pointer;
   padding-bottom: 8px;
+  padding-right: 40px; /* Make room for delete button */
 }
 
 .character-card .card-header-main {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
+}
+
+.character-card .card-toggle-icon {
+  color: var(--accent);
+  font-size: 0.75rem;
+  width: 16px;
+  text-align: center;
+  flex-shrink: 0;
 }
 
 .character-card .card-header-main h3 {
   margin: 0;
   flex: 1;
-}
-
-.character-card .card-toggle-icon {
-  color: var(--text-muted);
-  font-size: 0.9rem;
-  transition: transform 0.2s ease;
 }
 
 .character-card .card-summary {
@@ -1648,16 +1669,19 @@ nav {
 .party-item .party-header-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+}
+
+.party-item .party-toggle-icon {
+  color: var(--accent);
+  font-size: 0.65rem;
+  width: 12px;
+  text-align: center;
+  flex-shrink: 0;
 }
 
 .party-item .party-header-row .name {
   flex: 1;
-}
-
-.party-item .party-toggle-icon {
-  color: var(--text-muted);
-  font-size: 0.75rem;
 }
 
 .party-item .party-summary {

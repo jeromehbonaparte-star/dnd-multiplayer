@@ -809,8 +809,8 @@ function renderCharactersList() {
       <!-- Collapsible Header (always visible) -->
       <div class="card-header" onclick="toggleCharacterCard('${c.id}')">
         <div class="card-header-main">
-          <h3>${c.character_name}</h3>
           <span class="card-toggle-icon">${isExpanded ? '▼' : '▶'}</span>
+          <h3>${c.character_name}</h3>
         </div>
         <div class="player">Played by ${c.player_name}</div>
         <div class="race-class">${c.race} ${classDisplay}</div>
@@ -1033,9 +1033,9 @@ function updatePartyList() {
       <!-- Party Header (always visible, clickable to toggle) -->
       <div class="party-header" onclick="togglePartyCard('${c.id}')">
         <div class="party-header-row">
+          <span class="party-toggle-icon">${isExpanded ? '▼' : '▶'}</span>
           <div class="name">${c.character_name}</div>
           <div class="level">Lv.${c.level}</div>
-          <span class="party-toggle-icon">${isExpanded ? '▼' : '▶'}</span>
         </div>
         <div class="info">${c.race} ${c.class}</div>
         <div class="party-summary">
