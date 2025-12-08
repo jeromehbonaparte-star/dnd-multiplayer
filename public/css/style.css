@@ -1416,22 +1416,79 @@ nav {
   border: 2px solid var(--border-color);
 }
 
-/* Appearance & Backstory styles */
+/* Character Detail Sections - Styled Boxes */
 .details.appearance,
 .details.backstory,
-.details.class-features {
+.details.class-features,
+.details.skills,
+.details.spells,
+.details.passives,
+.details.feats {
   font-size: 0.9rem;
-  padding: 6px 8px;
+  padding: 8px 10px;
   background: var(--bg-medium);
-  border-radius: 4px;
-  margin: 4px 0;
+  border-radius: 6px;
+  margin: 6px 0;
+  border-left: 3px solid var(--border-color);
 }
 
+.details.skills {
+  border-left-color: #3498db;
+}
+
+.details.spells {
+  border-left-color: var(--spell-color);
+}
+
+.details.passives {
+  border-left-color: #9b59b6;
+}
+
+.details.class-features {
+  border-left-color: #e67e22;
+}
+
+.details.feats {
+  border-left-color: #1abc9c;
+}
+
+.details.appearance {
+  border-left-color: #f39c12;
+}
+
+.details.backstory {
+  border-left-color: #95a5a6;
+}
+
+/* Party Sidebar Detail Sections */
 .party-detail.appearance,
-.party-detail.backstory {
-  font-size: 0.85rem;
-  color: var(--text-muted);
-  font-style: italic;
+.party-detail.backstory,
+.party-detail.skills,
+.party-detail.spells,
+.party-detail.passives,
+.party-detail.class-features {
+  font-size: 0.8rem;
+  padding: 4px 6px;
+  background: var(--bg-dark);
+  border-radius: 4px;
+  margin: 3px 0;
+  border-left: 2px solid var(--border-color);
+}
+
+.party-detail.skills {
+  border-left-color: #3498db;
+}
+
+.party-detail.spells {
+  border-left-color: var(--spell-color);
+}
+
+.party-detail.passives {
+  border-left-color: #9b59b6;
+}
+
+.party-detail.class-features {
+  border-left-color: #e67e22;
 }
 
 /* ============================================

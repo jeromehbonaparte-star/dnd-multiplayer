@@ -840,9 +840,9 @@ function renderCharactersList() {
         ${c.appearance ? `<div class="details appearance"><strong>Appearance:</strong> ${c.appearance}</div>` : ''}
         ${c.backstory ? `<div class="details backstory"><strong>Backstory:</strong> ${c.backstory}</div>` : ''}
         ${spellSlotsDisplay ? `<div class="spell-slots-display">${spellSlotsDisplay}</div>` : ''}
-        ${c.skills ? `<div class="details"><strong>Skills:</strong> ${c.skills}</div>` : ''}
-        ${c.spells ? `<div class="details"><strong>Spells:</strong> ${c.spells}</div>` : ''}
-        ${c.passives ? `<div class="details"><strong>Passives:</strong> ${c.passives}</div>` : ''}
+        ${c.skills ? `<div class="details skills"><strong>Skills:</strong> ${c.skills}</div>` : ''}
+        ${c.spells ? `<div class="details spells"><strong>Spells:</strong> ${c.spells}</div>` : ''}
+        ${c.passives ? `<div class="details passives"><strong>Passives:</strong> ${c.passives}</div>` : ''}
         ${c.class_features ? `<div class="details class-features"><strong>Class Features:</strong> ${c.class_features}</div>` : ''}
         ${feats ? `<div class="details feats"><strong>Feats:</strong> ${feats}</div>` : ''}
         <div class="inventory-section">
@@ -1061,10 +1061,10 @@ function updatePartyList() {
         ${c.appearance ? `<div class="party-detail appearance"><strong>Appearance:</strong> ${c.appearance}</div>` : ''}
         ${c.backstory ? `<div class="party-detail backstory"><strong>Backstory:</strong> ${c.backstory}</div>` : ''}
         ${spellSlotsShort ? `<div class="spell-info">${spellSlotsShort}</div>` : ''}
-        ${c.skills ? `<div class="party-detail"><strong>Skills:</strong> ${c.skills}</div>` : ''}
-        ${c.spells ? `<div class="party-detail"><strong>Spells:</strong> ${c.spells}</div>` : ''}
-        ${c.passives ? `<div class="party-detail"><strong>Passives:</strong> ${c.passives}</div>` : ''}
-        ${c.class_features ? `<div class="party-detail"><strong>Class Features:</strong> ${c.class_features}</div>` : ''}
+        ${c.skills ? `<div class="party-detail skills"><strong>Skills:</strong> ${c.skills}</div>` : ''}
+        ${c.spells ? `<div class="party-detail spells"><strong>Spells:</strong> ${c.spells}</div>` : ''}
+        ${c.passives ? `<div class="party-detail passives"><strong>Passives:</strong> ${c.passives}</div>` : ''}
+        ${c.class_features ? `<div class="party-detail class-features"><strong>Class Features:</strong> ${c.class_features}</div>` : ''}
         <div class="party-detail"><strong>Items:</strong> ${itemCount > 0 ? inventory.map(i => `${i.name}${i.quantity > 1 ? ' x' + i.quantity : ''}`).join(', ') : 'None'}</div>
         <div class="party-actions">
           <button class="party-btn" onclick="event.stopPropagation(); openInventoryModal('${c.id}')">Inv</button>
