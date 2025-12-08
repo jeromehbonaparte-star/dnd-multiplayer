@@ -441,6 +441,27 @@ Examples:
 - "Arcane words spill from Elara's lips, and three darts of force streak toward their target. [SPELL: Elara -1st]"
 - "Eight hours of rest, and magic stirs anew. [SPELL: Elara +REST] [SPELL: Grimm +REST]"
 
+**HP (HIT POINTS) TRACKING:**
+[HP: CharacterName -10] (take 10 damage)
+[HP: CharacterName +5] (heal 5 HP, won't exceed max)
+[HP: CharacterName =20] (set HP to exactly 20)
+
+Examples:
+- "The goblin's blade finds its mark! [HP: Thorin -8]"
+- "The healing light washes over the party. [HP: Elara +10] [HP: Grimm +10]"
+- "After a long rest, the party wakes refreshed. [HP: Thorin =45] [HP: Elara =32]"
+
+**COMBAT CONTROL:**
+[COMBAT: START Combat Name] (start combat, auto-rolls initiative for party)
+[COMBAT: END] (end the current combat)
+[COMBAT: NEXT] (advance to next turn)
+[COMBAT: PREV] (go back one turn)
+
+Examples:
+- "The goblins leap from the shadows, weapons drawn! Roll for initiative! [COMBAT: START Goblin Ambush]"
+- "The last enemy falls. Victory! [COMBAT: END]"
+- "Thorin's turn ends as he takes a defensive stance. [COMBAT: NEXT]"
+
 **AC (ARMOR CLASS) TRACKING:**
 Track AC changes from spells, items, and effects so players can see what's affecting their defense.
 
@@ -2824,6 +2845,7 @@ Please narrate the outcome of these actions and describe what happens next.`;
   // Format: [ITEM: CharacterName +Sword of Fire, CharacterName -Health Potion]
   const itemMatches = aiResponse.match(/\[ITEM:([^\]]+)\]/gi);
   if (itemMatches) {
+    console.log('Found item tags:', itemMatches);
     for (const match of itemMatches) {
       const itemAwards = match.replace(/\[ITEM:/i, '').replace(']', '').split(',');
       for (const award of itemAwards) {
@@ -2841,6 +2863,8 @@ Please narrate the outcome of these actions and describe what happens next.`;
             quantity = parseInt(qtyMatch[2]);
           }
 
+          console.log(`Item ${isAdding ? 'add' : 'remove'}: "${itemName}" x${quantity} for "${charName}"`);
+
           const char = characters.find(c => c.character_name.toLowerCase() === charName.toLowerCase());
           if (char) {
             let inventory = [];
@@ -2851,26 +2875,43 @@ Please narrate the outcome of these actions and describe what happens next.`;
             }
 
             if (isAdding) {
-              // Check if item already exists
-              const existingItem = inventory.find(i => i.name.toLowerCase() === itemName.toLowerCase());
+              // Check if item already exists (fuzzy match)
+              const existingItem = inventory.find(i =>
+                i.name.toLowerCase() === itemName.toLowerCase() ||
+                i.name.toLowerCase().includes(itemName.toLowerCase()) ||
+                itemName.toLowerCase().includes(i.name.toLowerCase())
+              );
               if (existingItem) {
                 existingItem.quantity = (existingItem.quantity || 1) + quantity;
+                console.log(`Updated existing item: ${existingItem.name} -> qty ${existingItem.quantity}`);
               } else {
                 inventory.push({ name: itemName, quantity: quantity });
+                console.log(`Added new item: ${itemName} x${quantity}`);
               }
             } else {
-              // Remove item
-              const existingIdx = inventory.findIndex(i => i.name.toLowerCase() === itemName.toLowerCase());
+              // Remove item (fuzzy match)
+              const existingIdx = inventory.findIndex(i =>
+                i.name.toLowerCase() === itemName.toLowerCase() ||
+                i.name.toLowerCase().includes(itemName.toLowerCase()) ||
+                itemName.toLowerCase().includes(i.name.toLowerCase())
+              );
               if (existingIdx !== -1) {
-                inventory[existingIdx].quantity = (inventory[existingIdx].quantity || 1) - quantity;
+                const oldQty = inventory[existingIdx].quantity || 1;
+                inventory[existingIdx].quantity = oldQty - quantity;
+                console.log(`Removed item: ${inventory[existingIdx].name} ${oldQty} -> ${inventory[existingIdx].quantity}`);
                 if (inventory[existingIdx].quantity <= 0) {
+                  console.log(`Item fully removed: ${inventory[existingIdx].name}`);
                   inventory.splice(existingIdx, 1);
                 }
+              } else {
+                console.log(`Item not found for removal: "${itemName}" in inventory:`, inventory.map(i => i.name));
               }
             }
 
             db.prepare('UPDATE characters SET inventory = ? WHERE id = ?').run(JSON.stringify(inventory), char.id);
             io.emit('character_updated', { ...char, inventory: JSON.stringify(inventory) });
+          } else {
+            console.log(`Character not found: "${charName}". Available:`, characters.map(c => c.character_name));
           }
         }
       }
@@ -3005,6 +3046,104 @@ Please narrate the outcome of these actions and describe what happens next.`;
           io.emit('character_updated', updatedChar);
         }
         continue;
+      }
+    }
+  }
+
+  // Parse and update HP from AI response
+  // Format: [HP: CharacterName -10] (damage) or [HP: CharacterName +5] (healing) or [HP: CharacterName =20] (set to specific value)
+  const hpMatches = aiResponse.match(/\[HP:([^\]]+)\]/gi);
+  if (hpMatches) {
+    for (const match of hpMatches) {
+      const hpContent = match.replace(/\[HP:/i, '').replace(']', '').trim();
+
+      // Match: CharacterName +/-/= Value
+      const hpMatch = hpContent.match(/(.+?)\s*([+\-=])(\d+)/);
+      if (hpMatch) {
+        const charName = hpMatch[1].trim();
+        const operator = hpMatch[2];
+        const value = parseInt(hpMatch[3]);
+
+        const char = characters.find(c => c.character_name.toLowerCase() === charName.toLowerCase());
+        if (char) {
+          let newHp;
+          if (operator === '=') {
+            newHp = value;
+          } else if (operator === '+') {
+            newHp = Math.min((char.hp || 0) + value, char.max_hp || value);
+          } else {
+            newHp = Math.max((char.hp || 0) - value, 0);
+          }
+
+          db.prepare('UPDATE characters SET hp = ? WHERE id = ?').run(newHp, char.id);
+          io.emit('character_updated', { ...char, hp: newHp });
+          console.log(`HP Update: ${char.character_name} ${operator}${value} -> ${newHp} HP`);
+        }
+      }
+    }
+  }
+
+  // Parse COMBAT commands from AI response
+  // Format: [COMBAT: START CombatName] or [COMBAT: END] or [COMBAT: NEXT] or [COMBAT: PREV]
+  const combatMatches = aiResponse.match(/\[COMBAT:([^\]]+)\]/gi);
+  if (combatMatches) {
+    for (const match of combatMatches) {
+      const combatContent = match.replace(/\[COMBAT:/i, '').replace(']', '').trim().toUpperCase();
+
+      if (combatContent.startsWith('START')) {
+        const combatName = combatContent.replace('START', '').trim() || 'Combat';
+        // Start a new combat
+        const combatId = uuidv4();
+        const combatants = characters.map(c => ({
+          id: c.id,
+          name: c.character_name,
+          initiative: Math.floor(Math.random() * 20) + 1 + Math.floor(((c.dexterity || 10) - 10) / 2),
+          hp: c.hp,
+          maxHp: c.max_hp,
+          ac: c.ac,
+          isPlayer: true
+        })).sort((a, b) => b.initiative - a.initiative);
+
+        db.prepare(`INSERT INTO combats (id, session_id, name, combatants, is_active) VALUES (?, ?, ?, ?, 1)`)
+          .run(combatId, sessionId, combatName, JSON.stringify(combatants));
+
+        const combat = db.prepare('SELECT * FROM combats WHERE id = ?').get(combatId);
+        io.emit('combat_started', { sessionId, combat: { ...combat, combatants: JSON.parse(combat.combatants) } });
+        console.log(`Combat started: ${combatName}`);
+      } else if (combatContent === 'END') {
+        // End active combat
+        db.prepare('UPDATE combats SET is_active = 0 WHERE session_id = ? AND is_active = 1').run(sessionId);
+        io.emit('combat_ended', { sessionId });
+        console.log('Combat ended');
+      } else if (combatContent === 'NEXT') {
+        // Next turn
+        const combat = db.prepare('SELECT * FROM combats WHERE session_id = ? AND is_active = 1').get(sessionId);
+        if (combat) {
+          const combatants = JSON.parse(combat.combatants || '[]');
+          let newTurn = (combat.current_turn + 1) % combatants.length;
+          let newRound = combat.round;
+          if (newTurn === 0) newRound++;
+
+          db.prepare('UPDATE combats SET current_turn = ?, round = ? WHERE id = ?').run(newTurn, newRound, combat.id);
+          const updatedCombat = db.prepare('SELECT * FROM combats WHERE id = ?').get(combat.id);
+          io.emit('combat_updated', { sessionId, combat: { ...updatedCombat, combatants: JSON.parse(updatedCombat.combatants) } });
+        }
+      } else if (combatContent === 'PREV') {
+        // Previous turn
+        const combat = db.prepare('SELECT * FROM combats WHERE session_id = ? AND is_active = 1').get(sessionId);
+        if (combat) {
+          const combatants = JSON.parse(combat.combatants || '[]');
+          let newTurn = combat.current_turn - 1;
+          let newRound = combat.round;
+          if (newTurn < 0) {
+            newTurn = combatants.length - 1;
+            newRound = Math.max(1, newRound - 1);
+          }
+
+          db.prepare('UPDATE combats SET current_turn = ?, round = ? WHERE id = ?').run(newTurn, newRound, combat.id);
+          const updatedCombat = db.prepare('SELECT * FROM combats WHERE id = ?').get(combat.id);
+          io.emit('combat_updated', { sessionId, combat: { ...updatedCombat, combatants: JSON.parse(updatedCombat.combatants) } });
+        }
       }
     }
   }
