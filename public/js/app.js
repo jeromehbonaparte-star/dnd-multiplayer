@@ -828,7 +828,7 @@ function renderCharactersList() {
             <div class="ac-display">AC: ${acDisplay}</div>
           </div>
           <div class="resource-row">
-            <span class="gold-display">Gold: ${gold}</span>
+            <span class="gold-display">Money: ${gold}</span>
             <span class="xp-mini">XP: ${xp}/${requiredXP}</span>
           </div>
           <div class="xp-bar"><div class="xp-fill" style="width: ${xpPercent}%"></div></div>
@@ -1043,7 +1043,7 @@ function updatePartyList() {
             <span class="hp">HP: ${c.hp}/${c.max_hp}</span>
             ${acShortDisplay}
           </div>
-          <div class="gold-info">Gold: ${gold}</div>
+          <div class="gold-info">Money: ${gold}</div>
           <div class="xp-info">XP: ${xp}/${requiredXP} ${canLevel ? '(Ready!)' : ''}</div>
           <div class="party-stats">
             <span>STR:${c.strength}</span>

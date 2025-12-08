@@ -424,14 +424,18 @@ TRACKING SYSTEMS - ALWAYS USE THESE EXACT FORMATS
 Format: [XP: CharacterName +100, OtherCharacter +100]
 Example: "Victory! The goblins fall, and with them, fear itself. [XP: Thorin +50, Elara +50, Grimm +50]"
 
-**GOLD & LOOT:**
-[GOLD: CharacterName +50, OtherCharacter +25]
+**MONEY & LOOT:**
+[MONEY: CharacterName +50, OtherCharacter +25]
 [ITEM: CharacterName +Sword of Fire, CharacterName +Health Potion x3]
 [ITEM: CharacterName -Health Potion] (for items used/lost)
 
+Use setting-appropriate currency (gp for fantasy, USD/credits for modern/sci-fi, coins for medieval, etc.)
+
 Examples:
-- "The chest opens with a satisfying click, revealing a glitter of gold. [GOLD: Thorin +50, Elara +50]"
-- "The merchant's eyes gleam. [GOLD: Grimm -25] [ITEM: Grimm +Healing Potion]"
+- Fantasy: "The chest reveals glittering coins! [MONEY: Thorin +50, Elara +50]" (50 gp each)
+- Modern: "The client transfers the payment. [MONEY: Jake +500]" ($500)
+- Sci-fi: "Credits deposited to your account. [MONEY: Zara +1000]" (1000 credits)
+- "The merchant's eyes gleam. [MONEY: Grimm -25] [ITEM: Grimm +Healing Potion]"
 
 **SPELL SLOT TRACKING:**
 [SPELL: CharacterName -1st] (uses one 1st level slot)
@@ -2818,23 +2822,24 @@ Please narrate the outcome of these actions and describe what happens next.`;
     }
   }
 
-  // Parse and award GOLD from AI response
-  // Format: [GOLD: CharacterName +50, OtherCharacter -25]
-  const goldMatches = aiResponse.match(/\[GOLD:([^\]]+)\]/gi);
-  if (goldMatches) {
-    for (const match of goldMatches) {
-      const goldAwards = match.replace(/\[GOLD:/i, '').replace(']', '').split(',');
-      for (const award of goldAwards) {
-        const goldMatch = award.trim().match(/(.+?)\s*([+-])(\d+)/);
-        if (goldMatch) {
-          const charName = goldMatch[1].trim();
-          const sign = goldMatch[2] === '+' ? 1 : -1;
-          const goldAmount = parseInt(goldMatch[3]) * sign;
+  // Parse and award MONEY (or GOLD for backward compatibility) from AI response
+  // Format: [MONEY: CharacterName +50, OtherCharacter -25] or [GOLD: CharacterName +50]
+  const moneyMatches = aiResponse.match(/\[(MONEY|GOLD):([^\]]+)\]/gi);
+  if (moneyMatches) {
+    for (const match of moneyMatches) {
+      const moneyAwards = match.replace(/\[(MONEY|GOLD):/i, '').replace(']', '').split(',');
+      for (const award of moneyAwards) {
+        const moneyMatch = award.trim().match(/(.+?)\s*([+-])(\d+)/);
+        if (moneyMatch) {
+          const charName = moneyMatch[1].trim();
+          const sign = moneyMatch[2] === '+' ? 1 : -1;
+          const moneyAmount = parseInt(moneyMatch[3]) * sign;
           const char = characters.find(c => c.character_name.toLowerCase() === charName.toLowerCase());
           if (char) {
-            const newGold = Math.max(0, (char.gold || 0) + goldAmount);
-            db.prepare('UPDATE characters SET gold = ? WHERE id = ?').run(newGold, char.id);
-            io.emit('character_updated', { ...char, gold: newGold });
+            const newMoney = Math.max(0, (char.gold || 0) + moneyAmount);
+            db.prepare('UPDATE characters SET gold = ? WHERE id = ?').run(newMoney, char.id);
+            io.emit('character_updated', { ...char, gold: newMoney });
+            console.log(`Money update: ${char.character_name} ${sign > 0 ? '+' : ''}${moneyAmount} -> ${newMoney}`);
           }
         }
       }
