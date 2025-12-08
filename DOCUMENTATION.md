@@ -89,9 +89,13 @@ max_hp INTEGER
 xp INTEGER DEFAULT 0
 gold INTEGER DEFAULT 0
 inventory TEXT DEFAULT '[]'     -- JSON array of {name, quantity}
-ac INTEGER DEFAULT 10           -- Armor Class with all bonuses
+ac INTEGER DEFAULT 10           -- Total Armor Class (calculated from ac_effects)
+ac_effects TEXT DEFAULT '{...}' -- JSON: {base_source, base_value, effects: [{id, name, value, type, temporary, notes}]}
 spell_slots TEXT DEFAULT '{}'   -- JSON object {level: {current, max}}
 feats TEXT DEFAULT ''           -- Comma-separated feats
+class_features TEXT DEFAULT ''  -- Comma-separated class features (Second Wind, Action Surge, etc.)
+appearance TEXT DEFAULT ''      -- Physical description (hair, eyes, height, build, etc.)
+backstory TEXT DEFAULT ''       -- Character's personal history and motivations
 skills TEXT
 spells TEXT
 passives TEXT
@@ -187,12 +191,35 @@ created_at DATETIME
 - Inventory displayed in character cards with collapsible view
 - Inventory modal for manual management (add/remove items, update gold)
 
-### 5c. AC & Spell Slots System
-**Armor Class (AC):**
-- AC is tracked with all bonuses applied
-- Default AC is 10
-- Can be manually updated via Spell Slots modal
-- Displayed in character cards and party sidebar
+### 5c. AC Effects & Spell Slots System
+**Armor Class (AC) with Effects Tracking:**
+- AC is now tracked as **base value + effects** for full visibility
+- Base AC: The armor/unarmored value (e.g., "Plate Armor: 18", "Unarmored: 10")
+- Effects: Additional bonuses from shields, spells, magic items, class features
+- Each effect has: name, value, type (equipment/spell/item/class_feature/other), temporary flag
+- Total AC = base_value + sum of all effect values
+- UI shows AC breakdown on character cards and party sidebar
+- Spell/Shield effects can be marked as temporary for easy clearing
+
+**AC Data Structure:**
+```json
+{
+  "base_source": "Plate Armor",
+  "base_value": 18,
+  "effects": [
+    { "id": "uuid", "name": "Shield", "value": 2, "type": "equipment", "temporary": false },
+    { "id": "uuid", "name": "Shield of Faith", "value": 2, "type": "spell", "temporary": true }
+  ]
+}
+```
+
+**AI AC Tracking Tags:**
+- Add effect: `[AC: CharacterName +EffectName +Value Type]`
+  - Example: `[AC: Elara +Shield of Faith +2 spell]`
+- Remove effect: `[AC: CharacterName -EffectName]`
+  - Example: `[AC: Elara -Shield of Faith]`
+- Set base: `[AC: CharacterName base ArmorName Value]`
+  - Example: `[AC: Thorin base Plate Armor 18]`
 
 **Spell Slots:**
 - AI tracks spell slot usage using format: `[SPELL: CharacterName -1st]` (uses one 1st level slot)
@@ -203,9 +230,10 @@ created_at DATETIME
 - Add/remove spell slot levels for class flexibility
 - Displayed in character cards and party sidebar
 - "Recalculate AC/Spells" button scans existing history for:
+  - [AC:] tags for base AC and effects
   - [SPELL:] tags
   - Natural language spell casting (e.g., "Gandalf casts Fireball using a 3rd level slot")
-  - AC mentions near character names (e.g., "Your AC is now 16")
+  - AC mentions near character names (legacy support)
 
 ### 6. AI-Assisted Level Up & Editing
 
@@ -231,7 +259,45 @@ created_at DATETIME
 - Inventory button: Opens inventory management modal
 - Level Up button: Highlighted green when ready, disabled when not enough XP
 
-### 6b. Feats & Multiclassing System
+### 6b. Appearance & Backstory System
+
+**Appearance:**
+- Physical description of the character (hair, eyes, height, build, distinguishing features)
+- Set during character creation via AI conversation
+- Can be edited using the Edit modal
+- Displayed on character cards and party sidebar
+- AI DM is aware of appearance for roleplay descriptions
+
+**Backstory:**
+- Character's personal history, motivations, and what drives them
+- Typically 2-4 sentences capturing the character's story
+- Set during character creation via AI conversation
+- Can be edited using the Edit modal
+- Displayed on character cards and party sidebar
+- AI DM uses backstory to personalize narrative and roleplay moments
+
+### 6d. Class Features System
+
+**Class Features:**
+- Class-specific abilities gained as characters level up
+- Stored as comma-separated text (e.g., "Second Wind, Action Surge, Extra Attack")
+- Displayed on character cards and party sidebar
+- AI is aware of class features during character creation and level up
+- Features are automatically added when leveling up
+
+**Example Class Features by Class:**
+| Class | Level 1 Features | Higher Level Features |
+|-------|-----------------|----------------------|
+| Fighter | Second Wind, Fighting Style | Action Surge (2), Extra Attack (5) |
+| Barbarian | Rage, Unarmored Defense | Reckless Attack (2), Extra Attack (5) |
+| Rogue | Sneak Attack, Expertise, Thieves' Cant | Cunning Action (2), Uncanny Dodge (5) |
+| Bard | Bardic Inspiration, Spellcasting | Jack of All Trades (2), Song of Rest (2) |
+| Cleric | Spellcasting, Divine Domain | Channel Divinity (2), Destroy Undead (5) |
+| Wizard | Spellcasting, Arcane Recovery | Arcane Tradition (2) |
+| Paladin | Divine Sense, Lay on Hands | Fighting Style (2), Divine Smite (2) |
+| Monk | Unarmored Defense, Martial Arts | Ki (2), Deflect Missiles (3) |
+
+### 6e. Feats & Multiclassing System
 
 **Feats:**
 - Characters can have feats (special abilities)
@@ -266,7 +332,68 @@ created_at DATETIME
 | Warlock | CHA 13 |
 | Wizard | INT 13 |
 
-### 6c. Multiple API Configurations
+### 6f. Combat Tracker System
+
+**Features:**
+- Initiative-based turn order tracking
+- Round counter with turn progression
+- HP tracking with damage/heal controls
+- D&D 5e conditions (Blinded, Charmed, Poisoned, etc.)
+- Party initiative rolling (uses DEX modifier)
+- Add enemies/NPCs mid-combat
+- Real-time sync across all players via Socket.IO
+- HP changes sync with character sheets (for player characters)
+
+**Database Schema (combats table):**
+```sql
+id TEXT PRIMARY KEY
+session_id TEXT NOT NULL
+name TEXT DEFAULT 'Combat'
+is_active INTEGER DEFAULT 1
+current_turn INTEGER DEFAULT 0
+round INTEGER DEFAULT 1
+combatants TEXT DEFAULT '[]'   -- JSON array of combatant objects
+created_at DATETIME
+```
+
+**Combatant Object Structure:**
+```json
+{
+  "id": "uuid",
+  "character_id": "character-uuid or null",
+  "name": "Goblin 1",
+  "initiative": 15,
+  "hp": 7,
+  "max_hp": 7,
+  "ac": 15,
+  "is_player": false,
+  "is_active": true,
+  "conditions": ["Poisoned"],
+  "notes": "Holding a torch"
+}
+```
+
+**UI Components:**
+- Combat Tracker panel in Game tab sidebar
+- Start Combat modal (set initiative, add enemies)
+- Combatant Edit modal (HP, conditions, notes)
+- Add Combatant modal (mid-combat additions)
+
+**API Endpoints:**
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/sessions/:id/combat` | GET | Get active combat |
+| `/api/sessions/:id/combat/start` | POST | Start new combat |
+| `/api/sessions/:id/combat/end` | POST | End combat |
+| `/api/sessions/:id/combat/next-turn` | POST | Advance turn |
+| `/api/sessions/:id/combat/prev-turn` | POST | Go back one turn |
+| `/api/sessions/:id/combat/add-combatant` | POST | Add combatant |
+| `/api/sessions/:id/combat/update-combatant` | POST | Update HP/conditions |
+| `/api/sessions/:id/combat/remove-combatant` | POST | Remove combatant |
+| `/api/sessions/:id/combat/damage` | POST | Quick damage/heal |
+| `/api/sessions/:id/combat/roll-party-initiative` | POST | Roll all party initiative |
+
+### 6g. Multiple API Configurations
 
 **Features:**
 - Store multiple API providers (OpenAI, DeepSeek, local LLMs, etc.)
@@ -327,7 +454,13 @@ created_at DATETIME
 - `POST /api/characters/:id/gold` - Update character gold (`{ amount: number }`)
 - `GET /api/characters/:id/inventory` - Get character inventory and gold
 - `POST /api/characters/:id/inventory` - Manage inventory (`{ action: 'add'|'remove'|'set', item: string, quantity: number }`)
-- `POST /api/characters/:id/ac` - Update character AC (`{ ac: number }`)
+- `POST /api/characters/:id/ac` - Manage AC and effects
+  - Legacy: `{ ac: number }` - Sets base AC value
+  - Set base: `{ action: 'set_base', base_source: string, base_value: number }`
+  - Add effect: `{ action: 'add_effect', effect: { name, value, type, temporary, notes } }`
+  - Remove effect: `{ action: 'remove_effect', effect: { id } }` or `{ action: 'remove_effect', effect: { name } }`
+  - Clear temporary: `{ action: 'clear_temporary' }`
+  - Set all: `{ action: 'set_all', base_source, base_value, effects: [...] }`
 - `POST /api/characters/:id/spell-slots` - Manage spell slots (`{ action: 'use'|'restore'|'set'|'rest'|'add'|'remove', level: number, current?: number, max?: number }`)
 
 ### Sessions
@@ -438,34 +571,50 @@ Nav bar uses `position: sticky; top: 0; z-index: 100;` to stay visible on scroll
 ### Character Cards (Characters Tab)
 Each character card displays:
 - Character name, player name, race/class/level
+- **Appearance:** Physical description (hair, eyes, build, etc.)
+- **Backstory:** Character's personal history and motivations
 - **Multiclass display:** Shows "Fighter 5 / Wizard 2" format if multiclassed
 - **Feats:** Shows list of character feats (if any)
+- **Class Features:** Shows class abilities (Second Wind, Sneak Attack, etc.)
 - 6 ability scores (STR, DEX, CON, INT, WIS, CHA)
 - HP bar, AC, and gold amount
 - Spell slots (if any) with available/used display
 - XP progress bar with current/required XP
 - Collapsible inventory section
-- Skills, spells, and passives (if any)
+- Skills, spells, passives, class features, appearance, backstory (if any)
 - Action buttons: Edit, Inventory, Spells, Level Up, Reset XP
 
 ### Party Sidebar (Game Tab)
 Shows all characters with:
 - Name and level
 - Race/class info (multiclass format if applicable)
+- Appearance and backstory (if any)
 - HP, AC, gold, XP (with "Ready!" indicator)
 - Spell slots (if any)
 - Feats (if any)
+- Class features (if any)
 - All 6 stats in compact view
-- Skills, spells, passives, items
+- Skills, spells, passives, class features, items
 - Quick action buttons: Inventory, Spells, Level Up
 
+### Combat Tracker (Game Tab Sidebar)
+Located in Game tab sidebar:
+- **No Combat:** Shows "No active combat" with Start Combat button
+- **Active Combat:** Shows initiative order, round counter, turn indicator
+- **Combatant Cards:** Click to edit HP, conditions, notes
+- **Controls:** Prev Turn, Next Turn, End Combat buttons
+
 ### Modals
-- **Edit Modal:** Chat interface for AI-assisted character editing (supports feats and multiclass)
-- **Level Up Modal:** Chat interface for guided level up (multiclass and ASI/Feat choices)
+- **Edit Modal:** Chat interface for AI-assisted character editing (supports appearance, backstory, feats, class features, and multiclass)
+- **Quick Edit Modal:** Direct text field editing for appearance, backstory, class features, passives, feats (no AI needed)
+- **Level Up Modal:** Chat interface for guided level up (multiclass, ASI/Feat choices, and new class features)
 - **Inventory Modal:** Direct management of gold and items
 - **Spell Slots Modal:** AC editor and visual spell slot management with pip interface
 - **Admin Login Modal:** Password entry for settings access
 - **API Edit Modal:** Edit existing API configurations (name, endpoint, model, key)
+- **Start Combat Modal:** Roll party initiative, add enemies, set combat name
+- **Combatant Edit Modal:** Adjust HP (with -5/-1/+1/+5 buttons), conditions, notes, initiative
+- **Add Combatant Modal:** Add new combatants mid-combat
 
 ### Helper Functions (Frontend)
 - `escapeHtml(str)` - Prevents XSS in user-generated content
@@ -572,7 +721,9 @@ The Dockerfile:
 - [x] Feats system with Variant Human support (implemented!)
 - [x] Multiclassing with JSON class tracking (implemented!)
 - [x] Multiple API configurations (implemented!)
-- [ ] Combat tracker with initiative
+- [x] Class Features tracking (implemented!)
+- [x] Appearance & Backstory tracking (implemented!)
+- [x] Combat tracker with initiative (implemented!)
 - [ ] Map/image uploads
 - [ ] Multiple campaigns per session
 - [ ] Character import/export

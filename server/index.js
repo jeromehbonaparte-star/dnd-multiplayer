@@ -138,6 +138,43 @@ if (!columns.includes('classes')) {
   // Will be initialized from existing class column on first load
   db.exec("ALTER TABLE characters ADD COLUMN classes TEXT DEFAULT '{}'");
 }
+if (!columns.includes('ac_effects')) {
+  // AC effects tracking: JSON object with base_source, base_value, and effects array
+  // Structure: { base_source: "Studded Leather", base_value: 14, effects: [{id, name, value, type, temporary, notes}] }
+  db.exec(`ALTER TABLE characters ADD COLUMN ac_effects TEXT DEFAULT '{"base_source":"Unarmored","base_value":10,"effects":[]}'`);
+}
+if (!columns.includes('class_features')) {
+  // Class features tracking: class abilities like Second Wind, Action Surge, Song of Rest, etc.
+  db.exec("ALTER TABLE characters ADD COLUMN class_features TEXT DEFAULT ''");
+}
+if (!columns.includes('appearance')) {
+  // Physical appearance description: hair, eyes, height, distinguishing features, etc.
+  db.exec("ALTER TABLE characters ADD COLUMN appearance TEXT DEFAULT ''");
+}
+if (!columns.includes('backstory')) {
+  // Character's personal history and background story
+  db.exec("ALTER TABLE characters ADD COLUMN backstory TEXT DEFAULT ''");
+}
+
+// Combat tracker table
+db.exec(`
+  CREATE TABLE IF NOT EXISTS combats (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    name TEXT DEFAULT 'Combat',
+    is_active INTEGER DEFAULT 1,
+    current_turn INTEGER DEFAULT 0,
+    round INTEGER DEFAULT 1,
+    combatants TEXT DEFAULT '[]',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (session_id) REFERENCES game_sessions(id)
+  )
+`);
+
+// Add initiative column to characters if not exists
+if (!columns.includes('initiative_bonus')) {
+  db.exec("ALTER TABLE characters ADD COLUMN initiative_bonus INTEGER DEFAULT 0");
+}
 
 // Migrate existing characters to use multiclass format
 const charsToMigrate = db.prepare("SELECT id, class, level, classes FROM characters WHERE classes = '{}' OR classes IS NULL").all();
@@ -146,6 +183,21 @@ for (const char of charsToMigrate) {
     const classesObj = {};
     classesObj[char.class] = char.level;
     db.prepare("UPDATE characters SET classes = ? WHERE id = ?").run(JSON.stringify(classesObj), char.id);
+  }
+}
+
+// Migrate existing characters to use ac_effects format
+const charsToMigrateAc = db.prepare("SELECT id, ac, ac_effects FROM characters WHERE ac_effects IS NULL OR ac_effects = '{\"base_source\":\"Unarmored\",\"base_value\":10,\"effects\":[]}'").all();
+for (const char of charsToMigrateAc) {
+  const currentAc = char.ac || 10;
+  // If AC is different from default 10, preserve it as base value
+  if (currentAc !== 10 || !char.ac_effects) {
+    const acEffects = {
+      base_source: currentAc > 10 ? "Equipment" : "Unarmored",
+      base_value: currentAc,
+      effects: []
+    };
+    db.prepare("UPDATE characters SET ac_effects = ? WHERE id = ?").run(JSON.stringify(acEffects), char.id);
   }
 }
 
@@ -192,6 +244,33 @@ function getRequiredXP(level) {
 
 function canLevelUp(xp, level) {
   return xp >= getRequiredXP(level);
+}
+
+// AC Effects helper functions
+function parseAcEffects(acEffectsJson) {
+  try {
+    const parsed = JSON.parse(acEffectsJson || '{}');
+    return {
+      base_source: parsed.base_source || 'Unarmored',
+      base_value: parsed.base_value || 10,
+      effects: parsed.effects || []
+    };
+  } catch (e) {
+    return { base_source: 'Unarmored', base_value: 10, effects: [] };
+  }
+}
+
+function calculateTotalAC(acEffects) {
+  const data = typeof acEffects === 'string' ? parseAcEffects(acEffects) : acEffects;
+  const effectsBonus = data.effects.reduce((sum, e) => sum + (e.value || 0), 0);
+  return data.base_value + effectsBonus;
+}
+
+function updateCharacterAC(charId, acEffects) {
+  const totalAC = calculateTotalAC(acEffects);
+  const acEffectsJson = JSON.stringify(acEffects);
+  db.prepare('UPDATE characters SET ac = ?, ac_effects = ? WHERE id = ?').run(totalAC, acEffectsJson, charId);
+  return { ac: totalAC, ac_effects: acEffects };
 }
 
 // Initialize default settings if not exist
@@ -286,11 +365,21 @@ EXAMPLE:
 COMBAT - MAKE IT MEMORABLE
 ═══════════════════════════════════════════════════════════════
 
+INITIATIVE & TURN ORDER:
+- Players manage their own Combat Tracker with initiative order
+- Focus on narrating the ACTION, not managing initiative
+- When combat starts, describe the chaos and tension
+- Reference whose turn it is based on the action they describe
+- Ask for initiative rolls when combat begins: "Roll initiative!"
+
+COMBAT NARRATION:
 - Track enemy HP mentally
 - Describe hits as wounds that matter—cuts that bleed, bruises that ache
 - Misses should be near-things: "The blade whistles past close enough to trim hair"
 - Critical hits (nat 20) are LEGENDARY moments—double dice, double drama
 - Critical fails (nat 1) are comedic or dangerous, never boring
+- Announce when enemies are bloodied (half HP) or near death
+- Describe death blows dramatically
 
 ═══════════════════════════════════════════════════════════════
 MULTICLASS & FEATS - CHARACTER COMPLEXITY
@@ -346,6 +435,31 @@ Examples:
 Examples:
 - "Arcane words spill from Elara's lips, and three darts of force streak toward their target. [SPELL: Elara -1st]"
 - "Eight hours of rest, and magic stirs anew. [SPELL: Elara +REST] [SPELL: Grimm +REST]"
+
+**AC (ARMOR CLASS) TRACKING:**
+Track AC changes from spells, items, and effects so players can see what's affecting their defense.
+
+Add AC effect: [AC: CharacterName +EffectName +Value Type]
+- Type can be: spell, equipment, item, class_feature, other
+- Example: [AC: Elara +Shield of Faith +2 spell]
+- Example: [AC: Thorin +Shield +2 equipment]
+- Example: [AC: Grimm +Ring of Protection +1 item]
+
+Remove AC effect: [AC: CharacterName -EffectName]
+- Use when a spell ends, item is removed, or effect expires
+- Example: [AC: Elara -Shield of Faith]
+- Example: [AC: Thorin -Shield]
+
+Set base AC: [AC: CharacterName base ArmorName Value]
+- Use when armor changes (equipping new armor, etc.)
+- Example: [AC: Thorin base Plate Armor 18]
+- Example: [AC: Elara base Mage Armor 13]
+
+IMPORTANT: Always use these tags when:
+- A spell affecting AC is cast (Shield of Faith, Mage Armor, Haste, Shield spell, etc.)
+- A spell affecting AC ends or concentration is broken
+- Armor or shields are equipped/unequipped
+- Magic items affecting AC are gained/lost
 
 ═══════════════════════════════════════════════════════════════
 
@@ -721,16 +835,68 @@ app.post('/api/characters/:id/reset-xp', checkPassword, (req, res) => {
   res.json({ character: updatedChar });
 });
 
-// Update AC
+// Update AC and AC effects
+// Actions: 'set_base', 'add_effect', 'remove_effect', 'update_effect', 'set' (legacy - just set total AC)
 app.post('/api/characters/:id/ac', checkPassword, (req, res) => {
-  const { ac } = req.body;
+  const { action, ac, base_source, base_value, effect } = req.body;
   const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
 
   if (!character) {
     return res.status(404).json({ error: 'Character not found' });
   }
 
-  db.prepare('UPDATE characters SET ac = ? WHERE id = ?').run(ac, req.params.id);
+  let acEffects = parseAcEffects(character.ac_effects);
+
+  // Legacy support: if just 'ac' is provided without action, set base value
+  if (ac !== undefined && !action) {
+    acEffects.base_value = ac;
+    acEffects.base_source = acEffects.base_source || 'Equipment';
+  } else if (action === 'set_base') {
+    // Set base AC (armor/unarmored)
+    acEffects.base_source = base_source || acEffects.base_source;
+    acEffects.base_value = base_value !== undefined ? base_value : acEffects.base_value;
+  } else if (action === 'add_effect' && effect) {
+    // Add a new effect
+    const newEffect = {
+      id: uuidv4(),
+      name: effect.name || 'Unknown',
+      value: effect.value || 0,
+      type: effect.type || 'other', // equipment, spell, class_feature, item, other
+      temporary: effect.temporary || false,
+      notes: effect.notes || ''
+    };
+    acEffects.effects.push(newEffect);
+  } else if (action === 'remove_effect' && effect) {
+    // Remove an effect by id or name
+    if (effect.id) {
+      acEffects.effects = acEffects.effects.filter(e => e.id !== effect.id);
+    } else if (effect.name) {
+      // Remove first matching by name (case-insensitive)
+      const idx = acEffects.effects.findIndex(e => e.name.toLowerCase() === effect.name.toLowerCase());
+      if (idx !== -1) {
+        acEffects.effects.splice(idx, 1);
+      }
+    }
+  } else if (action === 'update_effect' && effect && effect.id) {
+    // Update an existing effect
+    const idx = acEffects.effects.findIndex(e => e.id === effect.id);
+    if (idx !== -1) {
+      acEffects.effects[idx] = { ...acEffects.effects[idx], ...effect };
+    }
+  } else if (action === 'clear_temporary') {
+    // Remove all temporary effects
+    acEffects.effects = acEffects.effects.filter(e => !e.temporary);
+  } else if (action === 'set_all') {
+    // Set the entire ac_effects structure
+    acEffects = {
+      base_source: base_source || acEffects.base_source,
+      base_value: base_value !== undefined ? base_value : acEffects.base_value,
+      effects: req.body.effects || acEffects.effects
+    };
+  }
+
+  // Update character with new AC data
+  updateCharacterAC(req.params.id, acEffects);
 
   const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
   io.emit('character_updated', updatedChar);
@@ -862,6 +1028,36 @@ app.post('/api/characters/:id/inventory', checkPassword, (req, res) => {
   res.json({ character: updatedChar, inventory });
 });
 
+// Quick update character fields (direct, no AI)
+app.post('/api/characters/:id/quick-update', checkPassword, (req, res) => {
+  const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
+  if (!character) {
+    return res.status(404).json({ error: 'Character not found' });
+  }
+
+  const allowedFields = ['appearance', 'backstory', 'class_features', 'passives', 'skills', 'spells', 'feats', 'background'];
+  const updates = [];
+  const values = [];
+
+  allowedFields.forEach(field => {
+    if (req.body[field] !== undefined) {
+      updates.push(`${field} = ?`);
+      values.push(req.body[field]);
+    }
+  });
+
+  if (updates.length === 0) {
+    return res.status(400).json({ error: 'No valid fields to update' });
+  }
+
+  values.push(req.params.id);
+  db.prepare(`UPDATE characters SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+
+  const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
+  io.emit('character_updated', updatedChar);
+  res.json(updatedChar);
+});
+
 // Level up a character (AI-assisted, conversational)
 app.post('/api/characters/:id/levelup', checkPassword, async (req, res) => {
   const { messages } = req.body;
@@ -910,7 +1106,8 @@ CURRENT CHARACTER:
 - Current HP: ${character.max_hp}
 - Current Spells: ${character.spells || 'None'}
 - Current Skills: ${character.skills || 'None'}
-- Current Passives/Features: ${character.passives || 'None'}
+- Current Passives: ${character.passives || 'None'}
+- Current Class Features: ${character.class_features || 'None'}
 - Current Feats: ${character.feats || 'None'}
 
 LEVEL UP RULES:
@@ -935,8 +1132,22 @@ MULTICLASS REQUIREMENTS (need 13+ in the key ability to multiclass INTO a class)
 - Ranger: DEX and WIS 13, Rogue: DEX 13, Sorcerer: CHA 13
 - Warlock: CHA 13, Wizard: INT 13
 
+CLASS FEATURES - These are class-specific abilities gained at each level:
+- Fighter: Second Wind (1), Action Surge (2), Martial Archetype (3), Extra Attack (5), Indomitable (9)
+- Barbarian: Rage (1), Reckless Attack (2), Primal Path (3), Extra Attack (5), Brutal Critical (9)
+- Rogue: Sneak Attack (1), Cunning Action (2), Roguish Archetype (3), Uncanny Dodge (5), Evasion (7)
+- Bard: Bardic Inspiration (1), Jack of All Trades (2), Song of Rest (2), Bard College (3), Font of Inspiration (5)
+- Cleric: Spellcasting (1), Channel Divinity (2), Divine Domain features, Destroy Undead (5)
+- Wizard: Spellcasting (1), Arcane Recovery (1), Arcane Tradition (2)
+- Paladin: Divine Sense (1), Lay on Hands (1), Fighting Style (2), Divine Smite (2), Sacred Oath (3), Extra Attack (5), Aura of Protection (6)
+- Ranger: Favored Enemy (1), Natural Explorer (1), Fighting Style (2), Spellcasting (2), Ranger Archetype (3), Extra Attack (5)
+- Monk: Unarmored Defense (1), Martial Arts (1), Ki (2), Unarmored Movement (2), Monastic Tradition (3), Deflect Missiles (3), Slow Fall (4), Extra Attack (5), Stunning Strike (5)
+- Sorcerer: Spellcasting (1), Sorcerous Origin (1), Font of Magic (2), Metamagic (3)
+- Warlock: Otherworldly Patron (1), Pact Magic (1), Eldritch Invocations (2), Pact Boon (3)
+- Druid: Druidic (1), Spellcasting (1), Wild Shape (2), Druid Circle (2)
+
 Guide the player through their choices conversationally. When ALL choices are finalized, output:
-LEVELUP_COMPLETE:{"hp_increase":N,"class_leveled":"ClassName","new_class_level":N,"new_spells":"spells gained or None","new_skills":"skills gained or None","new_passives":"features gained or None","stat_changes":"any stat increases or None","new_feat":"feat taken or None","summary":"Brief exciting summary"}`;
+LEVELUP_COMPLETE:{"hp_increase":N,"class_leveled":"ClassName","new_class_level":N,"new_spells":"spells gained or None","new_skills":"skills gained or None","new_passives":"passives gained or None","new_class_features":"class features gained or None","stat_changes":"any stat increases or None","new_feat":"feat taken or None","summary":"Brief exciting summary"}`;
 
   try {
     const allMessages = [
@@ -1006,6 +1217,11 @@ LEVELUP_COMPLETE:{"hp_increase":N,"class_leveled":"ClassName","new_class_level":
             ? (character.passives ? `${character.passives}, ${levelData.new_passives}` : levelData.new_passives)
             : character.passives;
 
+          // Handle class features
+          const newClassFeatures = levelData.new_class_features && levelData.new_class_features !== 'None'
+            ? (character.class_features ? `${character.class_features}, ${levelData.new_class_features}` : levelData.new_class_features)
+            : character.class_features;
+
           // Handle feats
           const newFeats = levelData.new_feat && levelData.new_feat !== 'None'
             ? (character.feats ? `${character.feats}, ${levelData.new_feat}` : levelData.new_feat)
@@ -1031,8 +1247,8 @@ LEVELUP_COMPLETE:{"hp_increase":N,"class_leveled":"ClassName","new_class_level":
             .sort((a, b) => b[1] - a[1])[0][0];
 
           db.prepare(`
-            UPDATE characters SET level = ?, hp = ?, max_hp = ?, spells = ?, skills = ?, passives = ?, feats = ?, classes = ?, class = ? WHERE id = ?
-          `).run(newLevel, newMaxHP, newMaxHP, newSpells || '', newSkills || '', newPassives || '', newFeats || '', JSON.stringify(updatedClasses), primaryClass, req.params.id);
+            UPDATE characters SET level = ?, hp = ?, max_hp = ?, spells = ?, skills = ?, passives = ?, class_features = ?, feats = ?, classes = ?, class = ? WHERE id = ?
+          `).run(newLevel, newMaxHP, newMaxHP, newSpells || '', newSkills || '', newPassives || '', newClassFeatures || '', newFeats || '', JSON.stringify(updatedClasses), primaryClass, req.params.id);
 
           const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
           io.emit('character_updated', updatedChar);
@@ -1121,16 +1337,21 @@ CURRENT CHARACTER:
 - AC (Armor Class): ${character.ac || 10}
 - Spell Slots: ${spellSlotsDisplay}
 - Background: ${character.background}
+- Appearance: ${character.appearance || 'Not set'}
+- Backstory: ${character.backstory || 'Not set'}
 - Equipment: ${character.equipment}
 - Spells: ${character.spells || 'None'}
 - Skills: ${character.skills || 'None'}
 - Passives: ${character.passives || 'None'}
+- Class Features: ${character.class_features || 'None'}
 - Feats: ${character.feats || 'None'}
 
 USER'S EDIT REQUEST: ${editRequest}
 
-Discuss the changes with the user. When you have confirmed ALL changes, output the updated character in this EXACT JSON format:
-EDIT_COMPLETE:{"character_name":"...","race":"...","class":"PrimaryClass","classes":{"Fighter":5,"Wizard":2},"level":N,"strength":N,"dexterity":N,"constitution":N,"intelligence":N,"wisdom":N,"charisma":N,"hp":N,"max_hp":N,"ac":N,"spell_slots":{"1":{"current":N,"max":N}},"background":"...","equipment":"...","spells":"...","skills":"...","passives":"...","feats":"..."}
+Discuss the changes with the user. When you have confirmed ALL changes, output the COMPLETE updated character in this EXACT JSON format.
+IMPORTANT: Include ALL fields with their current or updated values - do not omit any fields!
+
+EDIT_COMPLETE:{"character_name":"...","race":"...","class":"PrimaryClass","classes":{"Fighter":5,"Wizard":2},"level":N,"strength":N,"dexterity":N,"constitution":N,"intelligence":N,"wisdom":N,"charisma":N,"hp":N,"max_hp":N,"ac":N,"spell_slots":{"1":{"current":N,"max":N}},"background":"...","appearance":"Physical description","backstory":"Character history","equipment":"...","spells":"...","skills":"...","passives":"...","class_features":"Class abilities like Second Wind, Sneak Attack","feats":"..."}
 
 MULTICLASS FORMAT:
 - "class" is the primary class (highest level)
@@ -1220,14 +1441,18 @@ Only include fields that should be changed. Keep the conversation helpful and en
 
           const fields = ['character_name', 'race', 'class', 'level', 'strength', 'dexterity', 'constitution',
                          'intelligence', 'wisdom', 'charisma', 'hp', 'max_hp', 'ac', 'background',
-                         'equipment', 'spells', 'skills', 'passives', 'feats'];
+                         'appearance', 'backstory', 'equipment', 'spells', 'skills', 'passives', 'class_features', 'feats'];
 
           fields.forEach(field => {
-            if (editData[field] !== undefined) {
+            if (editData[field] !== undefined && editData[field] !== null) {
+              // Only update if a value is provided (even empty string counts as intentional)
               updates.push(`${field} = ?`);
               values.push(editData[field]);
             }
           });
+
+          // Log what fields were updated for debugging
+          console.log('Edit update - fields being updated:', updates.map((u, i) => `${u.replace(' = ?', '')}=${values[i]?.substring?.(0, 30) || values[i]}`));
 
           // Handle spell_slots separately (needs JSON stringify)
           if (editData.spell_slots !== undefined) {
@@ -1300,9 +1525,10 @@ You must guide them through these steps IN ORDER:
    - If VARIANT HUMAN: They get +1 to two different stats, one skill proficiency, and ONE FEAT at level 1!
 3. Ask what CLASS they want (Fighter, Wizard, Rogue, Cleric, Barbarian, Bard, Druid, Monk, Paladin, Ranger, Sorcerer, Warlock)
 4. Ask for their CHARACTER NAME
-5. Help them with a brief BACKSTORY (2-3 sentences)
-6. If Variant Human, help them choose their STARTING FEAT (e.g., Alert, Lucky, Sentinel, Great Weapon Master, Sharpshooter, War Caster, etc.)
-7. Confirm their starting SPELLS (if spellcaster), SKILLS (based on class), and EQUIPMENT
+5. Ask them to describe their character's APPEARANCE (physical features: hair color, eye color, height, build, distinguishing features, clothing style)
+6. Help them with a brief BACKSTORY (2-4 sentences about their history, motivations, and what drives them)
+7. If Variant Human, help them choose their STARTING FEAT (e.g., Alert, Lucky, Sentinel, Great Weapon Master, Sharpshooter, War Caster, etc.)
+8. Confirm their starting SPELLS (if spellcaster), SKILLS (based on class), and EQUIPMENT
 
 For STATS, roll 4d6 drop lowest for each stat and assign them appropriately for their class.
 
@@ -1318,8 +1544,21 @@ Popular choices: Alert, Lucky, Sentinel, Great Weapon Master, Sharpshooter, War 
 
 PASSIVES to include:
 - Passive Perception (10 + Wisdom modifier + proficiency if proficient)
-- Racial abilities (Darkvision, etc.)
-- Class features (Fighting Style, Spellcasting, Sneak Attack, etc.)
+- Racial abilities (Darkvision, Fey Ancestry, etc.)
+
+CLASS FEATURES - Class-specific abilities gained at level 1 and above:
+- Fighter: Second Wind, Fighting Style
+- Barbarian: Rage, Unarmored Defense
+- Rogue: Sneak Attack (1d6), Expertise, Thieves' Cant
+- Bard: Bardic Inspiration (d6), Spellcasting
+- Cleric: Spellcasting, Divine Domain feature
+- Wizard: Spellcasting, Arcane Recovery
+- Paladin: Divine Sense, Lay on Hands
+- Ranger: Favored Enemy, Natural Explorer
+- Monk: Unarmored Defense, Martial Arts
+- Sorcerer: Spellcasting, Sorcerous Origin feature
+- Warlock: Otherworldly Patron feature, Pact Magic
+- Druid: Druidic, Spellcasting
 
 SPELLS for Level 1 spellcasters:
 - Wizard: 3 cantrips, 6 spells in spellbook (prepare Int mod + 1)
@@ -1327,7 +1566,7 @@ SPELLS for Level 1 spellcasters:
 - Other casters: Appropriate cantrips and spells for level 1
 
 When you have ALL information needed, output the final character in this EXACT JSON format on a single line:
-CHARACTER_COMPLETE:{"player_name":"...","character_name":"...","race":"...","class":"...","classes":{"ClassName":1},"strength":N,"dexterity":N,"constitution":N,"intelligence":N,"wisdom":N,"charisma":N,"background":"...","equipment":"...","spells":"Cantrips: X, Y. Spells: A, B, C","skills":"Skill1, Skill2 (proficient), Skill3","passives":"Passive Perception: N, Darkvision 60ft, Feature Name","feats":"Feat Name (if any, otherwise empty string)"}
+CHARACTER_COMPLETE:{"player_name":"...","character_name":"...","race":"...","class":"...","classes":{"ClassName":1},"strength":N,"dexterity":N,"constitution":N,"intelligence":N,"wisdom":N,"charisma":N,"background":"D&D Background like Soldier or Noble","appearance":"Physical description: hair, eyes, height, build, distinguishing features","backstory":"2-4 sentences about history and motivations","equipment":"...","spells":"Cantrips: X, Y. Spells: A, B, C","skills":"Skill1, Skill2 (proficient), Skill3","passives":"Passive Perception: N, Darkvision 60ft","class_features":"Second Wind, Fighting Style: Defense","feats":"Feat Name (if any, otherwise empty string)"}
 
 Note: The "classes" field is a JSON object tracking levels in each class. For a level 1 Fighter it would be {"Fighter":1}. This supports multiclassing at higher levels.
 
@@ -1396,13 +1635,14 @@ app.post('/api/characters/ai-create', checkPassword, async (req, res) => {
           }
 
           db.prepare(`
-            INSERT INTO characters (id, player_name, character_name, race, class, level, xp, strength, dexterity, constitution, intelligence, wisdom, charisma, hp, max_hp, background, equipment, spells, skills, passives, feats, classes)
-            VALUES (?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO characters (id, player_name, character_name, race, class, level, xp, strength, dexterity, constitution, intelligence, wisdom, charisma, hp, max_hp, background, appearance, backstory, equipment, spells, skills, passives, class_features, feats, classes)
+            VALUES (?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `).run(id, charData.player_name, charData.character_name, charData.race, charData.class,
                  charData.strength, charData.dexterity, charData.constitution, charData.intelligence,
-                 charData.wisdom, charData.charisma, hp, hp, charData.background, charData.equipment,
+                 charData.wisdom, charData.charisma, hp, hp, charData.background, charData.appearance || '',
+                 charData.backstory || '', charData.equipment,
                  charData.spells || '', charData.skills || '', charData.passives || '',
-                 charData.feats || '', classesJson);
+                 charData.class_features || '', charData.feats || '', classesJson);
 
           const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(id);
           io.emit('character_created', character);
@@ -1691,17 +1931,86 @@ app.post('/api/sessions/:id/recalculate-ac-spells', checkPassword, (req, res) =>
   const characters = db.prepare('SELECT * FROM characters').all();
   const history = JSON.parse(session.full_history || '[]');
   const acValues = {};
+  const acEffectsTracking = {};  // Track AC effects per character
   const spellSlotUsage = {};
 
   // Initialize tracking for each character
   for (const char of characters) {
     acValues[char.id] = null; // null means not found
+    acEffectsTracking[char.id] = parseAcEffects(char.ac_effects); // Start with current effects
     spellSlotUsage[char.id] = {};
   }
 
   // Scan all messages for AC and spell slot information
   for (const entry of history) {
     const content = entry.content || '';
+
+    // Parse [AC:] tags for AC effects
+    const acMatches = content.match(/\[AC:([^\]]+)\]/gi);
+    if (acMatches) {
+      for (const match of acMatches) {
+        const acContent = match.replace(/\[AC:/i, '').replace(']', '').trim();
+
+        // Try to match "base" command: CharacterName base ArmorName Value
+        const baseMatch = acContent.match(/(.+?)\s+base\s+(.+?)\s+(\d+)$/i);
+        if (baseMatch) {
+          const charName = baseMatch[1].trim();
+          const armorName = baseMatch[2].trim();
+          const baseValue = parseInt(baseMatch[3]);
+
+          const char = characters.find(c => c.character_name.toLowerCase() === charName.toLowerCase());
+          if (char) {
+            acEffectsTracking[char.id].base_source = armorName;
+            acEffectsTracking[char.id].base_value = baseValue;
+          }
+          continue;
+        }
+
+        // Try to match add effect: CharacterName +EffectName +Value Type
+        const addMatch = acContent.match(/(.+?)\s+\+(.+?)\s+\+(\d+)\s+(\w+)$/i);
+        if (addMatch) {
+          const charName = addMatch[1].trim();
+          const effectName = addMatch[2].trim();
+          const effectValue = parseInt(addMatch[3]);
+          const effectType = addMatch[4].trim().toLowerCase();
+
+          const char = characters.find(c => c.character_name.toLowerCase() === charName.toLowerCase());
+          if (char) {
+            // Check if effect already exists
+            const existingIdx = acEffectsTracking[char.id].effects.findIndex(e => e.name.toLowerCase() === effectName.toLowerCase());
+            if (existingIdx !== -1) {
+              acEffectsTracking[char.id].effects[existingIdx].value = effectValue;
+              acEffectsTracking[char.id].effects[existingIdx].type = effectType;
+            } else {
+              acEffectsTracking[char.id].effects.push({
+                id: uuidv4(),
+                name: effectName,
+                value: effectValue,
+                type: effectType,
+                temporary: effectType === 'spell',
+                notes: ''
+              });
+            }
+          }
+          continue;
+        }
+
+        // Try to match remove effect: CharacterName -EffectName
+        const removeMatch = acContent.match(/(.+?)\s+-(.+)$/i);
+        if (removeMatch) {
+          const charName = removeMatch[1].trim();
+          const effectName = removeMatch[2].trim();
+
+          const char = characters.find(c => c.character_name.toLowerCase() === charName.toLowerCase());
+          if (char) {
+            acEffectsTracking[char.id].effects = acEffectsTracking[char.id].effects.filter(
+              e => e.name.toLowerCase() !== effectName.toLowerCase()
+            );
+          }
+          continue;
+        }
+      }
+    }
 
     // Parse [SPELL:] tags (our format)
     const spellMatches = content.match(/\[SPELL:([^\]]+)\]/gi);
@@ -1792,16 +2101,28 @@ app.post('/api/sessions/:id/recalculate-ac-spells', checkPassword, (req, res) =>
   }
 
   // Update characters with found values
-  const results = { acUpdated: {}, spellSlotsUpdated: {} };
+  const results = { acUpdated: {}, acEffectsUpdated: {}, spellSlotsUpdated: {} };
 
   for (const char of characters) {
     let updated = false;
 
-    // Update AC if found
-    if (acValues[char.id] !== null) {
-      db.prepare('UPDATE characters SET ac = ? WHERE id = ?').run(acValues[char.id], char.id);
+    // Update AC effects from [AC:] tags
+    const trackedEffects = acEffectsTracking[char.id];
+    const totalAc = calculateTotalAC(trackedEffects);
+    updateCharacterAC(char.id, trackedEffects);
+    results.acEffectsUpdated[char.character_name] = {
+      total: totalAc,
+      base: `${trackedEffects.base_source}: ${trackedEffects.base_value}`,
+      effects: trackedEffects.effects.map(e => `${e.name}: +${e.value}`)
+    };
+    updated = true;
+
+    // Also check for simple AC mentions (legacy support)
+    if (acValues[char.id] !== null && trackedEffects.effects.length === 0) {
+      // Only use simple AC if no effects were detected
+      trackedEffects.base_value = acValues[char.id];
+      updateCharacterAC(char.id, trackedEffects);
       results.acUpdated[char.character_name] = acValues[char.id];
-      updated = true;
     }
 
     // Update spell slots if any were detected
@@ -1842,6 +2163,359 @@ app.post('/api/sessions/:id/recalculate-ac-spells', checkPassword, (req, res) =>
   res.json({ success: true, ...results });
 });
 
+// ============================================
+// COMBAT TRACKER API ENDPOINTS
+// ============================================
+
+// Get active combat for a session
+app.get('/api/sessions/:sessionId/combat', checkPassword, (req, res) => {
+  const combat = db.prepare('SELECT * FROM combats WHERE session_id = ? AND is_active = 1').get(req.params.sessionId);
+  if (combat) {
+    combat.combatants = JSON.parse(combat.combatants || '[]');
+  }
+  res.json({ combat });
+});
+
+// Start new combat
+app.post('/api/sessions/:sessionId/combat/start', checkPassword, (req, res) => {
+  const { name, combatants } = req.body;
+  const sessionId = req.params.sessionId;
+
+  // End any existing active combat
+  db.prepare('UPDATE combats SET is_active = 0 WHERE session_id = ? AND is_active = 1').run(sessionId);
+
+  // Get characters for the session
+  const characters = db.prepare('SELECT * FROM characters').all();
+
+  // Build combatants list with initiative rolls
+  const combatantsList = (combatants || []).map(c => {
+    const char = characters.find(ch => ch.id === c.character_id);
+    const dexMod = char ? Math.floor((char.dexterity - 10) / 2) : 0;
+    const initBonus = char ? (char.initiative_bonus || 0) : 0;
+    const initiativeRoll = c.initiative !== undefined ? c.initiative : Math.floor(Math.random() * 20) + 1 + dexMod + initBonus;
+
+    return {
+      id: c.id || crypto.randomUUID(),
+      character_id: c.character_id || null,
+      name: c.name || (char ? char.character_name : 'Unknown'),
+      initiative: initiativeRoll,
+      hp: c.hp !== undefined ? c.hp : (char ? char.hp : 10),
+      max_hp: c.max_hp !== undefined ? c.max_hp : (char ? char.max_hp : 10),
+      ac: c.ac !== undefined ? c.ac : (char ? char.ac : 10),
+      is_player: c.is_player !== undefined ? c.is_player : !!char,
+      is_active: true,
+      conditions: c.conditions || [],
+      notes: c.notes || ''
+    };
+  });
+
+  // Sort by initiative (descending)
+  combatantsList.sort((a, b) => b.initiative - a.initiative);
+
+  const combatId = crypto.randomUUID();
+  db.prepare(`
+    INSERT INTO combats (id, session_id, name, combatants, is_active, current_turn, round)
+    VALUES (?, ?, ?, ?, 1, 0, 1)
+  `).run(combatId, sessionId, name || 'Combat', JSON.stringify(combatantsList));
+
+  const combat = db.prepare('SELECT * FROM combats WHERE id = ?').get(combatId);
+  combat.combatants = JSON.parse(combat.combatants);
+
+  io.emit('combat_started', { sessionId, combat });
+  res.json({ combat });
+});
+
+// Add combatant to existing combat
+app.post('/api/sessions/:sessionId/combat/add-combatant', checkPassword, (req, res) => {
+  const { name, initiative, hp, max_hp, ac, is_player, character_id } = req.body;
+  const combat = db.prepare('SELECT * FROM combats WHERE session_id = ? AND is_active = 1').get(req.params.sessionId);
+
+  if (!combat) {
+    return res.status(404).json({ error: 'No active combat' });
+  }
+
+  const combatants = JSON.parse(combat.combatants || '[]');
+
+  // If linking to a character, get their stats
+  let char = null;
+  if (character_id) {
+    char = db.prepare('SELECT * FROM characters WHERE id = ?').get(character_id);
+  }
+
+  const dexMod = char ? Math.floor((char.dexterity - 10) / 2) : 0;
+  const initBonus = char ? (char.initiative_bonus || 0) : 0;
+  const initiativeRoll = initiative !== undefined ? initiative : Math.floor(Math.random() * 20) + 1 + dexMod + initBonus;
+
+  const newCombatant = {
+    id: crypto.randomUUID(),
+    character_id: character_id || null,
+    name: name || (char ? char.character_name : 'Unknown'),
+    initiative: initiativeRoll,
+    hp: hp !== undefined ? hp : (char ? char.hp : 10),
+    max_hp: max_hp !== undefined ? max_hp : (char ? char.max_hp : 10),
+    ac: ac !== undefined ? ac : (char ? char.ac : 10),
+    is_player: is_player !== undefined ? is_player : !!char,
+    is_active: true,
+    conditions: [],
+    notes: ''
+  };
+
+  combatants.push(newCombatant);
+  combatants.sort((a, b) => b.initiative - a.initiative);
+
+  db.prepare('UPDATE combats SET combatants = ? WHERE id = ?').run(JSON.stringify(combatants), combat.id);
+
+  const updatedCombat = db.prepare('SELECT * FROM combats WHERE id = ?').get(combat.id);
+  updatedCombat.combatants = JSON.parse(updatedCombat.combatants);
+
+  io.emit('combat_updated', { sessionId: req.params.sessionId, combat: updatedCombat });
+  res.json({ combat: updatedCombat });
+});
+
+// Update combatant (HP, conditions, etc.)
+app.post('/api/sessions/:sessionId/combat/update-combatant', checkPassword, (req, res) => {
+  const { combatant_id, hp, conditions, is_active, notes, initiative } = req.body;
+  const combat = db.prepare('SELECT * FROM combats WHERE session_id = ? AND is_active = 1').get(req.params.sessionId);
+
+  if (!combat) {
+    return res.status(404).json({ error: 'No active combat' });
+  }
+
+  const combatants = JSON.parse(combat.combatants || '[]');
+  const idx = combatants.findIndex(c => c.id === combatant_id);
+
+  if (idx === -1) {
+    return res.status(404).json({ error: 'Combatant not found' });
+  }
+
+  if (hp !== undefined) combatants[idx].hp = hp;
+  if (conditions !== undefined) combatants[idx].conditions = conditions;
+  if (is_active !== undefined) combatants[idx].is_active = is_active;
+  if (notes !== undefined) combatants[idx].notes = notes;
+  if (initiative !== undefined) {
+    combatants[idx].initiative = initiative;
+    combatants.sort((a, b) => b.initiative - a.initiative);
+  }
+
+  // Sync HP with character if linked
+  if (combatants[idx].character_id && hp !== undefined) {
+    db.prepare('UPDATE characters SET hp = ? WHERE id = ?').run(hp, combatants[idx].character_id);
+    const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(combatants[idx].character_id);
+    io.emit('character_updated', updatedChar);
+  }
+
+  db.prepare('UPDATE combats SET combatants = ? WHERE id = ?').run(JSON.stringify(combatants), combat.id);
+
+  const updatedCombat = db.prepare('SELECT * FROM combats WHERE id = ?').get(combat.id);
+  updatedCombat.combatants = JSON.parse(updatedCombat.combatants);
+
+  io.emit('combat_updated', { sessionId: req.params.sessionId, combat: updatedCombat });
+  res.json({ combat: updatedCombat });
+});
+
+// Remove combatant
+app.post('/api/sessions/:sessionId/combat/remove-combatant', checkPassword, (req, res) => {
+  const { combatant_id } = req.body;
+  const combat = db.prepare('SELECT * FROM combats WHERE session_id = ? AND is_active = 1').get(req.params.sessionId);
+
+  if (!combat) {
+    return res.status(404).json({ error: 'No active combat' });
+  }
+
+  let combatants = JSON.parse(combat.combatants || '[]');
+  const currentTurn = combat.current_turn;
+  const removedIdx = combatants.findIndex(c => c.id === combatant_id);
+
+  combatants = combatants.filter(c => c.id !== combatant_id);
+
+  // Adjust current turn if needed
+  let newCurrentTurn = currentTurn;
+  if (removedIdx !== -1 && removedIdx < currentTurn) {
+    newCurrentTurn = Math.max(0, currentTurn - 1);
+  }
+  if (newCurrentTurn >= combatants.length) {
+    newCurrentTurn = 0;
+  }
+
+  db.prepare('UPDATE combats SET combatants = ?, current_turn = ? WHERE id = ?')
+    .run(JSON.stringify(combatants), newCurrentTurn, combat.id);
+
+  const updatedCombat = db.prepare('SELECT * FROM combats WHERE id = ?').get(combat.id);
+  updatedCombat.combatants = JSON.parse(updatedCombat.combatants);
+
+  io.emit('combat_updated', { sessionId: req.params.sessionId, combat: updatedCombat });
+  res.json({ combat: updatedCombat });
+});
+
+// Next turn
+app.post('/api/sessions/:sessionId/combat/next-turn', checkPassword, (req, res) => {
+  const combat = db.prepare('SELECT * FROM combats WHERE session_id = ? AND is_active = 1').get(req.params.sessionId);
+
+  if (!combat) {
+    return res.status(404).json({ error: 'No active combat' });
+  }
+
+  const combatants = JSON.parse(combat.combatants || '[]');
+  const activeCombatants = combatants.filter(c => c.is_active);
+
+  if (activeCombatants.length === 0) {
+    return res.status(400).json({ error: 'No active combatants' });
+  }
+
+  let nextTurn = combat.current_turn + 1;
+  let newRound = combat.round;
+
+  // Find next active combatant
+  while (nextTurn < combatants.length && !combatants[nextTurn].is_active) {
+    nextTurn++;
+  }
+
+  // If we've gone past the end, start new round
+  if (nextTurn >= combatants.length) {
+    nextTurn = 0;
+    newRound++;
+    // Find first active combatant in new round
+    while (nextTurn < combatants.length && !combatants[nextTurn].is_active) {
+      nextTurn++;
+    }
+  }
+
+  db.prepare('UPDATE combats SET current_turn = ?, round = ? WHERE id = ?')
+    .run(nextTurn, newRound, combat.id);
+
+  const updatedCombat = db.prepare('SELECT * FROM combats WHERE id = ?').get(combat.id);
+  updatedCombat.combatants = JSON.parse(updatedCombat.combatants);
+
+  io.emit('combat_updated', { sessionId: req.params.sessionId, combat: updatedCombat });
+  res.json({ combat: updatedCombat });
+});
+
+// Previous turn
+app.post('/api/sessions/:sessionId/combat/prev-turn', checkPassword, (req, res) => {
+  const combat = db.prepare('SELECT * FROM combats WHERE session_id = ? AND is_active = 1').get(req.params.sessionId);
+
+  if (!combat) {
+    return res.status(404).json({ error: 'No active combat' });
+  }
+
+  const combatants = JSON.parse(combat.combatants || '[]');
+  let prevTurn = combat.current_turn - 1;
+  let newRound = combat.round;
+
+  // Find previous active combatant
+  while (prevTurn >= 0 && !combatants[prevTurn].is_active) {
+    prevTurn--;
+  }
+
+  // If we've gone before the start, go to previous round
+  if (prevTurn < 0) {
+    if (newRound > 1) {
+      newRound--;
+      prevTurn = combatants.length - 1;
+      // Find last active combatant
+      while (prevTurn >= 0 && !combatants[prevTurn].is_active) {
+        prevTurn--;
+      }
+    } else {
+      prevTurn = 0; // Can't go before round 1
+    }
+  }
+
+  db.prepare('UPDATE combats SET current_turn = ?, round = ? WHERE id = ?')
+    .run(prevTurn, newRound, combat.id);
+
+  const updatedCombat = db.prepare('SELECT * FROM combats WHERE id = ?').get(combat.id);
+  updatedCombat.combatants = JSON.parse(updatedCombat.combatants);
+
+  io.emit('combat_updated', { sessionId: req.params.sessionId, combat: updatedCombat });
+  res.json({ combat: updatedCombat });
+});
+
+// End combat
+app.post('/api/sessions/:sessionId/combat/end', checkPassword, (req, res) => {
+  const combat = db.prepare('SELECT * FROM combats WHERE session_id = ? AND is_active = 1').get(req.params.sessionId);
+
+  if (!combat) {
+    return res.status(404).json({ error: 'No active combat' });
+  }
+
+  db.prepare('UPDATE combats SET is_active = 0 WHERE id = ?').run(combat.id);
+
+  io.emit('combat_ended', { sessionId: req.params.sessionId, combatId: combat.id });
+  res.json({ success: true });
+});
+
+// Quick damage/heal
+app.post('/api/sessions/:sessionId/combat/damage', checkPassword, (req, res) => {
+  const { combatant_id, amount } = req.body; // amount: positive = damage, negative = heal
+  const combat = db.prepare('SELECT * FROM combats WHERE session_id = ? AND is_active = 1').get(req.params.sessionId);
+
+  if (!combat) {
+    return res.status(404).json({ error: 'No active combat' });
+  }
+
+  const combatants = JSON.parse(combat.combatants || '[]');
+  const idx = combatants.findIndex(c => c.id === combatant_id);
+
+  if (idx === -1) {
+    return res.status(404).json({ error: 'Combatant not found' });
+  }
+
+  const newHp = Math.max(0, Math.min(combatants[idx].max_hp, combatants[idx].hp - amount));
+  combatants[idx].hp = newHp;
+
+  // Auto-mark as inactive if HP reaches 0
+  if (newHp === 0) {
+    combatants[idx].is_active = false;
+  }
+
+  // Sync HP with character if linked
+  if (combatants[idx].character_id) {
+    db.prepare('UPDATE characters SET hp = ? WHERE id = ?').run(newHp, combatants[idx].character_id);
+    const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(combatants[idx].character_id);
+    io.emit('character_updated', updatedChar);
+  }
+
+  db.prepare('UPDATE combats SET combatants = ? WHERE id = ?').run(JSON.stringify(combatants), combat.id);
+
+  const updatedCombat = db.prepare('SELECT * FROM combats WHERE id = ?').get(combat.id);
+  updatedCombat.combatants = JSON.parse(updatedCombat.combatants);
+
+  io.emit('combat_updated', { sessionId: req.params.sessionId, combat: updatedCombat });
+  res.json({ combat: updatedCombat });
+});
+
+// Roll initiative for all party members
+app.post('/api/sessions/:sessionId/combat/roll-party-initiative', checkPassword, (req, res) => {
+  const characters = db.prepare('SELECT * FROM characters').all();
+
+  const partyInitiatives = characters.map(char => {
+    const dexMod = Math.floor((char.dexterity - 10) / 2);
+    const initBonus = char.initiative_bonus || 0;
+    const roll = Math.floor(Math.random() * 20) + 1;
+    const total = roll + dexMod + initBonus;
+
+    return {
+      character_id: char.id,
+      name: char.character_name,
+      roll,
+      dexMod,
+      initBonus,
+      total,
+      hp: char.hp,
+      max_hp: char.max_hp,
+      ac: char.ac || 10,
+      is_player: true
+    };
+  });
+
+  res.json({ initiatives: partyInitiatives });
+});
+
+// ============================================
+// END COMBAT TRACKER API ENDPOINTS
+// ============================================
+
 // AI Processing function
 async function processAITurn(sessionId, pendingActions, characters) {
   // Notify all clients that processing has started
@@ -1871,12 +2545,24 @@ async function processAITurn(sessionId, pendingActions, characters) {
       }
     } catch (e) {}
 
+    // Parse AC effects for display
+    const acEffects = parseAcEffects(c.ac_effects);
+    let acDisplay = `${c.ac || 10} (${acEffects.base_source}: ${acEffects.base_value}`;
+    if (acEffects.effects.length > 0) {
+      const effectsStr = acEffects.effects.map(e => `${e.name}: +${e.value}`).join(', ');
+      acDisplay += ` + ${effectsStr}`;
+    }
+    acDisplay += ')';
+
     let info = `${c.character_name} (${c.race} ${classDisplay}, played by ${c.player_name}):\n`;
     info += `  Stats: STR:${c.strength} DEX:${c.dexterity} CON:${c.constitution} INT:${c.intelligence} WIS:${c.wisdom} CHA:${c.charisma}\n`;
-    info += `  HP: ${c.hp}/${c.max_hp}, AC: ${c.ac || 10}`;
+    info += `  HP: ${c.hp}/${c.max_hp}, AC: ${acDisplay}`;
+    if (c.appearance) info += `\n  Appearance: ${c.appearance}`;
+    if (c.backstory) info += `\n  Backstory: ${c.backstory}`;
     if (c.skills) info += `\n  Skills: ${c.skills}`;
     if (c.spells) info += `\n  Spells: ${c.spells}`;
     if (c.passives) info += `\n  Passives: ${c.passives}`;
+    if (c.class_features) info += `\n  Class Features: ${c.class_features}`;
     if (c.feats) info += `\n  Feats: ${c.feats}`;
     return info;
   }).join('\n\n');
@@ -2090,6 +2776,84 @@ Please narrate the outcome of these actions and describe what happens next.`;
             io.emit('character_updated', { ...char, spell_slots: JSON.stringify(spellSlots) });
           }
         }
+      }
+    }
+  }
+
+  // Parse and update AC EFFECTS from AI response
+  // Format: [AC: CharacterName +EffectName +Value Type] or [AC: CharacterName -EffectName] or [AC: CharacterName base ArmorName Value]
+  const acMatches = aiResponse.match(/\[AC:([^\]]+)\]/gi);
+  if (acMatches) {
+    for (const match of acMatches) {
+      const acContent = match.replace(/\[AC:/i, '').replace(']', '').trim();
+
+      // Try to match "base" command: CharacterName base ArmorName Value
+      const baseMatch = acContent.match(/(.+?)\s+base\s+(.+?)\s+(\d+)$/i);
+      if (baseMatch) {
+        const charName = baseMatch[1].trim();
+        const armorName = baseMatch[2].trim();
+        const baseValue = parseInt(baseMatch[3]);
+
+        const char = characters.find(c => c.character_name.toLowerCase() === charName.toLowerCase());
+        if (char) {
+          let acEffects = parseAcEffects(char.ac_effects);
+          acEffects.base_source = armorName;
+          acEffects.base_value = baseValue;
+          updateCharacterAC(char.id, acEffects);
+          const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(char.id);
+          io.emit('character_updated', updatedChar);
+        }
+        continue;
+      }
+
+      // Try to match add effect: CharacterName +EffectName +Value Type
+      const addMatch = acContent.match(/(.+?)\s+\+(.+?)\s+\+(\d+)\s+(\w+)$/i);
+      if (addMatch) {
+        const charName = addMatch[1].trim();
+        const effectName = addMatch[2].trim();
+        const effectValue = parseInt(addMatch[3]);
+        const effectType = addMatch[4].trim().toLowerCase();
+
+        const char = characters.find(c => c.character_name.toLowerCase() === charName.toLowerCase());
+        if (char) {
+          let acEffects = parseAcEffects(char.ac_effects);
+          // Check if effect already exists, update it if so
+          const existingIdx = acEffects.effects.findIndex(e => e.name.toLowerCase() === effectName.toLowerCase());
+          if (existingIdx !== -1) {
+            acEffects.effects[existingIdx].value = effectValue;
+            acEffects.effects[existingIdx].type = effectType;
+          } else {
+            acEffects.effects.push({
+              id: uuidv4(),
+              name: effectName,
+              value: effectValue,
+              type: effectType,
+              temporary: effectType === 'spell',
+              notes: ''
+            });
+          }
+          updateCharacterAC(char.id, acEffects);
+          const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(char.id);
+          io.emit('character_updated', updatedChar);
+        }
+        continue;
+      }
+
+      // Try to match remove effect: CharacterName -EffectName
+      const removeMatch = acContent.match(/(.+?)\s+-(.+)$/i);
+      if (removeMatch) {
+        const charName = removeMatch[1].trim();
+        const effectName = removeMatch[2].trim();
+
+        const char = characters.find(c => c.character_name.toLowerCase() === charName.toLowerCase());
+        if (char) {
+          let acEffects = parseAcEffects(char.ac_effects);
+          acEffects.effects = acEffects.effects.filter(e => e.name.toLowerCase() !== effectName.toLowerCase());
+          updateCharacterAC(char.id, acEffects);
+          const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(char.id);
+          io.emit('character_updated', updatedChar);
+        }
+        continue;
       }
     }
   }

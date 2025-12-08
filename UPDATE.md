@@ -343,6 +343,20 @@ Before deploying, test these scenarios:
 - [ ] Recalculate buttons work
 - [ ] Delete session
 
+#### Combat Tracker
+- [ ] Start new combat
+- [ ] Roll party initiative
+- [ ] Add enemies/NPCs
+- [ ] Initiative order sorted correctly
+- [ ] Next/Previous turn works
+- [ ] Round counter increments
+- [ ] Edit combatant HP, conditions
+- [ ] Add combatant mid-combat
+- [ ] Remove combatant
+- [ ] End combat
+- [ ] HP syncs with character sheets
+- [ ] Real-time updates across clients
+
 #### API Configurations
 - [ ] Add new config
 - [ ] Edit existing config
@@ -471,6 +485,9 @@ console.log('All characters:', all);
 ## Version History
 
 ### Latest Features
+- **Combat Tracker with Initiative** - Full turn-based combat management
+- **Class Features tracking** - Fighter's Second Wind, Bard's Song of Rest, etc.
+- **Appearance & Backstory** - Character descriptions and history
 - Multiple API configurations
 - Feats and multiclassing support
 - AC and spell slot tracking

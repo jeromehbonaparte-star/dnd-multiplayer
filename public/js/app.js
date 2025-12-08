@@ -147,6 +147,30 @@ function initSocket() {
     loadCharacters();
     showNotification(`${character.character_name} leveled up to ${character.level}! ${summary}`);
   });
+
+  // Combat tracker events
+  socket.on('combat_started', ({ sessionId, combat }) => {
+    if (currentSession && currentSession.id === sessionId) {
+      currentCombat = combat;
+      renderCombatTracker();
+      showNotification('Combat started!');
+    }
+  });
+
+  socket.on('combat_updated', ({ sessionId, combat }) => {
+    if (currentSession && currentSession.id === sessionId) {
+      currentCombat = combat;
+      renderCombatTracker();
+    }
+  });
+
+  socket.on('combat_ended', ({ sessionId }) => {
+    if (currentSession && currentSession.id === sessionId) {
+      currentCombat = null;
+      renderCombatTracker();
+      showNotification('Combat ended');
+    }
+  });
 }
 
 // API helper
@@ -741,7 +765,6 @@ function renderCharactersList() {
     const xpPercent = Math.min((xp / requiredXP) * 100, 100);
     const canLevel = canLevelUp(xp, c.level);
     const gold = c.gold || 0;
-    const ac = c.ac || 10;
     let inventory = [];
     try {
       inventory = JSON.parse(c.inventory || '[]');
@@ -773,12 +796,17 @@ function renderCharactersList() {
     // Parse feats
     const feats = c.feats || '';
 
+    // Format AC display with effects breakdown
+    const acDisplay = formatAcDisplay(c);
+
     return `
     <div class="character-card" data-id="${c.id}">
       <button class="delete-btn" onclick="deleteCharacter('${c.id}')">X</button>
       <h3>${c.character_name}</h3>
       <div class="player">Played by ${c.player_name}</div>
       <div class="race-class">${c.race} ${classDisplay}</div>
+      ${c.appearance ? `<div class="details appearance"><strong>Appearance:</strong> ${c.appearance}</div>` : ''}
+      ${c.backstory ? `<div class="details backstory"><strong>Backstory:</strong> ${c.backstory}</div>` : ''}
       <div class="stats">
         <div class="stat">${c.strength}<span>STR</span></div>
         <div class="stat">${c.dexterity}<span>DEX</span></div>
@@ -789,7 +817,7 @@ function renderCharactersList() {
       </div>
       <div class="combat-stats">
         <div class="hp">HP: ${c.hp}/${c.max_hp}</div>
-        <div class="ac-display">AC: ${ac}</div>
+        <div class="ac-display">AC: ${acDisplay}</div>
       </div>
       <div class="gold-display">Gold: ${gold}</div>
       ${spellSlotsDisplay ? `<div class="spell-slots-display">${spellSlotsDisplay}</div>` : ''}
@@ -798,6 +826,7 @@ function renderCharactersList() {
       ${c.skills ? `<div class="details"><strong>Skills:</strong> ${c.skills}</div>` : ''}
       ${c.spells ? `<div class="details"><strong>Spells:</strong> ${c.spells}</div>` : ''}
       ${c.passives ? `<div class="details"><strong>Passives:</strong> ${c.passives}</div>` : ''}
+      ${c.class_features ? `<div class="details class-features"><strong>Class Features:</strong> ${c.class_features}</div>` : ''}
       ${feats ? `<div class="details feats"><strong>Feats:</strong> ${feats}</div>` : ''}
       <div class="inventory-section">
         <div class="inventory-header" onclick="toggleInventory('${c.id}')">
@@ -810,12 +839,13 @@ function renderCharactersList() {
       </div>
       <div class="btn-row">
         <button class="btn-edit" onclick="openEditModal('${c.id}')">Edit</button>
+        <button class="btn-quick-edit" onclick="openQuickEditModal('${c.id}')">Quick Edit</button>
         <button class="btn-inventory" onclick="openInventoryModal('${c.id}')">Inventory</button>
-        <button class="btn-levelup" onclick="levelUpCharacter('${c.id}')" ${canLevel ? '' : 'disabled'}>${canLevel ? 'Level Up!' : 'Need XP'}</button>
       </div>
       <div class="btn-row">
-        <button class="btn-reset-xp" onclick="resetXP('${c.id}', '${c.character_name.replace(/'/g, "\\'")}')">Reset XP</button>
+        <button class="btn-levelup" onclick="levelUpCharacter('${c.id}')" ${canLevel ? '' : 'disabled'}>${canLevel ? 'Level Up!' : 'Need XP'}</button>
         <button class="btn-spells" onclick="openSpellSlotsModal('${c.id}')">Spell Slots</button>
+        <button class="btn-reset-xp" onclick="resetXP('${c.id}', '${c.character_name.replace(/'/g, "\\'")}')">Reset XP</button>
       </div>
     </div>
   `}).join('');
@@ -830,6 +860,51 @@ function formatSpellSlots(spellSlots) {
     const available = (slot.max || 0) - (slot.used || 0);
     return `${lvl}st: ${available}/${slot.max || 0}`;
   }).join(' | ').replace(/1st/g, '1st').replace(/2st/g, '2nd').replace(/3st/g, '3rd');
+}
+
+function parseAcEffects(acEffectsJson) {
+  try {
+    const parsed = JSON.parse(acEffectsJson || '{}');
+    return {
+      base_source: parsed.base_source || 'Unarmored',
+      base_value: parsed.base_value || 10,
+      effects: parsed.effects || []
+    };
+  } catch (e) {
+    return { base_source: 'Unarmored', base_value: 10, effects: [] };
+  }
+}
+
+function formatAcDisplay(character) {
+  const acEffects = parseAcEffects(character.ac_effects);
+  const totalAc = character.ac || (acEffects.base_value + acEffects.effects.reduce((sum, e) => sum + (e.value || 0), 0));
+
+  let html = `<span class="ac-total">${totalAc}</span>`;
+  html += `<span class="ac-breakdown">(${escapeHtml(acEffects.base_source)}: ${acEffects.base_value}`;
+
+  if (acEffects.effects.length > 0) {
+    const effectsHtml = acEffects.effects.map(e => {
+      const typeClass = e.temporary ? 'ac-effect-temp' : 'ac-effect-perm';
+      return `<span class="${typeClass}" title="${escapeHtml(e.type)}${e.notes ? ' - ' + escapeHtml(e.notes) : ''}">${escapeHtml(e.name)}: +${e.value}</span>`;
+    }).join(', ');
+    html += ` + ${effectsHtml}`;
+  }
+  html += ')</span>';
+
+  return html;
+}
+
+function formatAcShort(character) {
+  const acEffects = parseAcEffects(character.ac_effects);
+  const totalAc = character.ac || (acEffects.base_value + acEffects.effects.reduce((sum, e) => sum + (e.value || 0), 0));
+  const hasEffects = acEffects.effects.length > 0;
+
+  let title = `${acEffects.base_source}: ${acEffects.base_value}`;
+  if (hasEffects) {
+    title += '\n' + acEffects.effects.map(e => `${e.name}: +${e.value} (${e.type})`).join('\n');
+  }
+
+  return `<span class="ac-info${hasEffects ? ' has-effects' : ''}" title="${escapeHtml(title)}">AC: ${totalAc}${hasEffects ? '*' : ''}</span>`;
 }
 
 function toggleInventory(charId) {
@@ -854,7 +929,6 @@ function updatePartyList() {
     const xp = c.xp || 0;
     const requiredXP = getRequiredXP(c.level);
     const gold = c.gold || 0;
-    const ac = c.ac || 10;
     const canLevel = canLevelUp(xp, c.level);
     let inventory = [];
     try {
@@ -873,6 +947,9 @@ function updatePartyList() {
     }
     const spellSlotsShort = formatSpellSlotsShort(spellSlots);
 
+    // Format AC with effects indicator
+    const acShortDisplay = formatAcShort(c);
+
     return `
     <div class="party-item expanded">
       <div class="party-header">
@@ -880,9 +957,11 @@ function updatePartyList() {
         <div class="level">Lv.${c.level}</div>
       </div>
       <div class="info">${c.race} ${c.class}</div>
+      ${c.appearance ? `<div class="party-detail appearance"><strong>Appearance:</strong> ${c.appearance}</div>` : ''}
+      ${c.backstory ? `<div class="party-detail backstory"><strong>Backstory:</strong> ${c.backstory}</div>` : ''}
       <div class="combat-info">
         <span class="hp">HP: ${c.hp}/${c.max_hp}</span>
-        <span class="ac-info">AC: ${ac}</span>
+        ${acShortDisplay}
       </div>
       <div class="gold-info">Gold: ${gold}</div>
       ${spellSlotsShort ? `<div class="spell-info">${spellSlotsShort}</div>` : ''}
@@ -898,6 +977,7 @@ function updatePartyList() {
       ${c.skills ? `<div class="party-detail"><strong>Skills:</strong> ${c.skills}</div>` : ''}
       ${c.spells ? `<div class="party-detail"><strong>Spells:</strong> ${c.spells}</div>` : ''}
       ${c.passives ? `<div class="party-detail"><strong>Passives:</strong> ${c.passives}</div>` : ''}
+      ${c.class_features ? `<div class="party-detail"><strong>Class Features:</strong> ${c.class_features}</div>` : ''}
       <div class="party-detail"><strong>Items:</strong> ${itemCount > 0 ? inventory.map(i => `${i.name}${i.quantity > 1 ? ' x' + i.quantity : ''}`).join(', ') : 'None'}</div>
       <div class="party-actions">
         <button class="party-btn" onclick="openInventoryModal('${c.id}')">Inv</button>
@@ -1014,6 +1094,9 @@ async function loadSession(id) {
     // Update session list to show active
     loadSessions();
     saveAppState(); // Save state when session changes
+
+    // Load combat state for this session
+    loadCombat();
   } catch (error) {
     console.error('Failed to load session:', error);
   }
@@ -1491,8 +1574,14 @@ function openSpellSlotsModal(charId) {
   if (!char) return;
 
   document.getElementById('spell-slots-modal-title').textContent = `${char.character_name}'s Spell Slots & AC`;
-  document.getElementById('ac-input').value = char.ac || 10;
 
+  // Load AC effects
+  const acEffects = parseAcEffects(char.ac_effects);
+  document.getElementById('ac-base-source').value = acEffects.base_source || 'Unarmored';
+  document.getElementById('ac-base-value').value = acEffects.base_value || 10;
+  document.getElementById('ac-total-value').textContent = char.ac || 10;
+
+  renderAcEffectsList(char);
   renderSpellSlotsList(char);
 
   document.getElementById('spell-slots-modal').classList.add('active');
@@ -1501,6 +1590,138 @@ function openSpellSlotsModal(charId) {
 function closeSpellSlotsModal() {
   document.getElementById('spell-slots-modal').classList.remove('active');
   spellSlotsModalCharId = null;
+}
+
+function renderAcEffectsList(char) {
+  const acEffects = parseAcEffects(char.ac_effects);
+  const listEl = document.getElementById('ac-effects-list');
+
+  if (acEffects.effects.length === 0) {
+    listEl.innerHTML = '<div class="ac-effects-empty">No active AC effects</div>';
+  } else {
+    listEl.innerHTML = acEffects.effects.map(effect => {
+      const typeLabel = effect.type === 'spell' ? 'Spell' :
+                       effect.type === 'equipment' ? 'Equipment' :
+                       effect.type === 'item' ? 'Magic Item' :
+                       effect.type === 'class_feature' ? 'Class' : 'Other';
+      const tempClass = effect.temporary ? 'effect-temporary' : 'effect-permanent';
+      return `
+        <div class="ac-effect-row ${tempClass}">
+          <span class="effect-name">${escapeHtml(effect.name)}</span>
+          <span class="effect-value">${effect.value >= 0 ? '+' : ''}${effect.value}</span>
+          <span class="effect-type">${typeLabel}</span>
+          ${effect.temporary ? '<span class="effect-temp-badge">Temp</span>' : ''}
+          <button class="btn-tiny btn-remove" onclick="removeAcEffect('${effect.id}')">X</button>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // Update total display
+  document.getElementById('ac-total-value').textContent = char.ac || 10;
+}
+
+async function updateAcBase() {
+  if (!spellSlotsModalCharId) return;
+
+  const baseSource = document.getElementById('ac-base-source').value.trim() || 'Unarmored';
+  const baseValue = parseInt(document.getElementById('ac-base-value').value) || 10;
+
+  try {
+    const result = await api(`/api/characters/${spellSlotsModalCharId}/ac`, 'POST', {
+      action: 'set_base',
+      base_source: baseSource,
+      base_value: baseValue
+    });
+
+    const charIdx = characters.findIndex(c => c.id === spellSlotsModalCharId);
+    if (charIdx !== -1) {
+      characters[charIdx] = result.character;
+      renderAcEffectsList(result.character);
+    }
+    loadCharacters();
+    showNotification('Base AC updated');
+  } catch (error) {
+    alert('Failed to update AC: ' + error.message);
+  }
+}
+
+async function addAcEffect() {
+  if (!spellSlotsModalCharId) return;
+
+  const name = document.getElementById('new-effect-name').value.trim();
+  const value = parseInt(document.getElementById('new-effect-value').value) || 0;
+  const type = document.getElementById('new-effect-type').value;
+  const temporary = document.getElementById('new-effect-temp').checked;
+
+  if (!name) {
+    alert('Please enter an effect name');
+    return;
+  }
+
+  try {
+    const result = await api(`/api/characters/${spellSlotsModalCharId}/ac`, 'POST', {
+      action: 'add_effect',
+      effect: { name, value, type, temporary }
+    });
+
+    const charIdx = characters.findIndex(c => c.id === spellSlotsModalCharId);
+    if (charIdx !== -1) {
+      characters[charIdx] = result.character;
+      renderAcEffectsList(result.character);
+    }
+
+    // Clear inputs
+    document.getElementById('new-effect-name').value = '';
+    document.getElementById('new-effect-value').value = '2';
+    document.getElementById('new-effect-temp').checked = false;
+
+    loadCharacters();
+    showNotification('AC effect added');
+  } catch (error) {
+    alert('Failed to add AC effect: ' + error.message);
+  }
+}
+
+async function removeAcEffect(effectId) {
+  if (!spellSlotsModalCharId) return;
+
+  try {
+    const result = await api(`/api/characters/${spellSlotsModalCharId}/ac`, 'POST', {
+      action: 'remove_effect',
+      effect: { id: effectId }
+    });
+
+    const charIdx = characters.findIndex(c => c.id === spellSlotsModalCharId);
+    if (charIdx !== -1) {
+      characters[charIdx] = result.character;
+      renderAcEffectsList(result.character);
+    }
+    loadCharacters();
+    showNotification('AC effect removed');
+  } catch (error) {
+    alert('Failed to remove AC effect: ' + error.message);
+  }
+}
+
+async function clearTempAcEffects() {
+  if (!spellSlotsModalCharId) return;
+
+  try {
+    const result = await api(`/api/characters/${spellSlotsModalCharId}/ac`, 'POST', {
+      action: 'clear_temporary'
+    });
+
+    const charIdx = characters.findIndex(c => c.id === spellSlotsModalCharId);
+    if (charIdx !== -1) {
+      characters[charIdx] = result.character;
+      renderAcEffectsList(result.character);
+    }
+    loadCharacters();
+    showNotification('Temporary AC effects cleared');
+  } catch (error) {
+    alert('Failed to clear temporary effects: ' + error.message);
+  }
 }
 
 function renderSpellSlotsList(char) {
@@ -1531,20 +1752,6 @@ function renderSpellSlotsList(char) {
         </div>
       `;
     }).join('');
-  }
-}
-
-async function updateAC() {
-  if (!spellSlotsModalCharId) return;
-
-  const ac = parseInt(document.getElementById('ac-input').value) || 10;
-
-  try {
-    await api(`/api/characters/${spellSlotsModalCharId}/ac`, 'POST', { ac });
-    loadCharacters();
-    showNotification('AC updated');
-  } catch (error) {
-    alert('Failed to update AC: ' + error.message);
   }
 }
 
@@ -1755,3 +1962,451 @@ window.addEventListener('beforeunload', () => {
     document.getElementById('login-screen').classList.add('active');
   }
 })();
+
+// ============================================
+// COMBAT TRACKER FUNCTIONS
+// ============================================
+
+let currentCombat = null;
+let combatEnemyList = [];
+let combatPartyInitiatives = [];
+let editingCombatantId = null;
+
+// Load combat state when session loads
+async function loadCombat() {
+  if (!currentSession) return;
+
+  try {
+    const result = await api(`/api/sessions/${currentSession.id}/combat`);
+    currentCombat = result.combat;
+    renderCombatTracker();
+  } catch (error) {
+    console.error('Failed to load combat:', error);
+  }
+}
+
+function renderCombatTracker() {
+  const noComabatMsg = document.getElementById('no-combat-message');
+  const combatActive = document.getElementById('combat-active');
+
+  if (!currentCombat) {
+    noComabatMsg.style.display = 'block';
+    combatActive.style.display = 'none';
+    return;
+  }
+
+  noComabatMsg.style.display = 'none';
+  combatActive.style.display = 'block';
+
+  document.getElementById('combat-name').textContent = currentCombat.name || 'Combat';
+  document.getElementById('combat-round').textContent = `Round ${currentCombat.round}`;
+
+  const orderEl = document.getElementById('initiative-order');
+  orderEl.innerHTML = currentCombat.combatants.map((c, idx) => {
+    const isCurrent = idx === currentCombat.current_turn;
+    const isPlayer = c.is_player;
+    const hpPercent = c.max_hp > 0 ? (c.hp / c.max_hp) * 100 : 0;
+    const hpClass = hpPercent > 50 ? 'hp-healthy' : hpPercent > 25 ? 'hp-wounded' : 'hp-critical';
+    const conditions = (c.conditions || []).join(', ');
+
+    return `
+      <div class="combatant ${isCurrent ? 'current-turn' : ''} ${!c.is_active ? 'defeated' : ''} ${isPlayer ? 'player' : 'enemy'}"
+           onclick="openCombatantModal('${c.id}')">
+        <div class="combatant-init">${c.initiative}</div>
+        <div class="combatant-info">
+          <div class="combatant-name">${escapeHtml(c.name)}</div>
+          <div class="combatant-stats">
+            <span class="combatant-hp ${hpClass}">${c.hp}/${c.max_hp}</span>
+            <span class="combatant-ac">AC ${c.ac}</span>
+          </div>
+          ${conditions ? `<div class="combatant-conditions">${escapeHtml(conditions)}</div>` : ''}
+        </div>
+        ${isCurrent ? '<div class="turn-indicator">▶</div>' : ''}
+      </div>
+    `;
+  }).join('');
+
+  // Add button to add more combatants
+  orderEl.innerHTML += `
+    <div class="add-combatant-btn" onclick="openAddCombatantModal()">
+      + Add Combatant
+    </div>
+  `;
+}
+
+// Start Combat Modal
+function openStartCombatModal() {
+  if (!currentSession) {
+    alert('Please select a session first');
+    return;
+  }
+
+  combatEnemyList = [];
+  combatPartyInitiatives = characters.map(c => ({
+    character_id: c.id,
+    name: c.character_name,
+    initiative: null,
+    hp: c.hp,
+    max_hp: c.max_hp,
+    ac: c.ac || 10,
+    is_player: true
+  }));
+
+  renderPartyInitiativeList();
+  renderEnemyList();
+
+  document.getElementById('combat-name-input').value = '';
+  document.getElementById('start-combat-modal').classList.add('active');
+}
+
+function closeStartCombatModal() {
+  document.getElementById('start-combat-modal').classList.remove('active');
+}
+
+function renderPartyInitiativeList() {
+  const listEl = document.getElementById('party-initiative-list');
+  listEl.innerHTML = combatPartyInitiatives.map((p, idx) => `
+    <div class="party-init-row">
+      <span class="init-name">${escapeHtml(p.name)}</span>
+      <input type="number" class="init-input" value="${p.initiative || ''}"
+             onchange="updatePartyInitiative(${idx}, this.value)" placeholder="Init">
+      <span class="init-info">HP:${p.hp} AC:${p.ac}</span>
+    </div>
+  `).join('');
+}
+
+function updatePartyInitiative(idx, value) {
+  combatPartyInitiatives[idx].initiative = parseInt(value) || null;
+}
+
+async function rollAllPartyInitiative() {
+  if (!currentSession) return;
+
+  try {
+    const result = await api(`/api/sessions/${currentSession.id}/combat/roll-party-initiative`, 'POST');
+    combatPartyInitiatives = result.initiatives;
+    renderPartyInitiativeList();
+  } catch (error) {
+    alert('Failed to roll initiative: ' + error.message);
+  }
+}
+
+function renderEnemyList() {
+  const listEl = document.getElementById('enemy-list');
+  if (combatEnemyList.length === 0) {
+    listEl.innerHTML = '<div class="no-enemies">No enemies added yet</div>';
+    return;
+  }
+
+  listEl.innerHTML = combatEnemyList.map((e, idx) => `
+    <div class="enemy-row">
+      <span class="enemy-name">${escapeHtml(e.name)}</span>
+      <span>Init: ${e.initiative || '?'}</span>
+      <span>HP: ${e.hp}</span>
+      <span>AC: ${e.ac}</span>
+      <button onclick="removeEnemy(${idx})" class="btn-tiny btn-danger">X</button>
+    </div>
+  `).join('');
+}
+
+function addEnemyToList() {
+  const name = document.getElementById('new-enemy-name').value.trim();
+  const init = parseInt(document.getElementById('new-enemy-init').value) || Math.floor(Math.random() * 20) + 1;
+  const hp = parseInt(document.getElementById('new-enemy-hp').value) || 10;
+  const ac = parseInt(document.getElementById('new-enemy-ac').value) || 10;
+
+  if (!name) {
+    alert('Please enter an enemy name');
+    return;
+  }
+
+  combatEnemyList.push({
+    name,
+    initiative: init,
+    hp,
+    max_hp: hp,
+    ac,
+    is_player: false
+  });
+
+  // Clear inputs
+  document.getElementById('new-enemy-name').value = '';
+  document.getElementById('new-enemy-init').value = '';
+  document.getElementById('new-enemy-hp').value = '';
+  document.getElementById('new-enemy-ac').value = '';
+
+  renderEnemyList();
+}
+
+function removeEnemy(idx) {
+  combatEnemyList.splice(idx, 1);
+  renderEnemyList();
+}
+
+async function startCombat() {
+  if (!currentSession) return;
+
+  const name = document.getElementById('combat-name-input').value.trim() || 'Combat';
+
+  // Combine party and enemies
+  const allCombatants = [
+    ...combatPartyInitiatives.filter(p => p.initiative !== null).map(p => ({
+      character_id: p.character_id,
+      name: p.name,
+      initiative: p.initiative,
+      hp: p.hp,
+      max_hp: p.max_hp,
+      ac: p.ac,
+      is_player: true
+    })),
+    ...combatEnemyList.map(e => ({
+      name: e.name,
+      initiative: e.initiative,
+      hp: e.hp,
+      max_hp: e.max_hp,
+      ac: e.ac,
+      is_player: false
+    }))
+  ];
+
+  if (allCombatants.length === 0) {
+    alert('Please add at least one combatant with initiative');
+    return;
+  }
+
+  try {
+    const result = await api(`/api/sessions/${currentSession.id}/combat/start`, 'POST', {
+      name,
+      combatants: allCombatants
+    });
+    currentCombat = result.combat;
+    renderCombatTracker();
+    closeStartCombatModal();
+    showNotification('Combat started!');
+  } catch (error) {
+    alert('Failed to start combat: ' + error.message);
+  }
+}
+
+// Combat controls
+async function nextTurn() {
+  if (!currentSession || !currentCombat) return;
+
+  try {
+    const result = await api(`/api/sessions/${currentSession.id}/combat/next-turn`, 'POST');
+    currentCombat = result.combat;
+    renderCombatTracker();
+  } catch (error) {
+    alert('Failed to advance turn: ' + error.message);
+  }
+}
+
+async function prevTurn() {
+  if (!currentSession || !currentCombat) return;
+
+  try {
+    const result = await api(`/api/sessions/${currentSession.id}/combat/prev-turn`, 'POST');
+    currentCombat = result.combat;
+    renderCombatTracker();
+  } catch (error) {
+    alert('Failed to go back: ' + error.message);
+  }
+}
+
+async function endCombat() {
+  if (!currentSession || !currentCombat) return;
+
+  if (!confirm('End the current combat?')) return;
+
+  try {
+    await api(`/api/sessions/${currentSession.id}/combat/end`, 'POST');
+    currentCombat = null;
+    renderCombatTracker();
+    showNotification('Combat ended');
+  } catch (error) {
+    alert('Failed to end combat: ' + error.message);
+  }
+}
+
+// Combatant edit modal
+function openCombatantModal(combatantId) {
+  if (!currentCombat) return;
+
+  const combatant = currentCombat.combatants.find(c => c.id === combatantId);
+  if (!combatant) return;
+
+  editingCombatantId = combatantId;
+
+  document.getElementById('combatant-modal-title').textContent = `Edit: ${combatant.name}`;
+  document.getElementById('combatant-hp').value = combatant.hp;
+  document.getElementById('combatant-max-hp').textContent = combatant.max_hp;
+  document.getElementById('combatant-initiative').value = combatant.initiative;
+  document.getElementById('combatant-notes').value = combatant.notes || '';
+  document.getElementById('combatant-active').checked = combatant.is_active;
+
+  // Set conditions checkboxes
+  const conditions = combatant.conditions || [];
+  document.querySelectorAll('.conditions-grid input[type="checkbox"]').forEach(cb => {
+    cb.checked = conditions.includes(cb.value);
+  });
+
+  document.getElementById('combatant-modal').classList.add('active');
+}
+
+function closeCombatantModal() {
+  document.getElementById('combatant-modal').classList.remove('active');
+  editingCombatantId = null;
+}
+
+function quickDamage(amount) {
+  const hpInput = document.getElementById('combatant-hp');
+  hpInput.value = Math.max(0, parseInt(hpInput.value) - amount);
+}
+
+function quickHeal(amount) {
+  const hpInput = document.getElementById('combatant-hp');
+  const maxHp = parseInt(document.getElementById('combatant-max-hp').textContent) || 999;
+  hpInput.value = Math.min(maxHp, parseInt(hpInput.value) + amount);
+}
+
+async function saveCombatant() {
+  if (!currentSession || !editingCombatantId) return;
+
+  const hp = parseInt(document.getElementById('combatant-hp').value);
+  const initiative = parseInt(document.getElementById('combatant-initiative').value);
+  const notes = document.getElementById('combatant-notes').value;
+  const isActive = document.getElementById('combatant-active').checked;
+
+  const conditions = [];
+  document.querySelectorAll('.conditions-grid input[type="checkbox"]:checked').forEach(cb => {
+    conditions.push(cb.value);
+  });
+
+  try {
+    const result = await api(`/api/sessions/${currentSession.id}/combat/update-combatant`, 'POST', {
+      combatant_id: editingCombatantId,
+      hp,
+      initiative,
+      conditions,
+      notes,
+      is_active: isActive
+    });
+    currentCombat = result.combat;
+    renderCombatTracker();
+    closeCombatantModal();
+  } catch (error) {
+    alert('Failed to update combatant: ' + error.message);
+  }
+}
+
+async function removeCombatant() {
+  if (!currentSession || !editingCombatantId) return;
+
+  if (!confirm('Remove this combatant from combat?')) return;
+
+  try {
+    const result = await api(`/api/sessions/${currentSession.id}/combat/remove-combatant`, 'POST', {
+      combatant_id: editingCombatantId
+    });
+    currentCombat = result.combat;
+    renderCombatTracker();
+    closeCombatantModal();
+  } catch (error) {
+    alert('Failed to remove combatant: ' + error.message);
+  }
+}
+
+// Add combatant mid-combat
+function openAddCombatantModal() {
+  document.getElementById('add-combatant-name').value = '';
+  document.getElementById('add-combatant-init').value = '';
+  document.getElementById('add-combatant-hp').value = '10';
+  document.getElementById('add-combatant-max-hp').value = '10';
+  document.getElementById('add-combatant-ac').value = '10';
+  document.getElementById('add-combatant-is-player').checked = false;
+  document.getElementById('add-combatant-modal').classList.add('active');
+}
+
+function closeAddCombatantModal() {
+  document.getElementById('add-combatant-modal').classList.remove('active');
+}
+
+async function addCombatantMidCombat() {
+  if (!currentSession || !currentCombat) return;
+
+  const name = document.getElementById('add-combatant-name').value.trim();
+  const initiative = parseInt(document.getElementById('add-combatant-init').value);
+  const hp = parseInt(document.getElementById('add-combatant-hp').value) || 10;
+  const maxHp = parseInt(document.getElementById('add-combatant-max-hp').value) || hp;
+  const ac = parseInt(document.getElementById('add-combatant-ac').value) || 10;
+  const isPlayer = document.getElementById('add-combatant-is-player').checked;
+
+  if (!name) {
+    alert('Please enter a name');
+    return;
+  }
+
+  try {
+    const result = await api(`/api/sessions/${currentSession.id}/combat/add-combatant`, 'POST', {
+      name,
+      initiative: initiative || Math.floor(Math.random() * 20) + 1,
+      hp,
+      max_hp: maxHp,
+      ac,
+      is_player: isPlayer
+    });
+    currentCombat = result.combat;
+    renderCombatTracker();
+    closeAddCombatantModal();
+  } catch (error) {
+    alert('Failed to add combatant: ' + error.message);
+  }
+}
+
+// ============================================
+// QUICK EDIT MODAL (Direct field editing)
+// ============================================
+
+let quickEditCharId = null;
+
+function openQuickEditModal(charId) {
+  const char = characters.find(c => c.id === charId);
+  if (!char) return;
+
+  quickEditCharId = charId;
+
+  document.getElementById('quick-edit-title').textContent = `Quick Edit: ${char.character_name}`;
+  document.getElementById('quick-edit-appearance').value = char.appearance || '';
+  document.getElementById('quick-edit-backstory').value = char.backstory || '';
+  document.getElementById('quick-edit-class-features').value = char.class_features || '';
+  document.getElementById('quick-edit-passives').value = char.passives || '';
+  document.getElementById('quick-edit-feats').value = char.feats || '';
+
+  document.getElementById('quick-edit-modal').classList.add('active');
+}
+
+function closeQuickEditModal() {
+  document.getElementById('quick-edit-modal').classList.remove('active');
+  quickEditCharId = null;
+}
+
+async function saveQuickEdit() {
+  if (!quickEditCharId) return;
+
+  const data = {
+    appearance: document.getElementById('quick-edit-appearance').value,
+    backstory: document.getElementById('quick-edit-backstory').value,
+    class_features: document.getElementById('quick-edit-class-features').value,
+    passives: document.getElementById('quick-edit-passives').value,
+    feats: document.getElementById('quick-edit-feats').value
+  };
+
+  try {
+    await api(`/api/characters/${quickEditCharId}/quick-update`, 'POST', data);
+    loadCharacters();
+    closeQuickEditModal();
+    showNotification('Character updated!');
+  } catch (error) {
+    alert('Failed to update character: ' + error.message);
+  }
+}
