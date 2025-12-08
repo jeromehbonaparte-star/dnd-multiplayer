@@ -1651,12 +1651,11 @@ nav {
 }
 
 /* ============================================
-   COLLAPSIBLE CHARACTER CARDS
+   CHARACTER CARD SECTIONS
    ============================================ */
 
 /* Character Card Header (always visible) */
 .character-card .card-header {
-  cursor: pointer;
   padding-bottom: 8px;
   padding-right: 40px; /* Make room for delete button */
 }
@@ -1665,14 +1664,6 @@ nav {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.character-card .card-toggle-icon {
-  color: var(--accent);
-  font-size: 0.75rem;
-  width: 16px;
-  text-align: center;
-  flex-shrink: 0;
 }
 
 .character-card .card-header-main h3 {
@@ -1696,45 +1687,140 @@ nav {
   font-size: 0.85rem;
 }
 
-/* Character Card Details (expandable) */
-.character-card .card-details {
-  overflow: hidden;
-  transition: max-height 0.3s ease, opacity 0.3s ease, padding 0.3s ease;
+/* Card Sections Container */
+.card-sections,
+.party-sections {
   border-top: 1px solid var(--border-color);
   margin-top: 10px;
   padding-top: 10px;
 }
 
-.character-card.collapsed .card-details {
-  max-height: 0;
-  opacity: 0;
-  padding-top: 0;
-  margin-top: 0;
-  border-top: none;
+/* Section Controls */
+.section-controls {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+  justify-content: flex-end;
 }
 
-.character-card.expanded .card-details {
-  max-height: 2000px;
+.section-controls .btn-tiny {
+  padding: 4px 8px;
+  font-size: 0.7rem;
+  background: var(--bg-medium);
+  color: var(--text-muted);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.section-controls .btn-tiny:hover {
+  background: var(--bg-light);
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+/* Collapsible Section */
+.section-collapsible {
+  margin-bottom: 6px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg-dark);
+  border: 1px solid var(--border-color);
+  transition: border-color 0.2s ease;
+}
+
+.section-collapsible:hover {
+  border-color: var(--text-muted);
+}
+
+/* Section Header (clickable) */
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  background: var(--bg-medium);
+  transition: background 0.2s ease;
+  user-select: none;
+}
+
+.section-header:hover {
+  background: var(--bg-light);
+}
+
+.section-toggle-icon {
+  color: var(--accent);
+  font-size: 0.7rem;
+  width: 14px;
+  text-align: center;
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+.section-header strong {
+  font-size: 0.85rem;
+  color: var(--text);
+  font-weight: 500;
+}
+
+/* Section Content (collapsible) */
+.section-content {
+  max-height: 0;
+  overflow: hidden;
+  padding: 0 12px;
+  transition: max-height 0.3s ease, padding 0.3s ease, opacity 0.3s ease;
+  opacity: 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.section-collapsible.expanded .section-content {
+  max-height: 500px;
+  padding: 10px 12px;
   opacity: 1;
 }
 
-/* Party Item Collapsible */
+/* Section Color Coding */
+.section-appearance { border-left: 3px solid #f39c12; }
+.section-backstory { border-left: 3px solid #95a5a6; }
+.section-spellslots { border-left: 3px solid var(--spell-color); }
+.section-skills { border-left: 3px solid #3498db; }
+.section-spells { border-left: 3px solid var(--spell-color); }
+.section-passives { border-left: 3px solid #9b59b6; }
+.section-classfeatures { border-left: 3px solid #e67e22; }
+.section-feats { border-left: 3px solid #1abc9c; }
+.section-inventory { border-left: 3px solid var(--gold-color); }
+
+/* Section color on header for expanded state */
+.section-appearance.expanded .section-header { border-left: 0; background: rgba(243, 156, 18, 0.1); }
+.section-backstory.expanded .section-header { border-left: 0; background: rgba(149, 165, 166, 0.1); }
+.section-spellslots.expanded .section-header { border-left: 0; background: rgba(157, 123, 234, 0.1); }
+.section-skills.expanded .section-header { border-left: 0; background: rgba(52, 152, 219, 0.1); }
+.section-spells.expanded .section-header { border-left: 0; background: rgba(157, 123, 234, 0.1); }
+.section-passives.expanded .section-header { border-left: 0; background: rgba(155, 89, 182, 0.1); }
+.section-classfeatures.expanded .section-header { border-left: 0; background: rgba(230, 126, 34, 0.1); }
+.section-feats.expanded .section-header { border-left: 0; background: rgba(26, 188, 156, 0.1); }
+.section-inventory.expanded .section-header { border-left: 0; background: rgba(218, 165, 32, 0.1); }
+
+/* Card Actions */
+.card-actions {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-color);
+}
+
+/* Party Item Styling */
 .party-item .party-header {
-  cursor: pointer;
+  padding-bottom: 6px;
 }
 
 .party-item .party-header-row {
   display: flex;
   align-items: center;
   gap: 6px;
-}
-
-.party-item .party-toggle-icon {
-  color: var(--accent);
-  font-size: 0.65rem;
-  width: 12px;
-  text-align: center;
-  flex-shrink: 0;
 }
 
 .party-item .party-header-row .name {
@@ -1745,47 +1831,44 @@ nav {
   margin-top: 6px;
 }
 
-/* Party Details (expandable) */
-.party-item .party-details {
-  overflow: hidden;
-  transition: max-height 0.3s ease, opacity 0.3s ease, padding 0.3s ease;
-  border-top: 1px solid var(--border-color);
+/* Party Sections (smaller) */
+.party-sections {
   margin-top: 8px;
   padding-top: 8px;
 }
 
-.party-item.collapsed .party-details {
-  max-height: 0;
-  opacity: 0;
-  padding-top: 0;
-  margin-top: 0;
-  border-top: none;
+.party-section .section-header {
+  padding: 6px 10px;
 }
 
-.party-item.expanded .party-details {
-  max-height: 1500px;
-  opacity: 1;
-}
-
-/* Collapse/Expand All buttons (if added to UI) */
-.card-controls {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.card-controls button {
-  padding: 6px 12px;
+.party-section .section-header strong {
   font-size: 0.8rem;
-  background: var(--bg-medium);
-  color: var(--text);
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-  cursor: pointer;
 }
 
-.card-controls button:hover {
+.party-section .section-content {
+  font-size: 0.85rem;
+}
+
+.party-section.expanded .section-content {
+  max-height: 300px;
+  padding: 8px 10px;
+}
+
+/* Inventory items inside sections */
+.section-inventory .inventory-item {
+  display: inline-block;
+  padding: 2px 6px;
+  margin: 2px;
   background: var(--bg-light);
+  border-radius: 4px;
+  font-size: 0.8rem;
+}
+
+/* Party Actions */
+.party-actions {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-color);
 }
 
 /* ============================================

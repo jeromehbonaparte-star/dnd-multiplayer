@@ -781,6 +781,7 @@ function renderCharactersList() {
       spellSlots = {};
     }
     const spellSlotsDisplay = formatSpellSlots(spellSlots);
+    const hasSpellSlots = Object.keys(spellSlots).length > 0;
 
     // Parse multiclass
     let classDisplay = `${c.class} (Level ${c.level})`;
@@ -799,17 +800,28 @@ function renderCharactersList() {
     // Format AC display with effects breakdown
     const acDisplay = formatAcDisplay(c);
 
-    // Check if card is expanded (default to collapsed)
-    const isExpanded = getCardExpandedState(c.id);
+    // Helper function to create collapsible section
+    const createSection = (sectionId, label, content, colorClass) => {
+      if (!content) return '';
+      const isExpanded = getSectionState(c.id, sectionId);
+      return `
+        <div class="section-collapsible ${colorClass} ${isExpanded ? 'expanded' : ''}" data-char="${c.id}" data-section="${sectionId}">
+          <div class="section-header" onclick="event.stopPropagation(); toggleSection('${c.id}', '${sectionId}')">
+            <span class="section-toggle-icon">${isExpanded ? '▼' : '▶'}</span>
+            <strong>${label}</strong>
+          </div>
+          <div class="section-content">${content}</div>
+        </div>
+      `;
+    };
 
     return `
-    <div class="character-card ${isExpanded ? 'expanded' : 'collapsed'}" data-id="${c.id}">
+    <div class="character-card" data-id="${c.id}">
       <button class="delete-btn" onclick="event.stopPropagation(); deleteCharacter('${c.id}')">X</button>
 
-      <!-- Collapsible Header (always visible) -->
-      <div class="card-header" onclick="toggleCharacterCard('${c.id}')">
+      <!-- Character Header (always visible) -->
+      <div class="card-header">
         <div class="card-header-main">
-          <span class="card-toggle-icon">${isExpanded ? '▼' : '▶'}</span>
           <h3>${c.character_name}</h3>
         </div>
         <div class="player">Played by ${c.player_name}</div>
@@ -835,25 +847,29 @@ function renderCharactersList() {
         </div>
       </div>
 
-      <!-- Expandable Details -->
-      <div class="card-details">
-        ${c.appearance ? `<div class="details appearance"><strong>Appearance:</strong> ${c.appearance}</div>` : ''}
-        ${c.backstory ? `<div class="details backstory"><strong>Backstory:</strong> ${c.backstory}</div>` : ''}
-        ${spellSlotsDisplay ? `<div class="spell-slots-display">${spellSlotsDisplay}</div>` : ''}
-        ${c.skills ? `<div class="details skills"><strong>Skills:</strong> ${c.skills}</div>` : ''}
-        ${c.spells ? `<div class="details spells"><strong>Spells:</strong> ${c.spells}</div>` : ''}
-        ${c.passives ? `<div class="details passives"><strong>Passives:</strong> ${c.passives}</div>` : ''}
-        ${c.class_features ? `<div class="details class-features"><strong>Class Features:</strong> ${c.class_features}</div>` : ''}
-        ${feats ? `<div class="details feats"><strong>Feats:</strong> ${feats}</div>` : ''}
-        <div class="inventory-section">
-          <div class="inventory-header" onclick="event.stopPropagation(); toggleInventory('${c.id}')">
-            <strong>Inventory (${itemCount} items)</strong>
-            <span class="inventory-toggle">+</span>
-          </div>
-          <div class="inventory-list" id="inventory-${c.id}" style="display: none;">
-            ${inventory.length > 0 ? inventory.map(item => `<div class="inventory-item">${item.name}${item.quantity > 1 ? ' x' + item.quantity : ''}</div>`).join('') : '<div class="inventory-empty">No items</div>'}
-          </div>
+      <!-- Collapsible Sections -->
+      <div class="card-sections">
+        <div class="section-controls">
+          <button class="btn-tiny" onclick="event.stopPropagation(); expandAllSections('${c.id}')">Expand All</button>
+          <button class="btn-tiny" onclick="event.stopPropagation(); collapseAllSections('${c.id}')">Collapse All</button>
         </div>
+        ${createSection('appearance', 'Appearance', c.appearance, 'section-appearance')}
+        ${createSection('backstory', 'Backstory', c.backstory, 'section-backstory')}
+        ${hasSpellSlots ? createSection('spellSlots', 'Spell Slots', spellSlotsDisplay, 'section-spellslots') : ''}
+        ${createSection('skills', 'Skills', c.skills, 'section-skills')}
+        ${createSection('spells', 'Spells', c.spells, 'section-spells')}
+        ${createSection('passives', 'Passives', c.passives, 'section-passives')}
+        ${createSection('classFeatures', 'Class Features', c.class_features, 'section-classfeatures')}
+        ${createSection('feats', 'Feats', feats, 'section-feats')}
+        ${createSection('inventory', `Inventory (${itemCount} items)`,
+          inventory.length > 0
+            ? inventory.map(item => `<div class="inventory-item">${item.name}${item.quantity > 1 ? ' x' + item.quantity : ''}</div>`).join('')
+            : '<div class="inventory-empty">No items</div>',
+          'section-inventory')}
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="card-actions">
         <div class="btn-row">
           <button class="btn-edit" onclick="event.stopPropagation(); openEditModal('${c.id}')">Edit</button>
           <button class="btn-quick-edit" onclick="event.stopPropagation(); openQuickEditModal('${c.id}')">Quick Edit</button>
@@ -869,62 +885,80 @@ function renderCharactersList() {
   `}).join('');
 }
 
-// Card expand/collapse state management
-let cardExpandedStates = {};
+// Section expand/collapse state management
+// Format: { charId: { sectionName: boolean } }
+let sectionExpandedStates = {};
 
-function getCardExpandedState(charId) {
-  if (cardExpandedStates[charId] === undefined) {
-    // Load from localStorage or default to collapsed
-    try {
-      const saved = localStorage.getItem('dnd-card-states');
-      if (saved) {
-        cardExpandedStates = JSON.parse(saved);
-      }
-    } catch (e) {}
-  }
-  return cardExpandedStates[charId] || false;
+// Available sections
+const CHARACTER_SECTIONS = ['appearance', 'backstory', 'spellSlots', 'skills', 'spells', 'passives', 'classFeatures', 'feats', 'inventory'];
+
+function loadSectionStates() {
+  try {
+    const saved = localStorage.getItem('dnd-section-states');
+    if (saved) {
+      sectionExpandedStates = JSON.parse(saved);
+    }
+  } catch (e) {}
 }
 
-function toggleCharacterCard(charId) {
-  cardExpandedStates[charId] = !getCardExpandedState(charId);
-  // Save to localStorage
+function saveSectionStates() {
   try {
-    localStorage.setItem('dnd-card-states', JSON.stringify(cardExpandedStates));
+    localStorage.setItem('dnd-section-states', JSON.stringify(sectionExpandedStates));
   } catch (e) {}
+}
 
-  // Update the card visually
-  const card = document.querySelector(`.character-card[data-id="${charId}"]`);
-  if (card) {
-    card.classList.toggle('expanded');
-    card.classList.toggle('collapsed');
-    const icon = card.querySelector('.card-toggle-icon');
+function getSectionState(charId, section) {
+  if (!sectionExpandedStates[charId]) {
+    sectionExpandedStates[charId] = {};
+  }
+  // Default to collapsed (false)
+  return sectionExpandedStates[charId][section] || false;
+}
+
+function toggleSection(charId, section) {
+  if (!sectionExpandedStates[charId]) {
+    sectionExpandedStates[charId] = {};
+  }
+  sectionExpandedStates[charId][section] = !getSectionState(charId, section);
+  saveSectionStates();
+
+  // Update the section visually
+  const sectionEl = document.querySelector(`.section-collapsible[data-char="${charId}"][data-section="${section}"]`);
+  if (sectionEl) {
+    sectionEl.classList.toggle('expanded', sectionExpandedStates[charId][section]);
+    const icon = sectionEl.querySelector('.section-toggle-icon');
     if (icon) {
-      icon.textContent = card.classList.contains('expanded') ? '▼' : '▶';
+      icon.textContent = sectionExpandedStates[charId][section] ? '▼' : '▶';
     }
   }
 }
 
-function expandAllCards() {
-  characters.forEach(c => {
-    cardExpandedStates[c.id] = true;
+function expandAllSections(charId) {
+  if (!sectionExpandedStates[charId]) {
+    sectionExpandedStates[charId] = {};
+  }
+  CHARACTER_SECTIONS.forEach(s => {
+    sectionExpandedStates[charId][s] = true;
   });
-  try {
-    localStorage.setItem('dnd-card-states', JSON.stringify(cardExpandedStates));
-  } catch (e) {}
+  saveSectionStates();
   renderCharactersList();
   updatePartyList();
 }
 
-function collapseAllCards() {
-  characters.forEach(c => {
-    cardExpandedStates[c.id] = false;
+function collapseAllSections(charId) {
+  if (!sectionExpandedStates[charId]) {
+    sectionExpandedStates[charId] = {};
+  }
+  CHARACTER_SECTIONS.forEach(s => {
+    sectionExpandedStates[charId][s] = false;
   });
-  try {
-    localStorage.setItem('dnd-card-states', JSON.stringify(cardExpandedStates));
-  } catch (e) {}
+  saveSectionStates();
   renderCharactersList();
   updatePartyList();
 }
+
+// Load section states on init
+loadSectionStates();
 
 function formatSpellSlots(spellSlots) {
   const levels = Object.keys(spellSlots).sort((a, b) => parseInt(a) - parseInt(b));
@@ -1021,19 +1055,31 @@ function updatePartyList() {
       spellSlots = {};
     }
     const spellSlotsShort = formatSpellSlotsShort(spellSlots);
+    const hasSpellSlots = Object.keys(spellSlots).length > 0;
 
     // Format AC with effects indicator
     const acShortDisplay = formatAcShort(c);
 
-    // Check if card is expanded
-    const isExpanded = getCardExpandedState(c.id);
+    // Helper function to create collapsible section for party view
+    const createPartySection = (sectionId, label, content, colorClass) => {
+      if (!content) return '';
+      const isExpanded = getSectionState(c.id, sectionId);
+      return `
+        <div class="section-collapsible party-section ${colorClass} ${isExpanded ? 'expanded' : ''}" data-char="${c.id}" data-section="${sectionId}">
+          <div class="section-header" onclick="event.stopPropagation(); toggleSection('${c.id}', '${sectionId}')">
+            <span class="section-toggle-icon">${isExpanded ? '▼' : '▶'}</span>
+            <strong>${label}</strong>
+          </div>
+          <div class="section-content">${content}</div>
+        </div>
+      `;
+    };
 
     return `
-    <div class="party-item ${isExpanded ? 'expanded' : 'collapsed'}" data-id="${c.id}">
-      <!-- Party Header (always visible, clickable to toggle) -->
-      <div class="party-header" onclick="togglePartyCard('${c.id}')">
+    <div class="party-item" data-id="${c.id}">
+      <!-- Party Header (always visible) -->
+      <div class="party-header">
         <div class="party-header-row">
-          <span class="party-toggle-icon">${isExpanded ? '▼' : '▶'}</span>
           <div class="name">${c.character_name}</div>
           <div class="level">Lv.${c.level}</div>
         </div>
@@ -1056,59 +1102,28 @@ function updatePartyList() {
         </div>
       </div>
 
-      <!-- Party Details (expandable) -->
-      <div class="party-details">
-        ${c.appearance ? `<div class="party-detail appearance"><strong>Appearance:</strong> ${c.appearance}</div>` : ''}
-        ${c.backstory ? `<div class="party-detail backstory"><strong>Backstory:</strong> ${c.backstory}</div>` : ''}
-        ${spellSlotsShort ? `<div class="spell-info">${spellSlotsShort}</div>` : ''}
-        ${c.skills ? `<div class="party-detail skills"><strong>Skills:</strong> ${c.skills}</div>` : ''}
-        ${c.spells ? `<div class="party-detail spells"><strong>Spells:</strong> ${c.spells}</div>` : ''}
-        ${c.passives ? `<div class="party-detail passives"><strong>Passives:</strong> ${c.passives}</div>` : ''}
-        ${c.class_features ? `<div class="party-detail class-features"><strong>Class Features:</strong> ${c.class_features}</div>` : ''}
-        <div class="party-detail"><strong>Items:</strong> ${itemCount > 0 ? inventory.map(i => `${i.name}${i.quantity > 1 ? ' x' + i.quantity : ''}`).join(', ') : 'None'}</div>
-        <div class="party-actions">
-          <button class="party-btn" onclick="event.stopPropagation(); openInventoryModal('${c.id}')">Inv</button>
-          <button class="party-btn" onclick="event.stopPropagation(); openSpellSlotsModal('${c.id}')">Spells</button>
-          <button class="party-btn ${canLevel ? 'party-btn-levelup' : ''}" onclick="event.stopPropagation(); levelUpCharacter('${c.id}')" ${canLevel ? '' : 'disabled'}>${canLevel ? 'Level Up!' : 'Need XP'}</button>
-        </div>
+      <!-- Collapsible Party Sections -->
+      <div class="party-sections">
+        ${createPartySection('appearance', 'Appearance', c.appearance, 'section-appearance')}
+        ${createPartySection('backstory', 'Backstory', c.backstory, 'section-backstory')}
+        ${hasSpellSlots ? createPartySection('spellSlots', 'Spell Slots', spellSlotsShort, 'section-spellslots') : ''}
+        ${createPartySection('skills', 'Skills', c.skills, 'section-skills')}
+        ${createPartySection('spells', 'Spells', c.spells, 'section-spells')}
+        ${createPartySection('passives', 'Passives', c.passives, 'section-passives')}
+        ${createPartySection('classFeatures', 'Class Features', c.class_features, 'section-classfeatures')}
+        ${createPartySection('inventory', `Inventory (${itemCount})`,
+          itemCount > 0 ? inventory.map(i => `${i.name}${i.quantity > 1 ? ' x' + i.quantity : ''}`).join(', ') : 'None',
+          'section-inventory')}
+      </div>
+
+      <!-- Party Actions -->
+      <div class="party-actions">
+        <button class="party-btn" onclick="event.stopPropagation(); openInventoryModal('${c.id}')">Inv</button>
+        <button class="party-btn" onclick="event.stopPropagation(); openSpellSlotsModal('${c.id}')">Spells</button>
+        <button class="party-btn ${canLevel ? 'party-btn-levelup' : ''}" onclick="event.stopPropagation(); levelUpCharacter('${c.id}')" ${canLevel ? '' : 'disabled'}>${canLevel ? 'Level Up!' : 'Need XP'}</button>
       </div>
     </div>
   `}).join('');
-}
-
-function togglePartyCard(charId) {
-  cardExpandedStates[charId] = !getCardExpandedState(charId);
-  // Save to localStorage
-  try {
-    localStorage.setItem('dnd-card-states', JSON.stringify(cardExpandedStates));
-  } catch (e) {}
-
-  // Update the party item visually
-  const item = document.querySelector(`.party-item[data-id="${charId}"]`);
-  if (item) {
-    item.classList.toggle('expanded');
-    item.classList.toggle('collapsed');
-    const icon = item.querySelector('.party-toggle-icon');
-    if (icon) {
-      icon.textContent = item.classList.contains('expanded') ? '▼' : '▶';
-    }
-  }
-
-  // Also update character card if visible
-  const card = document.querySelector(`.character-card[data-id="${charId}"]`);
-  if (card) {
-    if (cardExpandedStates[charId]) {
-      card.classList.add('expanded');
-      card.classList.remove('collapsed');
-    } else {
-      card.classList.remove('expanded');
-      card.classList.add('collapsed');
-    }
-    const cardIcon = card.querySelector('.card-toggle-icon');
-    if (cardIcon) {
-      cardIcon.textContent = cardExpandedStates[charId] ? '▼' : '▶';
-    }
-  }
 }
 
 function formatSpellSlotsShort(spellSlots) {
