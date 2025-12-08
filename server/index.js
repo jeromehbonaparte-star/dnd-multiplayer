@@ -207,6 +207,11 @@ if (!sessionColumns.includes('compacted_count')) {
   db.exec('ALTER TABLE game_sessions ADD COLUMN compacted_count INTEGER DEFAULT 0');
 }
 
+// Migrate game_sessions table - add scenario column
+if (!sessionColumns.includes('scenario')) {
+  db.exec("ALTER TABLE game_sessions ADD COLUMN scenario TEXT DEFAULT 'classic_fantasy'");
+}
+
 // Migrate existing API settings to api_configs table if needed
 const existingConfigs = db.prepare('SELECT COUNT(*) as count FROM api_configs').get();
 if (existingConfigs.count === 0) {
@@ -1703,11 +1708,74 @@ app.get('/api/sessions', checkPassword, (req, res) => {
   res.json(sessions);
 });
 
-app.post('/api/sessions', checkPassword, (req, res) => {
-  const { name } = req.body;
+app.post('/api/sessions', checkPassword, async (req, res) => {
+  const { name, scenario, scenarioPrompt } = req.body;
   const id = uuidv4();
 
-  db.prepare('INSERT INTO game_sessions (id, name, full_history, story_summary) VALUES (?, ?, ?, ?)').run(id, name, '[]', '');
+  db.prepare('INSERT INTO game_sessions (id, name, full_history, story_summary, scenario) VALUES (?, ?, ?, ?, ?)').run(id, name, '[]', '', scenario || 'classic_fantasy');
+
+  // Generate opening scene with AI if scenario provided
+  if (scenarioPrompt) {
+    try {
+      const apiConfig = getActiveApiConfig();
+      if (apiConfig && apiConfig.api_key) {
+        const characters = db.prepare('SELECT * FROM characters').all();
+
+        // Build character intro
+        let characterIntro = '';
+        if (characters.length > 0) {
+          characterIntro = '\n\nThe party consists of:\n' + characters.map(c => {
+            let classDisplay = `${c.class} ${c.level}`;
+            try {
+              const classes = JSON.parse(c.classes || '{}');
+              if (Object.keys(classes).length > 0) {
+                classDisplay = Object.entries(classes).map(([cls, lvl]) => `${cls} ${lvl}`).join('/');
+              }
+            } catch (e) {}
+            return `- ${c.character_name}, ${c.race} ${classDisplay} (played by ${c.player_name})`;
+          }).join('\n');
+        }
+
+        const openingPrompt = `You are starting a new adventure with this setting: ${scenarioPrompt}${characterIntro}
+
+Write an atmospheric opening scene that sets the mood and introduces the world. Describe where the party finds themselves and what they see, hear, and sense around them. Make it vivid and immersive, drawing the players into the story.
+
+DO NOT give the players a list of choices or options. End with an evocative description that invites them to act on their own initiative.`;
+
+        const response = await fetch(apiConfig.api_endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiConfig.api_key}`
+          },
+          body: JSON.stringify({
+            model: apiConfig.api_model,
+            messages: [
+              { role: 'system', content: DEFAULT_SYSTEM_PROMPT },
+              { role: 'user', content: openingPrompt }
+            ],
+            max_tokens: 2000
+          })
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const openingScene = extractAIMessage(data);
+
+          if (openingScene) {
+            // Save opening scene to history
+            const history = [
+              { role: 'assistant', content: openingScene, type: 'narration' }
+            ];
+            db.prepare('UPDATE game_sessions SET full_history = ? WHERE id = ?').run(JSON.stringify(history), id);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Failed to generate opening scene:', error);
+      // Continue without opening scene
+    }
+  }
 
   const session = db.prepare('SELECT * FROM game_sessions WHERE id = ?').get(id);
   io.emit('session_created', session);

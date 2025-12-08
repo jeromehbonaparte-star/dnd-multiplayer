@@ -1854,3 +1854,130 @@ nav {
   padding-top: 12px;
   border-top: 1px solid var(--border-color);
 }
+
+/* ============================================
+   NEW SESSION MODAL - SCENARIO SELECTION
+   ============================================ */
+
+.new-session-modal-content {
+  max-width: 700px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.new-session-modal-content .form-group {
+  margin-bottom: 20px;
+}
+
+.new-session-modal-content .form-group > label {
+  display: block;
+  margin-bottom: 10px;
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.new-session-modal-content input[type="text"],
+.new-session-modal-content textarea {
+  width: 100%;
+  padding: 12px;
+  border: 2px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-light);
+  color: var(--text);
+  font-size: 1rem;
+  box-sizing: border-box;
+}
+
+.new-session-modal-content input[type="text"]:focus,
+.new-session-modal-content textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.new-session-modal-content textarea {
+  resize: vertical;
+  min-height: 100px;
+}
+
+/* Scenario Grid */
+.scenario-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  max-height: 400px;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.scenario-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px;
+  background: var(--bg-dark);
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.scenario-option:hover {
+  border-color: var(--accent);
+  background: var(--bg-medium);
+}
+
+.scenario-option.selected {
+  border-color: var(--accent);
+  background: linear-gradient(135deg, var(--bg-medium) 0%, var(--bg-dark) 100%);
+  box-shadow: 0 0 12px rgba(212, 175, 55, 0.3);
+}
+
+.scenario-icon {
+  font-size: 1.8rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.scenario-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.scenario-name {
+  font-weight: 600;
+  color: var(--text-bright);
+  margin-bottom: 4px;
+  font-size: 0.95rem;
+}
+
+.scenario-desc {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.new-session-modal-content .modal-buttons {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
+}
+
+.new-session-modal-content .modal-buttons button {
+  padding: 12px 24px;
+  font-size: 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+/* Mobile responsive */
+@media (max-width: 600px) {
+  .scenario-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .new-session-modal-content {
+    max-width: 95%;
+  }
+}

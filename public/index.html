@@ -43,7 +43,7 @@
       <div class="game-container">
         <div class="sidebar">
           <h3>Sessions</h3>
-          <button onclick="createSession()">New Session</button>
+          <button onclick="openNewSessionModal()">New Session</button>
           <div id="session-list"></div>
 
           <h3>Party</h3>
@@ -373,6 +373,34 @@
       <div class="modal-buttons">
         <button onclick="saveQuickEdit()" class="btn-primary">Save</button>
         <button onclick="closeQuickEditModal()" class="btn-secondary">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- New Session Modal -->
+  <div id="new-session-modal" class="modal">
+    <div class="modal-content new-session-modal-content">
+      <span class="modal-close" onclick="closeNewSessionModal()">&times;</span>
+      <h2>Create New Session</h2>
+
+      <div class="form-group">
+        <label>Session Name</label>
+        <input type="text" id="new-session-name" placeholder="Enter a name for your adventure...">
+      </div>
+
+      <div class="form-group">
+        <label>Choose Your Setting</label>
+        <div id="scenario-options" class="scenario-grid"></div>
+      </div>
+
+      <div class="form-group" id="custom-scenario-group" style="display: none;">
+        <label>Describe Your Custom Setting</label>
+        <textarea id="custom-scenario-input" rows="4" placeholder="Describe the world, the era, the mood, and how you'd like the adventure to begin..."></textarea>
+      </div>
+
+      <div class="modal-buttons">
+        <button onclick="createSession()" class="btn-primary">Create Session</button>
+        <button onclick="closeNewSessionModal()" class="btn-secondary">Cancel</button>
       </div>
     </div>
   </div>

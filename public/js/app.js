@@ -1175,15 +1175,145 @@ async function deleteSession(id, name) {
   }
 }
 
+// Scenario definitions
+const SESSION_SCENARIOS = [
+  {
+    id: 'classic_fantasy',
+    name: 'Classic Fantasy',
+    description: 'Traditional D&D setting with dungeons, dragons, and medieval adventure',
+    icon: '🏰'
+  },
+  {
+    id: 'tavern_start',
+    name: 'Tavern Meeting',
+    description: 'The classic "you all meet in a tavern" opening - strangers brought together by fate',
+    icon: '🍺'
+  },
+  {
+    id: 'modern_urban',
+    name: 'Modern Urban Fantasy',
+    description: 'Magic hidden in the modern world - secret societies, urban mysteries',
+    icon: '🌃'
+  },
+  {
+    id: 'zombie_apocalypse',
+    name: 'Zombie Apocalypse',
+    description: 'Survival horror in a world overrun by the undead',
+    icon: '🧟'
+  },
+  {
+    id: 'space_opera',
+    name: 'Space Opera',
+    description: 'Sci-fi adventure among the stars - alien worlds, space stations, galactic intrigue',
+    icon: '🚀'
+  },
+  {
+    id: 'noir_detective',
+    name: 'Noir Detective',
+    description: 'Gritty 1940s detective story - rain-slicked streets, femme fatales, dark secrets',
+    icon: '🔍'
+  },
+  {
+    id: 'pirate_adventure',
+    name: 'Pirate Adventure',
+    description: 'High seas adventure - treasure hunting, naval battles, mysterious islands',
+    icon: '🏴‍☠️'
+  },
+  {
+    id: 'post_apocalyptic',
+    name: 'Post-Apocalyptic',
+    description: 'Wasteland survival after civilization fell - scavengers, raiders, lost technology',
+    icon: '☢️'
+  },
+  {
+    id: 'horror_mystery',
+    name: 'Horror Mystery',
+    description: 'Lovecraftian horror - eldritch secrets, cosmic dread, sanity-testing revelations',
+    icon: '👁️'
+  },
+  {
+    id: 'custom',
+    name: 'Custom Setting',
+    description: 'Describe your own unique world and starting scenario',
+    icon: '✨'
+  }
+];
+
+function openNewSessionModal() {
+  renderScenarioOptions();
+  document.getElementById('new-session-name').value = '';
+  document.getElementById('custom-scenario-input').value = '';
+  document.getElementById('custom-scenario-group').style.display = 'none';
+  selectedScenario = 'classic_fantasy';
+  // Auto-select first scenario
+  setTimeout(() => selectScenario('classic_fantasy'), 10);
+  document.getElementById('new-session-modal').classList.add('active');
+}
+
+function closeNewSessionModal() {
+  document.getElementById('new-session-modal').classList.remove('active');
+}
+
+function renderScenarioOptions() {
+  const container = document.getElementById('scenario-options');
+  container.innerHTML = SESSION_SCENARIOS.map(s => `
+    <div class="scenario-option" data-id="${s.id}" onclick="selectScenario('${s.id}')">
+      <div class="scenario-icon">${s.icon}</div>
+      <div class="scenario-info">
+        <div class="scenario-name">${s.name}</div>
+        <div class="scenario-desc">${s.description}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+let selectedScenario = 'classic_fantasy';
+
+function selectScenario(scenarioId) {
+  selectedScenario = scenarioId;
+
+  // Update visual selection
+  document.querySelectorAll('.scenario-option').forEach(el => {
+    el.classList.toggle('selected', el.dataset.id === scenarioId);
+  });
+
+  // Show/hide custom input
+  const customGroup = document.getElementById('custom-scenario-group');
+  customGroup.style.display = scenarioId === 'custom' ? 'block' : 'none';
+}
+
 async function createSession() {
-  const name = prompt('Enter session name:');
-  if (!name) return;
+  const name = document.getElementById('new-session-name').value.trim();
+  if (!name) {
+    alert('Please enter a session name');
+    return;
+  }
+
+  const scenario = SESSION_SCENARIOS.find(s => s.id === selectedScenario);
+  let scenarioPrompt = '';
+
+  if (selectedScenario === 'custom') {
+    scenarioPrompt = document.getElementById('custom-scenario-input').value.trim();
+    if (!scenarioPrompt) {
+      alert('Please describe your custom scenario');
+      return;
+    }
+  } else {
+    scenarioPrompt = `${scenario.name}: ${scenario.description}`;
+  }
+
+  closeNewSessionModal();
 
   try {
-    const session = await api('/api/sessions', 'POST', { name });
+    const session = await api('/api/sessions', 'POST', {
+      name,
+      scenario: selectedScenario,
+      scenarioPrompt
+    });
     loadSession(session.id);
   } catch (error) {
     console.error('Failed to create session:', error);
+    alert('Failed to create session: ' + error.message);
   }
 }
 
