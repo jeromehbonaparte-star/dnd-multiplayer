@@ -799,56 +799,131 @@ function renderCharactersList() {
     // Format AC display with effects breakdown
     const acDisplay = formatAcDisplay(c);
 
+    // Check if card is expanded (default to collapsed)
+    const isExpanded = getCardExpandedState(c.id);
+
     return `
-    <div class="character-card" data-id="${c.id}">
-      <button class="delete-btn" onclick="deleteCharacter('${c.id}')">X</button>
-      <h3>${c.character_name}</h3>
-      <div class="player">Played by ${c.player_name}</div>
-      <div class="race-class">${c.race} ${classDisplay}</div>
-      ${c.appearance ? `<div class="details appearance"><strong>Appearance:</strong> ${c.appearance}</div>` : ''}
-      ${c.backstory ? `<div class="details backstory"><strong>Backstory:</strong> ${c.backstory}</div>` : ''}
-      <div class="stats">
-        <div class="stat">${c.strength}<span>STR</span></div>
-        <div class="stat">${c.dexterity}<span>DEX</span></div>
-        <div class="stat">${c.constitution}<span>CON</span></div>
-        <div class="stat">${c.intelligence}<span>INT</span></div>
-        <div class="stat">${c.wisdom}<span>WIS</span></div>
-        <div class="stat">${c.charisma}<span>CHA</span></div>
-      </div>
-      <div class="combat-stats">
-        <div class="hp">HP: ${c.hp}/${c.max_hp}</div>
-        <div class="ac-display">AC: ${acDisplay}</div>
-      </div>
-      <div class="gold-display">Gold: ${gold}</div>
-      ${spellSlotsDisplay ? `<div class="spell-slots-display">${spellSlotsDisplay}</div>` : ''}
-      <div class="xp-bar"><div class="xp-fill" style="width: ${xpPercent}%"></div></div>
-      <div class="xp-text">XP: ${xp} / ${requiredXP}</div>
-      ${c.skills ? `<div class="details"><strong>Skills:</strong> ${c.skills}</div>` : ''}
-      ${c.spells ? `<div class="details"><strong>Spells:</strong> ${c.spells}</div>` : ''}
-      ${c.passives ? `<div class="details"><strong>Passives:</strong> ${c.passives}</div>` : ''}
-      ${c.class_features ? `<div class="details class-features"><strong>Class Features:</strong> ${c.class_features}</div>` : ''}
-      ${feats ? `<div class="details feats"><strong>Feats:</strong> ${feats}</div>` : ''}
-      <div class="inventory-section">
-        <div class="inventory-header" onclick="toggleInventory('${c.id}')">
-          <strong>Inventory (${itemCount} items)</strong>
-          <span class="inventory-toggle">+</span>
+    <div class="character-card ${isExpanded ? 'expanded' : 'collapsed'}" data-id="${c.id}">
+      <button class="delete-btn" onclick="event.stopPropagation(); deleteCharacter('${c.id}')">X</button>
+
+      <!-- Collapsible Header (always visible) -->
+      <div class="card-header" onclick="toggleCharacterCard('${c.id}')">
+        <div class="card-header-main">
+          <h3>${c.character_name}</h3>
+          <span class="card-toggle-icon">${isExpanded ? '▼' : '▶'}</span>
         </div>
-        <div class="inventory-list" id="inventory-${c.id}" style="display: none;">
-          ${inventory.length > 0 ? inventory.map(item => `<div class="inventory-item">${item.name}${item.quantity > 1 ? ' x' + item.quantity : ''}</div>`).join('') : '<div class="inventory-empty">No items</div>'}
+        <div class="player">Played by ${c.player_name}</div>
+        <div class="race-class">${c.race} ${classDisplay}</div>
+        <div class="card-summary">
+          <div class="stats stats-mini">
+            <div class="stat">${c.strength}<span>STR</span></div>
+            <div class="stat">${c.dexterity}<span>DEX</span></div>
+            <div class="stat">${c.constitution}<span>CON</span></div>
+            <div class="stat">${c.intelligence}<span>INT</span></div>
+            <div class="stat">${c.wisdom}<span>WIS</span></div>
+            <div class="stat">${c.charisma}<span>CHA</span></div>
+          </div>
+          <div class="combat-stats">
+            <div class="hp">HP: ${c.hp}/${c.max_hp}</div>
+            <div class="ac-display">AC: ${acDisplay}</div>
+          </div>
+          <div class="resource-row">
+            <span class="gold-display">Gold: ${gold}</span>
+            <span class="xp-mini">XP: ${xp}/${requiredXP}</span>
+          </div>
+          <div class="xp-bar"><div class="xp-fill" style="width: ${xpPercent}%"></div></div>
         </div>
       </div>
-      <div class="btn-row">
-        <button class="btn-edit" onclick="openEditModal('${c.id}')">Edit</button>
-        <button class="btn-quick-edit" onclick="openQuickEditModal('${c.id}')">Quick Edit</button>
-        <button class="btn-inventory" onclick="openInventoryModal('${c.id}')">Inventory</button>
-      </div>
-      <div class="btn-row">
-        <button class="btn-levelup" onclick="levelUpCharacter('${c.id}')" ${canLevel ? '' : 'disabled'}>${canLevel ? 'Level Up!' : 'Need XP'}</button>
-        <button class="btn-spells" onclick="openSpellSlotsModal('${c.id}')">Spell Slots</button>
-        <button class="btn-reset-xp" onclick="resetXP('${c.id}', '${c.character_name.replace(/'/g, "\\'")}')">Reset XP</button>
+
+      <!-- Expandable Details -->
+      <div class="card-details">
+        ${c.appearance ? `<div class="details appearance"><strong>Appearance:</strong> ${c.appearance}</div>` : ''}
+        ${c.backstory ? `<div class="details backstory"><strong>Backstory:</strong> ${c.backstory}</div>` : ''}
+        ${spellSlotsDisplay ? `<div class="spell-slots-display">${spellSlotsDisplay}</div>` : ''}
+        ${c.skills ? `<div class="details"><strong>Skills:</strong> ${c.skills}</div>` : ''}
+        ${c.spells ? `<div class="details"><strong>Spells:</strong> ${c.spells}</div>` : ''}
+        ${c.passives ? `<div class="details"><strong>Passives:</strong> ${c.passives}</div>` : ''}
+        ${c.class_features ? `<div class="details class-features"><strong>Class Features:</strong> ${c.class_features}</div>` : ''}
+        ${feats ? `<div class="details feats"><strong>Feats:</strong> ${feats}</div>` : ''}
+        <div class="inventory-section">
+          <div class="inventory-header" onclick="event.stopPropagation(); toggleInventory('${c.id}')">
+            <strong>Inventory (${itemCount} items)</strong>
+            <span class="inventory-toggle">+</span>
+          </div>
+          <div class="inventory-list" id="inventory-${c.id}" style="display: none;">
+            ${inventory.length > 0 ? inventory.map(item => `<div class="inventory-item">${item.name}${item.quantity > 1 ? ' x' + item.quantity : ''}</div>`).join('') : '<div class="inventory-empty">No items</div>'}
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn-edit" onclick="event.stopPropagation(); openEditModal('${c.id}')">Edit</button>
+          <button class="btn-quick-edit" onclick="event.stopPropagation(); openQuickEditModal('${c.id}')">Quick Edit</button>
+          <button class="btn-inventory" onclick="event.stopPropagation(); openInventoryModal('${c.id}')">Inventory</button>
+        </div>
+        <div class="btn-row">
+          <button class="btn-levelup" onclick="event.stopPropagation(); levelUpCharacter('${c.id}')" ${canLevel ? '' : 'disabled'}>${canLevel ? 'Level Up!' : 'Need XP'}</button>
+          <button class="btn-spells" onclick="event.stopPropagation(); openSpellSlotsModal('${c.id}')">Spell Slots</button>
+          <button class="btn-reset-xp" onclick="event.stopPropagation(); resetXP('${c.id}', '${c.character_name.replace(/'/g, "\\'")}')">Reset XP</button>
+        </div>
       </div>
     </div>
   `}).join('');
+}
+
+// Card expand/collapse state management
+let cardExpandedStates = {};
+
+function getCardExpandedState(charId) {
+  if (cardExpandedStates[charId] === undefined) {
+    // Load from localStorage or default to collapsed
+    try {
+      const saved = localStorage.getItem('dnd-card-states');
+      if (saved) {
+        cardExpandedStates = JSON.parse(saved);
+      }
+    } catch (e) {}
+  }
+  return cardExpandedStates[charId] || false;
+}
+
+function toggleCharacterCard(charId) {
+  cardExpandedStates[charId] = !getCardExpandedState(charId);
+  // Save to localStorage
+  try {
+    localStorage.setItem('dnd-card-states', JSON.stringify(cardExpandedStates));
+  } catch (e) {}
+
+  // Update the card visually
+  const card = document.querySelector(`.character-card[data-id="${charId}"]`);
+  if (card) {
+    card.classList.toggle('expanded');
+    card.classList.toggle('collapsed');
+    const icon = card.querySelector('.card-toggle-icon');
+    if (icon) {
+      icon.textContent = card.classList.contains('expanded') ? '▼' : '▶';
+    }
+  }
+}
+
+function expandAllCards() {
+  characters.forEach(c => {
+    cardExpandedStates[c.id] = true;
+  });
+  try {
+    localStorage.setItem('dnd-card-states', JSON.stringify(cardExpandedStates));
+  } catch (e) {}
+  renderCharactersList();
+  updatePartyList();
+}
+
+function collapseAllCards() {
+  characters.forEach(c => {
+    cardExpandedStates[c.id] = false;
+  });
+  try {
+    localStorage.setItem('dnd-card-states', JSON.stringify(cardExpandedStates));
+  } catch (e) {}
+  renderCharactersList();
+  updatePartyList();
 }
 
 function formatSpellSlots(spellSlots) {
@@ -950,42 +1025,90 @@ function updatePartyList() {
     // Format AC with effects indicator
     const acShortDisplay = formatAcShort(c);
 
+    // Check if card is expanded
+    const isExpanded = getCardExpandedState(c.id);
+
     return `
-    <div class="party-item expanded">
-      <div class="party-header">
-        <div class="name">${c.character_name}</div>
-        <div class="level">Lv.${c.level}</div>
+    <div class="party-item ${isExpanded ? 'expanded' : 'collapsed'}" data-id="${c.id}">
+      <!-- Party Header (always visible, clickable to toggle) -->
+      <div class="party-header" onclick="togglePartyCard('${c.id}')">
+        <div class="party-header-row">
+          <div class="name">${c.character_name}</div>
+          <div class="level">Lv.${c.level}</div>
+          <span class="party-toggle-icon">${isExpanded ? '▼' : '▶'}</span>
+        </div>
+        <div class="info">${c.race} ${c.class}</div>
+        <div class="party-summary">
+          <div class="combat-info">
+            <span class="hp">HP: ${c.hp}/${c.max_hp}</span>
+            ${acShortDisplay}
+          </div>
+          <div class="gold-info">Gold: ${gold}</div>
+          <div class="xp-info">XP: ${xp}/${requiredXP} ${canLevel ? '(Ready!)' : ''}</div>
+          <div class="party-stats">
+            <span>STR:${c.strength}</span>
+            <span>DEX:${c.dexterity}</span>
+            <span>CON:${c.constitution}</span>
+            <span>INT:${c.intelligence}</span>
+            <span>WIS:${c.wisdom}</span>
+            <span>CHA:${c.charisma}</span>
+          </div>
+        </div>
       </div>
-      <div class="info">${c.race} ${c.class}</div>
-      ${c.appearance ? `<div class="party-detail appearance"><strong>Appearance:</strong> ${c.appearance}</div>` : ''}
-      ${c.backstory ? `<div class="party-detail backstory"><strong>Backstory:</strong> ${c.backstory}</div>` : ''}
-      <div class="combat-info">
-        <span class="hp">HP: ${c.hp}/${c.max_hp}</span>
-        ${acShortDisplay}
-      </div>
-      <div class="gold-info">Gold: ${gold}</div>
-      ${spellSlotsShort ? `<div class="spell-info">${spellSlotsShort}</div>` : ''}
-      <div class="xp-info">XP: ${xp}/${requiredXP} ${canLevel ? '(Ready!)' : ''}</div>
-      <div class="party-stats">
-        <span>STR:${c.strength}</span>
-        <span>DEX:${c.dexterity}</span>
-        <span>CON:${c.constitution}</span>
-        <span>INT:${c.intelligence}</span>
-        <span>WIS:${c.wisdom}</span>
-        <span>CHA:${c.charisma}</span>
-      </div>
-      ${c.skills ? `<div class="party-detail"><strong>Skills:</strong> ${c.skills}</div>` : ''}
-      ${c.spells ? `<div class="party-detail"><strong>Spells:</strong> ${c.spells}</div>` : ''}
-      ${c.passives ? `<div class="party-detail"><strong>Passives:</strong> ${c.passives}</div>` : ''}
-      ${c.class_features ? `<div class="party-detail"><strong>Class Features:</strong> ${c.class_features}</div>` : ''}
-      <div class="party-detail"><strong>Items:</strong> ${itemCount > 0 ? inventory.map(i => `${i.name}${i.quantity > 1 ? ' x' + i.quantity : ''}`).join(', ') : 'None'}</div>
-      <div class="party-actions">
-        <button class="party-btn" onclick="openInventoryModal('${c.id}')">Inv</button>
-        <button class="party-btn" onclick="openSpellSlotsModal('${c.id}')">Spells</button>
-        <button class="party-btn ${canLevel ? 'party-btn-levelup' : ''}" onclick="levelUpCharacter('${c.id}')" ${canLevel ? '' : 'disabled'}>${canLevel ? 'Level Up!' : 'Need XP'}</button>
+
+      <!-- Party Details (expandable) -->
+      <div class="party-details">
+        ${c.appearance ? `<div class="party-detail appearance"><strong>Appearance:</strong> ${c.appearance}</div>` : ''}
+        ${c.backstory ? `<div class="party-detail backstory"><strong>Backstory:</strong> ${c.backstory}</div>` : ''}
+        ${spellSlotsShort ? `<div class="spell-info">${spellSlotsShort}</div>` : ''}
+        ${c.skills ? `<div class="party-detail"><strong>Skills:</strong> ${c.skills}</div>` : ''}
+        ${c.spells ? `<div class="party-detail"><strong>Spells:</strong> ${c.spells}</div>` : ''}
+        ${c.passives ? `<div class="party-detail"><strong>Passives:</strong> ${c.passives}</div>` : ''}
+        ${c.class_features ? `<div class="party-detail"><strong>Class Features:</strong> ${c.class_features}</div>` : ''}
+        <div class="party-detail"><strong>Items:</strong> ${itemCount > 0 ? inventory.map(i => `${i.name}${i.quantity > 1 ? ' x' + i.quantity : ''}`).join(', ') : 'None'}</div>
+        <div class="party-actions">
+          <button class="party-btn" onclick="event.stopPropagation(); openInventoryModal('${c.id}')">Inv</button>
+          <button class="party-btn" onclick="event.stopPropagation(); openSpellSlotsModal('${c.id}')">Spells</button>
+          <button class="party-btn ${canLevel ? 'party-btn-levelup' : ''}" onclick="event.stopPropagation(); levelUpCharacter('${c.id}')" ${canLevel ? '' : 'disabled'}>${canLevel ? 'Level Up!' : 'Need XP'}</button>
+        </div>
       </div>
     </div>
   `}).join('');
+}
+
+function togglePartyCard(charId) {
+  cardExpandedStates[charId] = !getCardExpandedState(charId);
+  // Save to localStorage
+  try {
+    localStorage.setItem('dnd-card-states', JSON.stringify(cardExpandedStates));
+  } catch (e) {}
+
+  // Update the party item visually
+  const item = document.querySelector(`.party-item[data-id="${charId}"]`);
+  if (item) {
+    item.classList.toggle('expanded');
+    item.classList.toggle('collapsed');
+    const icon = item.querySelector('.party-toggle-icon');
+    if (icon) {
+      icon.textContent = item.classList.contains('expanded') ? '▼' : '▶';
+    }
+  }
+
+  // Also update character card if visible
+  const card = document.querySelector(`.character-card[data-id="${charId}"]`);
+  if (card) {
+    if (cardExpandedStates[charId]) {
+      card.classList.add('expanded');
+      card.classList.remove('collapsed');
+    } else {
+      card.classList.remove('expanded');
+      card.classList.add('collapsed');
+    }
+    const cardIcon = card.querySelector('.card-toggle-icon');
+    if (cardIcon) {
+      cardIcon.textContent = cardExpandedStates[charId] ? '▼' : '▶';
+    }
+  }
 }
 
 function formatSpellSlotsShort(spellSlots) {

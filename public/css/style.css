@@ -1573,3 +1573,260 @@ nav {
     font-size: 0.9rem;
   }
 }
+
+/* ============================================
+   COLLAPSIBLE CHARACTER CARDS
+   ============================================ */
+
+/* Character Card Header (always visible) */
+.character-card .card-header {
+  cursor: pointer;
+  padding-bottom: 8px;
+}
+
+.character-card .card-header-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.character-card .card-header-main h3 {
+  margin: 0;
+  flex: 1;
+}
+
+.character-card .card-toggle-icon {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  transition: transform 0.2s ease;
+}
+
+.character-card .card-summary {
+  margin-top: 10px;
+}
+
+.character-card .resource-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 8px 0;
+}
+
+.character-card .xp-mini {
+  color: var(--xp-color);
+  font-size: 0.85rem;
+}
+
+/* Character Card Details (expandable) */
+.character-card .card-details {
+  overflow: hidden;
+  transition: max-height 0.3s ease, opacity 0.3s ease, padding 0.3s ease;
+  border-top: 1px solid var(--border-color);
+  margin-top: 10px;
+  padding-top: 10px;
+}
+
+.character-card.collapsed .card-details {
+  max-height: 0;
+  opacity: 0;
+  padding-top: 0;
+  margin-top: 0;
+  border-top: none;
+}
+
+.character-card.expanded .card-details {
+  max-height: 2000px;
+  opacity: 1;
+}
+
+/* Party Item Collapsible */
+.party-item .party-header {
+  cursor: pointer;
+}
+
+.party-item .party-header-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.party-item .party-header-row .name {
+  flex: 1;
+}
+
+.party-item .party-toggle-icon {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.party-item .party-summary {
+  margin-top: 6px;
+}
+
+/* Party Details (expandable) */
+.party-item .party-details {
+  overflow: hidden;
+  transition: max-height 0.3s ease, opacity 0.3s ease, padding 0.3s ease;
+  border-top: 1px solid var(--border-color);
+  margin-top: 8px;
+  padding-top: 8px;
+}
+
+.party-item.collapsed .party-details {
+  max-height: 0;
+  opacity: 0;
+  padding-top: 0;
+  margin-top: 0;
+  border-top: none;
+}
+
+.party-item.expanded .party-details {
+  max-height: 1500px;
+  opacity: 1;
+}
+
+/* Collapse/Expand All buttons (if added to UI) */
+.card-controls {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.card-controls button {
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  background: var(--bg-medium);
+  color: var(--text);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.card-controls button:hover {
+  background: var(--bg-light);
+}
+
+/* ============================================
+   SPELL SLOTS MODAL FIX
+   ============================================ */
+
+#spell-slots-modal .modal-content {
+  max-width: 580px;
+  overflow-y: auto;
+  position: relative;
+}
+
+#spell-slots-modal .form-group {
+  margin-bottom: 12px;
+}
+
+#spell-slots-modal .form-group label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+#spell-slots-modal input,
+#spell-slots-modal select {
+  padding: 8px 12px;
+  border: 2px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-light);
+  color: var(--text);
+  font-size: 0.95rem;
+}
+
+#spell-slots-modal input:focus,
+#spell-slots-modal select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+#spell-slots-modal .modal-buttons {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
+}
+
+#spell-slots-modal .modal-buttons button {
+  padding: 10px 20px;
+  font-size: 0.95rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+/* AC Section styling fix */
+.ac-section {
+  margin-bottom: 16px;
+}
+
+.ac-section h3 {
+  margin-bottom: 12px;
+}
+
+.ac-base-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.ac-effects-list {
+  margin: 12px 0;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.ac-effect-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--bg-light);
+  border-radius: 4px;
+  margin-bottom: 6px;
+}
+
+.add-effect-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+/* Spell Slots Section styling */
+.spell-slots-section {
+  margin-top: 16px;
+}
+
+.spell-slots-section h3 {
+  margin-bottom: 12px;
+}
+
+.spell-slots-list {
+  margin: 12px 0;
+}
+
+.spell-slot-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  background: var(--bg-light);
+  border-radius: 4px;
+  margin-bottom: 6px;
+}
+
+.add-slot-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+}
