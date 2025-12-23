@@ -806,7 +806,7 @@ function renderCharactersList() {
       const isExpanded = getSectionState(c.id, sectionId);
       return `
         <div class="section-collapsible ${colorClass} ${isExpanded ? 'expanded' : ''}" data-char="${c.id}" data-section="${sectionId}">
-          <div class="section-header" onclick="event.stopPropagation(); toggleSection('${c.id}', '${sectionId}')">
+          <div class="section-header" data-toggle-char="${c.id}" data-toggle-section="${sectionId}">
             <span class="section-toggle-icon">${isExpanded ? '▼' : '▶'}</span>
             <strong>${label}</strong>
           </div>
@@ -883,6 +883,9 @@ function renderCharactersList() {
       </div>
     </div>
   `}).join('');
+
+  // Attach event listeners for collapsible sections
+  attachSectionToggleListeners();
 }
 
 // Section expand/collapse state management
@@ -930,6 +933,24 @@ function toggleSection(charId, section) {
     if (icon) {
       icon.textContent = sectionExpandedStates[charId][section] ? '▼' : '▶';
     }
+  }
+}
+
+// Attach event listeners for section toggle headers using event delegation
+function attachSectionToggleListeners() {
+  document.querySelectorAll('.section-header[data-toggle-char][data-toggle-section]').forEach(header => {
+    // Remove existing listener to prevent duplicates
+    header.removeEventListener('click', handleSectionToggleClick);
+    header.addEventListener('click', handleSectionToggleClick);
+  });
+}
+
+function handleSectionToggleClick(e) {
+  e.stopPropagation();
+  const charId = e.currentTarget.dataset.toggleChar;
+  const section = e.currentTarget.dataset.toggleSection;
+  if (charId && section) {
+    toggleSection(charId, section);
   }
 }
 
@@ -1066,7 +1087,7 @@ function updatePartyList() {
       const isExpanded = getSectionState(c.id, sectionId);
       return `
         <div class="section-collapsible party-section ${colorClass} ${isExpanded ? 'expanded' : ''}" data-char="${c.id}" data-section="${sectionId}">
-          <div class="section-header" onclick="event.stopPropagation(); toggleSection('${c.id}', '${sectionId}')">
+          <div class="section-header" data-toggle-char="${c.id}" data-toggle-section="${sectionId}">
             <span class="section-toggle-icon">${isExpanded ? '▼' : '▶'}</span>
             <strong>${label}</strong>
           </div>
@@ -1124,6 +1145,9 @@ function updatePartyList() {
       </div>
     </div>
   `}).join('');
+
+  // Attach event listeners for collapsible sections in party sidebar
+  attachSectionToggleListeners();
 }
 
 function formatSpellSlotsShort(spellSlots) {
