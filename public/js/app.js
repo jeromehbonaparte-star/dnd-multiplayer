@@ -3,7 +3,8 @@ let password = '';
 let adminPassword = '';
 let isAdminAuthenticated = false;
 let currentSession = null;
-let characters = [];
+let characters = [];  // All characters (for character selection)
+let sessionCharacters = [];  // Characters for the current session
 let socket = null;
 
 // State persistence for mobile tab switching
@@ -1050,12 +1051,14 @@ function toggleInventory(charId) {
 function updateCharacterSelect() {
   const select = document.getElementById('action-character');
   select.innerHTML = '<option value="">Select your character</option>' +
-    characters.map(c => `<option value="${c.id}">${c.character_name} (${c.player_name})</option>`).join('');
+    sessionCharacters.map(c => `<option value="${c.id}">${c.character_name} (${c.player_name})</option>`).join('');
 }
 
 function updatePartyList() {
   const list = document.getElementById('party-list');
-  list.innerHTML = characters.map(c => {
+  // Use session characters if a session is loaded, otherwise use all characters
+  const partyChars = currentSession && sessionCharacters.length > 0 ? sessionCharacters : characters;
+  list.innerHTML = partyChars.map(c => {
     const xp = c.xp || 0;
     const requiredXP = getRequiredXP(c.level);
     const gold = c.gold || 0;
@@ -1280,13 +1283,67 @@ const SESSION_SCENARIOS = [
 
 function openNewSessionModal() {
   renderScenarioOptions();
+  renderCharacterSelection();
   document.getElementById('new-session-name').value = '';
   document.getElementById('custom-scenario-input').value = '';
   document.getElementById('custom-scenario-group').style.display = 'none';
   selectedScenario = 'classic_fantasy';
+  selectedCharacterIds = [];
+  updateSelectedCharacterCount();
   // Auto-select first scenario
   setTimeout(() => selectScenario('classic_fantasy'), 10);
   document.getElementById('new-session-modal').classList.add('active');
+}
+
+function renderCharacterSelection() {
+  const container = document.getElementById('character-selection-list');
+
+  if (characters.length === 0) {
+    container.innerHTML = '<p class="no-characters-msg">No characters created yet. Create characters first!</p>';
+    return;
+  }
+
+  container.innerHTML = characters.map(c => {
+    const classDisplay = c.classes ? formatMulticlass(JSON.parse(c.classes || '{}')) : `${c.class} ${c.level}`;
+    return `
+      <label class="character-selection-item" data-id="${c.id}">
+        <input type="checkbox"
+               value="${c.id}"
+               onchange="toggleCharacterSelection('${c.id}', this.checked)">
+        <div class="char-info">
+          <div class="char-name">${c.character_name}</div>
+          <div class="char-details">${c.race} ${classDisplay}</div>
+        </div>
+      </label>
+    `;
+  }).join('');
+}
+
+function formatMulticlass(classes) {
+  if (!classes || Object.keys(classes).length === 0) return '';
+  return Object.entries(classes).map(([cls, lvl]) => `${cls} ${lvl}`).join(' / ');
+}
+
+function toggleCharacterSelection(charId, isSelected) {
+  if (isSelected) {
+    if (!selectedCharacterIds.includes(charId)) {
+      selectedCharacterIds.push(charId);
+    }
+  } else {
+    selectedCharacterIds = selectedCharacterIds.filter(id => id !== charId);
+  }
+
+  // Update visual state
+  const item = document.querySelector(`.character-selection-item[data-id="${charId}"]`);
+  if (item) {
+    item.classList.toggle('selected', isSelected);
+  }
+
+  updateSelectedCharacterCount();
+}
+
+function updateSelectedCharacterCount() {
+  document.getElementById('selected-character-count').textContent = selectedCharacterIds.length;
 }
 
 function closeNewSessionModal() {
@@ -1307,6 +1364,7 @@ function renderScenarioOptions() {
 }
 
 let selectedScenario = 'classic_fantasy';
+let selectedCharacterIds = [];
 
 function selectScenario(scenarioId) {
   selectedScenario = scenarioId;
@@ -1325,6 +1383,11 @@ async function createSession() {
   const name = document.getElementById('new-session-name').value.trim();
   if (!name) {
     alert('Please enter a session name');
+    return;
+  }
+
+  if (selectedCharacterIds.length === 0) {
+    alert('Please select at least one character for this session');
     return;
   }
 
@@ -1347,7 +1410,8 @@ async function createSession() {
     const session = await api('/api/sessions', 'POST', {
       name,
       scenario: selectedScenario,
-      scenarioPrompt
+      scenarioPrompt,
+      characterIds: selectedCharacterIds
     });
     loadSession(session.id);
   } catch (error) {
@@ -1360,6 +1424,15 @@ async function loadSession(id) {
   try {
     const data = await api(`/api/sessions/${id}`);
     currentSession = data.session;
+
+    // Store session-specific characters
+    sessionCharacters = data.sessionCharacters || [];
+
+    // Update character select dropdown with session characters
+    updateCharacterSelect();
+
+    // Update party list with session characters
+    updatePartyList();
 
     // Update UI
     document.getElementById('turn-counter').textContent = `Turn: ${currentSession.current_turn}`;
@@ -1391,11 +1464,11 @@ async function loadSession(id) {
 
 function updatePendingActions(pendingActions) {
   const container = document.getElementById('pending-actions');
-  const waitingCount = characters.length - pendingActions.length;
+  const waitingCount = sessionCharacters.length - pendingActions.length;
 
   document.getElementById('waiting-counter').textContent = `Waiting for: ${waitingCount} players`;
 
-  container.innerHTML = characters.map(c => {
+  container.innerHTML = sessionCharacters.map(c => {
     const action = pendingActions.find(a => a.character_id === c.id);
     return `
       <div class="action-item ${action ? 'submitted' : ''}">
@@ -2435,7 +2508,7 @@ function openStartCombatModal() {
   }
 
   combatEnemyList = [];
-  combatPartyInitiatives = characters.map(c => ({
+  combatPartyInitiatives = sessionCharacters.map(c => ({
     character_id: c.id,
     name: c.character_name,
     initiative: null,

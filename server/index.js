@@ -102,6 +102,14 @@ db.exec(`
     is_active INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
+
+  CREATE TABLE IF NOT EXISTS session_characters (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    character_id TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(session_id, character_id)
+  );
 `);
 
 // Migrate existing databases - add new columns if they don't exist
@@ -831,6 +839,16 @@ app.post('/api/test-connection/:id', checkPassword, async (req, res) => {
     res.status(500).json({ error: `Connection failed: ${error.message}` });
   }
 });
+
+// Helper function to get characters for a specific session
+function getSessionCharacters(sessionId) {
+  return db.prepare(`
+    SELECT c.* FROM characters c
+    INNER JOIN session_characters sc ON c.id = sc.character_id
+    WHERE sc.session_id = ?
+    ORDER BY c.created_at DESC
+  `).all(sessionId);
+}
 
 // Character routes
 app.get('/api/characters', checkPassword, (req, res) => {
@@ -1734,17 +1752,28 @@ app.get('/api/sessions', checkPassword, (req, res) => {
 });
 
 app.post('/api/sessions', checkPassword, async (req, res) => {
-  const { name, scenario, scenarioPrompt } = req.body;
+  const { name, scenario, scenarioPrompt, characterIds } = req.body;
   const id = uuidv4();
 
   db.prepare('INSERT INTO game_sessions (id, name, full_history, story_summary, scenario) VALUES (?, ?, ?, ?, ?)').run(id, name, '[]', '', scenario || 'classic_fantasy');
+
+  // Link selected characters to this session
+  if (characterIds && characterIds.length > 0) {
+    const insertCharacter = db.prepare('INSERT OR IGNORE INTO session_characters (id, session_id, character_id) VALUES (?, ?, ?)');
+    for (const charId of characterIds) {
+      insertCharacter.run(uuidv4(), id, charId);
+    }
+  }
 
   // Generate opening scene with AI if scenario provided
   if (scenarioPrompt) {
     try {
       const apiConfig = getActiveApiConfig();
       if (apiConfig && apiConfig.api_key) {
-        const characters = db.prepare('SELECT * FROM characters').all();
+        // Get only the selected characters for this session
+        const characters = characterIds && characterIds.length > 0
+          ? db.prepare(`SELECT * FROM characters WHERE id IN (${characterIds.map(() => '?').join(',')})`).all(...characterIds)
+          : [];
 
         // Build character intro
         let characterIntro = '';
@@ -1812,9 +1841,9 @@ app.get('/api/sessions/:id', checkPassword, (req, res) => {
   if (!session) return res.status(404).json({ error: 'Session not found' });
 
   const pendingActions = db.prepare('SELECT * FROM pending_actions WHERE session_id = ?').all(req.params.id);
-  const characters = db.prepare('SELECT * FROM characters').all();
+  const sessionCharacters = getSessionCharacters(req.params.id);
 
-  res.json({ session, pendingActions, characters });
+  res.json({ session, pendingActions, sessionCharacters });
 });
 
 // Delete session
@@ -1823,6 +1852,9 @@ app.delete('/api/sessions/:id', checkPassword, (req, res) => {
 
   // Delete associated pending actions first
   db.prepare('DELETE FROM pending_actions WHERE session_id = ?').run(sessionId);
+
+  // Delete session character links
+  db.prepare('DELETE FROM session_characters WHERE session_id = ?').run(sessionId);
 
   // Delete the session
   const result = db.prepare('DELETE FROM game_sessions WHERE id = ?').run(sessionId);
@@ -1849,7 +1881,7 @@ app.post('/api/sessions/:id/action', checkPassword, async (req, res) => {
   }
 
   const pendingActions = db.prepare('SELECT * FROM pending_actions WHERE session_id = ?').all(sessionId);
-  const characters = db.prepare('SELECT * FROM characters').all();
+  const characters = getSessionCharacters(sessionId);
 
   io.emit('action_submitted', { sessionId, pendingActions, character_id });
 
@@ -1872,7 +1904,7 @@ app.post('/api/sessions/:id/action', checkPassword, async (req, res) => {
 app.post('/api/sessions/:id/process', checkPassword, async (req, res) => {
   const sessionId = req.params.id;
   const pendingActions = db.prepare('SELECT * FROM pending_actions WHERE session_id = ?').all(sessionId);
-  const characters = db.prepare('SELECT * FROM characters').all();
+  const characters = getSessionCharacters(sessionId);
 
   try {
     const result = await processAITurn(sessionId, pendingActions, characters);
@@ -1892,7 +1924,7 @@ app.post('/api/sessions/:id/recalculate-xp', checkPassword, (req, res) => {
     return res.status(404).json({ error: 'Session not found' });
   }
 
-  const characters = db.prepare('SELECT * FROM characters').all();
+  const characters = getSessionCharacters(sessionId);
   const history = JSON.parse(session.full_history || '[]');
   const xpAwarded = {};
 
@@ -1925,7 +1957,7 @@ app.post('/api/sessions/:id/recalculate-xp', checkPassword, (req, res) => {
   }
 
   // Notify clients
-  const updatedCharacters = db.prepare('SELECT * FROM characters').all();
+  const updatedCharacters = getSessionCharacters(sessionId);
   for (const char of updatedCharacters) {
     io.emit('character_updated', char);
   }
@@ -1942,7 +1974,7 @@ app.post('/api/sessions/:id/recalculate-loot', checkPassword, (req, res) => {
     return res.status(404).json({ error: 'Session not found' });
   }
 
-  const characters = db.prepare('SELECT * FROM characters').all();
+  const characters = getSessionCharacters(sessionId);
   const history = JSON.parse(session.full_history || '[]');
   const goldAwarded = {};
   const inventoryChanges = {};
@@ -2033,7 +2065,7 @@ app.post('/api/sessions/:id/recalculate-loot', checkPassword, (req, res) => {
   }
 
   // Notify clients
-  const updatedCharacters = db.prepare('SELECT * FROM characters').all();
+  const updatedCharacters = getSessionCharacters(sessionId);
   for (const char of updatedCharacters) {
     io.emit('character_updated', char);
   }
@@ -2050,7 +2082,7 @@ app.post('/api/sessions/:id/recalculate-ac-spells', checkPassword, (req, res) =>
     return res.status(404).json({ error: 'Session not found' });
   }
 
-  const characters = db.prepare('SELECT * FROM characters').all();
+  const characters = getSessionCharacters(sessionId);
   const history = JSON.parse(session.full_history || '[]');
   const acValues = {};
   const acEffectsTracking = {};  // Track AC effects per character
@@ -2277,7 +2309,7 @@ app.post('/api/sessions/:id/recalculate-ac-spells', checkPassword, (req, res) =>
   }
 
   // Notify clients
-  const updatedCharacters = db.prepare('SELECT * FROM characters').all();
+  const updatedCharacters = getSessionCharacters(sessionId);
   for (const char of updatedCharacters) {
     io.emit('character_updated', char);
   }
@@ -2307,7 +2339,7 @@ app.post('/api/sessions/:sessionId/combat/start', checkPassword, (req, res) => {
   db.prepare('UPDATE combats SET is_active = 0 WHERE session_id = ? AND is_active = 1').run(sessionId);
 
   // Get characters for the session
-  const characters = db.prepare('SELECT * FROM characters').all();
+  const characters = getSessionCharacters(sessionId);
 
   // Build combatants list with initiative rolls
   const combatantsList = (combatants || []).map(c => {
@@ -2609,7 +2641,7 @@ app.post('/api/sessions/:sessionId/combat/damage', checkPassword, (req, res) => 
 
 // Roll initiative for all party members
 app.post('/api/sessions/:sessionId/combat/roll-party-initiative', checkPassword, (req, res) => {
-  const characters = db.prepare('SELECT * FROM characters').all();
+  const characters = getSessionCharacters(req.params.sessionId);
 
   const partyInitiatives = characters.map(char => {
     const dexMod = Math.floor((char.dexterity - 10) / 2);

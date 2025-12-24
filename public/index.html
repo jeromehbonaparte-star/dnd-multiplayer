@@ -398,6 +398,16 @@
         <textarea id="custom-scenario-input" rows="4" placeholder="Describe the world, the era, the mood, and how you'd like the adventure to begin..."></textarea>
       </div>
 
+      <div class="form-group">
+        <label>Select Characters for This Session</label>
+        <div id="character-selection-list" class="character-selection-grid">
+          <p class="no-characters-msg">No characters created yet. Create characters first!</p>
+        </div>
+        <div class="character-count-info">
+          <span id="selected-character-count">0</span> character(s) selected
+        </div>
+      </div>
+
       <div class="modal-buttons">
         <button onclick="createSession()" class="btn-primary">Create Session</button>
         <button onclick="closeNewSessionModal()" class="btn-secondary">Cancel</button>
