@@ -856,6 +856,36 @@ app.post('/api/test-connection/:id', checkPassword, async (req, res) => {
   }
 });
 
+// Helper function to find character by name with fuzzy matching
+// Matches: exact name, first name only, or partial match
+function findCharacterByName(characters, searchName) {
+  if (!searchName || !characters || characters.length === 0) return null;
+
+  const search = searchName.toLowerCase().trim();
+
+  // 1. Exact match (case-insensitive)
+  let char = characters.find(c => c.character_name.toLowerCase() === search);
+  if (char) return char;
+
+  // 2. First name match (e.g., "Reinhard" matches "Reinhard Lockeheart")
+  char = characters.find(c => c.character_name.toLowerCase().startsWith(search + ' ') ||
+                              c.character_name.toLowerCase().split(' ')[0] === search);
+  if (char) return char;
+
+  // 3. Partial match (name contains search term)
+  char = characters.find(c => c.character_name.toLowerCase().includes(search));
+  if (char) return char;
+
+  // 4. Search term contains character's first name
+  char = characters.find(c => {
+    const firstName = c.character_name.toLowerCase().split(' ')[0];
+    return search.includes(firstName) && firstName.length > 2;
+  });
+  if (char) return char;
+
+  return null;
+}
+
 // Helper function to get characters for a specific session
 function getSessionCharacters(sessionId) {
   return db.prepare(`
@@ -1956,7 +1986,7 @@ app.post('/api/sessions/:id/recalculate-xp', checkPassword, (req, res) => {
             if (xpMatch) {
               const charName = xpMatch[1].trim();
               const xpAmount = parseInt(xpMatch[2]);
-              const char = characters.find(c => c.character_name.toLowerCase() === charName.toLowerCase());
+              const char = findCharacterByName(characters, charName);
               if (char) {
                 xpAwarded[char.id] = (xpAwarded[char.id] || 0) + xpAmount;
               }
@@ -2015,7 +2045,7 @@ app.post('/api/sessions/:id/recalculate-loot', checkPassword, (req, res) => {
               const charName = goldMatch[1].trim();
               const sign = goldMatch[2] === '+' ? 1 : -1;
               const goldAmount = parseInt(goldMatch[3]) * sign;
-              const char = characters.find(c => c.character_name.toLowerCase() === charName.toLowerCase());
+              const char = findCharacterByName(characters, charName);
               if (char) {
                 goldAwarded[char.id] = (goldAwarded[char.id] || 0) + goldAmount;
               }
@@ -2043,7 +2073,7 @@ app.post('/api/sessions/:id/recalculate-loot', checkPassword, (req, res) => {
                 quantity = parseInt(qtyMatch[2]);
               }
 
-              const char = characters.find(c => c.character_name.toLowerCase() === charName.toLowerCase());
+              const char = findCharacterByName(characters, charName);
               if (char) {
                 inventoryChanges[char.id].push({
                   item: itemName,
@@ -2128,7 +2158,7 @@ app.post('/api/sessions/:id/recalculate-ac-spells', checkPassword, (req, res) =>
           const armorName = baseMatch[2].trim();
           const baseValue = parseInt(baseMatch[3]);
 
-          const char = characters.find(c => c.character_name.toLowerCase() === charName.toLowerCase());
+          const char = findCharacterByName(characters, charName);
           if (char) {
             acEffectsTracking[char.id].base_source = armorName;
             acEffectsTracking[char.id].base_value = baseValue;
@@ -2144,7 +2174,7 @@ app.post('/api/sessions/:id/recalculate-ac-spells', checkPassword, (req, res) =>
           const effectValue = parseInt(addMatch[3]);
           const effectType = addMatch[4].trim().toLowerCase();
 
-          const char = characters.find(c => c.character_name.toLowerCase() === charName.toLowerCase());
+          const char = findCharacterByName(characters, charName);
           if (char) {
             // Check if effect already exists
             const existingIdx = acEffectsTracking[char.id].effects.findIndex(e => e.name.toLowerCase() === effectName.toLowerCase());
@@ -2171,7 +2201,7 @@ app.post('/api/sessions/:id/recalculate-ac-spells', checkPassword, (req, res) =>
           const charName = removeMatch[1].trim();
           const effectName = removeMatch[2].trim();
 
-          const char = characters.find(c => c.character_name.toLowerCase() === charName.toLowerCase());
+          const char = findCharacterByName(characters, charName);
           if (char) {
             acEffectsTracking[char.id].effects = acEffectsTracking[char.id].effects.filter(
               e => e.name.toLowerCase() !== effectName.toLowerCase()
@@ -2196,7 +2226,7 @@ app.post('/api/sessions/:id/recalculate-ac-spells', checkPassword, (req, res) =>
           const restMatch = trimmed.match(/(.+?)\s*\+REST/i);
           if (restMatch) {
             const charName = restMatch[1].trim();
-            const char = characters.find(c => c.character_name.toLowerCase() === charName.toLowerCase());
+            const char = findCharacterByName(characters, charName);
             if (char) {
               // Reset all spell slots to max
               for (const level in spellSlotUsage[char.id]) {
@@ -2212,7 +2242,7 @@ app.post('/api/sessions/:id/recalculate-ac-spells', checkPassword, (req, res) =>
             const charName = slotMatch[1].trim();
             const isUsing = slotMatch[2] === '-';
             const level = slotMatch[3];
-            const char = characters.find(c => c.character_name.toLowerCase() === charName.toLowerCase());
+            const char = findCharacterByName(characters, charName);
             if (char) {
               if (!spellSlotUsage[char.id][level]) {
                 spellSlotUsage[char.id][level] = { used: 0, detected: true };
@@ -2235,7 +2265,7 @@ app.post('/api/sessions/:id/recalculate-ac-spells', checkPassword, (req, res) =>
     while ((naturalMatch = naturalSpellPattern.exec(content)) !== null) {
       const charName = naturalMatch[1].trim();
       const level = naturalMatch[2];
-      const char = characters.find(c => c.character_name.toLowerCase() === charName.toLowerCase());
+      const char = findCharacterByName(characters, charName);
       if (char) {
         if (!spellSlotUsage[char.id][level]) {
           spellSlotUsage[char.id][level] = { used: 0, detected: true };
@@ -2871,7 +2901,7 @@ Please narrate the outcome of these actions and describe what happens next.`;
           const charName = xpMatch[1].trim();
           const xpAmount = parseInt(xpMatch[2]);
           // Find character by name and update XP
-          const char = characters.find(c => c.character_name.toLowerCase() === charName.toLowerCase());
+          const char = findCharacterByName(characters, charName);
           if (char) {
             db.prepare('UPDATE characters SET xp = xp + ? WHERE id = ?').run(xpAmount, char.id);
             const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(char.id);
@@ -2900,7 +2930,7 @@ Please narrate the outcome of these actions and describe what happens next.`;
           const charName = moneyMatch[1].trim();
           const sign = moneyMatch[2] === '+' ? 1 : -1;
           const moneyAmount = parseInt(moneyMatch[3]) * sign;
-          const char = characters.find(c => c.character_name.toLowerCase() === charName.toLowerCase());
+          const char = findCharacterByName(characters, charName);
           if (char) {
             const newMoney = Math.max(0, (char.gold || 0) + moneyAmount);
             db.prepare('UPDATE characters SET gold = ? WHERE id = ?').run(newMoney, char.id);
@@ -2939,7 +2969,7 @@ Please narrate the outcome of these actions and describe what happens next.`;
 
           console.log(`Item ${isAdding ? 'add' : 'remove'}: "${itemName}" x${quantity} for "${charName}"`);
 
-          const char = characters.find(c => c.character_name.toLowerCase() === charName.toLowerCase());
+          const char = findCharacterByName(characters, charName);
           if (char) {
             let inventory = [];
             try {
@@ -3005,7 +3035,7 @@ Please narrate the outcome of these actions and describe what happens next.`;
           const isAdding = spellMatch[2] === '+';
           const slotLevel = spellMatch[3].trim().toLowerCase();
 
-          const char = characters.find(c => c.character_name.toLowerCase() === charName.toLowerCase());
+          const char = findCharacterByName(characters, charName);
           if (char) {
             let spellSlots = {};
             try {
@@ -3060,7 +3090,7 @@ Please narrate the outcome of these actions and describe what happens next.`;
         const armorName = baseMatch[2].trim();
         const baseValue = parseInt(baseMatch[3]);
 
-        const char = characters.find(c => c.character_name.toLowerCase() === charName.toLowerCase());
+        const char = findCharacterByName(characters, charName);
         if (char) {
           let acEffects = parseAcEffects(char.ac_effects);
           acEffects.base_source = armorName;
@@ -3080,7 +3110,7 @@ Please narrate the outcome of these actions and describe what happens next.`;
         const effectValue = parseInt(addMatch[3]);
         const effectType = addMatch[4].trim().toLowerCase();
 
-        const char = characters.find(c => c.character_name.toLowerCase() === charName.toLowerCase());
+        const char = findCharacterByName(characters, charName);
         if (char) {
           let acEffects = parseAcEffects(char.ac_effects);
           // Check if effect already exists, update it if so
@@ -3111,7 +3141,7 @@ Please narrate the outcome of these actions and describe what happens next.`;
         const charName = removeMatch[1].trim();
         const effectName = removeMatch[2].trim();
 
-        const char = characters.find(c => c.character_name.toLowerCase() === charName.toLowerCase());
+        const char = findCharacterByName(characters, charName);
         if (char) {
           let acEffects = parseAcEffects(char.ac_effects);
           acEffects.effects = acEffects.effects.filter(e => e.name.toLowerCase() !== effectName.toLowerCase());
@@ -3142,7 +3172,7 @@ Please narrate the outcome of these actions and describe what happens next.`;
         const value = parseInt(hpMatch[3]);
         console.log(`HP parsed: char="${charName}", op="${operator}", val=${value}`);
 
-        const char = characters.find(c => c.character_name.toLowerCase() === charName.toLowerCase());
+        const char = findCharacterByName(characters, charName);
         if (char) {
           let newHp;
           if (operator === '=') {
