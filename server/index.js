@@ -2848,14 +2848,25 @@ Please narrate the outcome of these actions and describe what happens next.`;
 
   fullHistory.push({ role: 'assistant', content: aiResponse, type: 'narration' });
 
+  // Debug: Log AI response to check for tags
+  console.log('=== AI Response received ===');
+  console.log('Looking for tags in response...');
+
+  // Check what tags exist in the response
+  const allTags = aiResponse.match(/\[[A-Z]+:[^\]]+\]/gi);
+  console.log('All tags found:', allTags);
+
   // Parse and award XP from AI response
   // Format: [XP: CharacterName +100, OtherCharacter +50]
-  const xpMatches = aiResponse.match(/\[XP:([^\]]+)\]/gi);
+  const xpMatches = aiResponse.match(/\[XP:\s*([^\]]+)\]/gi);
+  console.log('XP tags found:', xpMatches);
   if (xpMatches) {
     for (const match of xpMatches) {
-      const xpAwards = match.replace(/\[XP:/i, '').replace(']', '').split(',');
+      const xpAwards = match.replace(/\[XP:\s*/i, '').replace(']', '').split(',');
       for (const award of xpAwards) {
-        const xpMatch = award.trim().match(/(.+?)\s*\+(\d+)/);
+        // Allow optional spaces around the + sign
+        const xpMatch = award.trim().match(/(.+?)\s*\+\s*(\d+)/);
+        console.log('XP award parse:', award.trim(), '->', xpMatch);
         if (xpMatch) {
           const charName = xpMatch[1].trim();
           const xpAmount = parseInt(xpMatch[2]);
@@ -2863,7 +2874,11 @@ Please narrate the outcome of these actions and describe what happens next.`;
           const char = characters.find(c => c.character_name.toLowerCase() === charName.toLowerCase());
           if (char) {
             db.prepare('UPDATE characters SET xp = xp + ? WHERE id = ?').run(xpAmount, char.id);
-            io.emit('character_updated', { ...char, xp: (char.xp || 0) + xpAmount });
+            const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(char.id);
+            io.emit('character_updated', updatedChar);
+            console.log(`XP Update: ${char.character_name} +${xpAmount} -> ${updatedChar.xp} XP`);
+          } else {
+            console.log(`XP Update FAILED: Character "${charName}" not found in session`);
           }
         }
       }
@@ -2872,12 +2887,15 @@ Please narrate the outcome of these actions and describe what happens next.`;
 
   // Parse and award MONEY (or GOLD for backward compatibility) from AI response
   // Format: [MONEY: CharacterName +50, OtherCharacter -25] or [GOLD: CharacterName +50]
-  const moneyMatches = aiResponse.match(/\[(MONEY|GOLD):([^\]]+)\]/gi);
+  const moneyMatches = aiResponse.match(/\[(MONEY|GOLD):\s*([^\]]+)\]/gi);
+  console.log('MONEY/GOLD tags found:', moneyMatches);
   if (moneyMatches) {
     for (const match of moneyMatches) {
-      const moneyAwards = match.replace(/\[(MONEY|GOLD):/i, '').replace(']', '').split(',');
+      const moneyAwards = match.replace(/\[(MONEY|GOLD):\s*/i, '').replace(']', '').split(',');
       for (const award of moneyAwards) {
-        const moneyMatch = award.trim().match(/(.+?)\s*([+-])(\d+)/);
+        // Allow optional spaces around the operator
+        const moneyMatch = award.trim().match(/(.+?)\s*([+-])\s*(\d+)/);
+        console.log('Money award parse:', award.trim(), '->', moneyMatch);
         if (moneyMatch) {
           const charName = moneyMatch[1].trim();
           const sign = moneyMatch[2] === '+' ? 1 : -1;
@@ -2886,8 +2904,11 @@ Please narrate the outcome of these actions and describe what happens next.`;
           if (char) {
             const newMoney = Math.max(0, (char.gold || 0) + moneyAmount);
             db.prepare('UPDATE characters SET gold = ? WHERE id = ?').run(newMoney, char.id);
-            io.emit('character_updated', { ...char, gold: newMoney });
+            const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(char.id);
+            io.emit('character_updated', updatedChar);
             console.log(`Money update: ${char.character_name} ${sign > 0 ? '+' : ''}${moneyAmount} -> ${newMoney}`);
+          } else {
+            console.log(`Money Update FAILED: Character "${charName}" not found in session`);
           }
         }
       }
@@ -3105,17 +3126,21 @@ Please narrate the outcome of these actions and describe what happens next.`;
 
   // Parse and update HP from AI response
   // Format: [HP: CharacterName -10] (damage) or [HP: CharacterName +5] (healing) or [HP: CharacterName =20] (set to specific value)
-  const hpMatches = aiResponse.match(/\[HP:([^\]]+)\]/gi);
+  const hpMatches = aiResponse.match(/\[HP:\s*([^\]]+)\]/gi);
+  console.log('HP tags found:', hpMatches);
   if (hpMatches) {
     for (const match of hpMatches) {
-      const hpContent = match.replace(/\[HP:/i, '').replace(']', '').trim();
+      const hpContent = match.replace(/\[HP:\s*/i, '').replace(']', '').trim();
+      console.log('HP content:', hpContent);
 
-      // Match: CharacterName +/-/= Value
-      const hpMatch = hpContent.match(/(.+?)\s*([+\-=])(\d+)/);
+      // Match: CharacterName +/-/= Value (with optional spaces around operator)
+      const hpMatch = hpContent.match(/(.+?)\s*([+\-=])\s*(\d+)/);
+      console.log('HP regex match:', hpMatch);
       if (hpMatch) {
         const charName = hpMatch[1].trim();
         const operator = hpMatch[2];
         const value = parseInt(hpMatch[3]);
+        console.log(`HP parsed: char="${charName}", op="${operator}", val=${value}`);
 
         const char = characters.find(c => c.character_name.toLowerCase() === charName.toLowerCase());
         if (char) {
@@ -3129,8 +3154,11 @@ Please narrate the outcome of these actions and describe what happens next.`;
           }
 
           db.prepare('UPDATE characters SET hp = ? WHERE id = ?').run(newHp, char.id);
-          io.emit('character_updated', { ...char, hp: newHp });
+          const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(char.id);
+          io.emit('character_updated', updatedChar);
           console.log(`HP Update: ${char.character_name} ${operator}${value} -> ${newHp} HP`);
+        } else {
+          console.log(`HP Update FAILED: Character "${charName}" not found in session`);
         }
       }
     }
