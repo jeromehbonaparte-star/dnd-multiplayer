@@ -3260,25 +3260,38 @@ Please narrate the outcome of these actions and describe what happens next.`;
   }
 
   // Update session
-  const newTotalTokens = (session.total_tokens || 0) + tokensUsed;
+  // Calculate tokens based on recent history only (since last compaction)
+  // This prevents the issue where total API tokens (which include system prompt + summary)
+  // always exceed the threshold after compaction
+  const recentHistoryForTokenCount = fullHistory.slice(compactedCount);
+  const recentHistoryTokens = estimateTokens(JSON.stringify(recentHistoryForTokenCount));
 
   // Check if we need to compact
-  const maxTokens = parseInt(settings.max_tokens_before_compact);
+  const maxTokens = parseInt(settings.max_tokens_before_compact) || 8000;
   let newSummary = session.story_summary;
   let newCompactedCount = compactedCount;
 
-  if (newTotalTokens > maxTokens) {
+  // Only compact if:
+  // 1. Recent history tokens exceed threshold
+  // 2. There are at least 4 messages since last compaction (prevent rapid re-compacting)
+  const minMessagesBeforeCompact = 4;
+  const shouldCompact = recentHistoryTokens > maxTokens && recentHistoryForTokenCount.length >= minMessagesBeforeCompact;
+
+  console.log(`Token check: recentHistoryTokens=${recentHistoryTokens}, maxTokens=${maxTokens}, messagesSinceCompact=${recentHistoryForTokenCount.length}, shouldCompact=${shouldCompact}`);
+
+  if (shouldCompact) {
+    console.log('Compacting history...');
     // Compact the recent history (messages since last compaction)
     const recentHistoryToCompact = fullHistory.slice(compactedCount);
     newSummary = await compactHistory(apiConfig, session.story_summary, recentHistoryToCompact);
     // Mark all current messages as compacted
     newCompactedCount = fullHistory.length;
-    // Keep full history for display, but reset token count since we'll use summary for AI context
+    // Keep full history for display, reset token tracking
     db.prepare('UPDATE game_sessions SET story_summary = ?, full_history = ?, compacted_count = ?, total_tokens = 0, current_turn = current_turn + 1 WHERE id = ?')
       .run(newSummary, JSON.stringify(fullHistory), newCompactedCount, sessionId);
   } else {
     db.prepare('UPDATE game_sessions SET full_history = ?, total_tokens = ?, current_turn = current_turn + 1 WHERE id = ?')
-      .run(JSON.stringify(fullHistory), newTotalTokens, sessionId);
+      .run(JSON.stringify(fullHistory), recentHistoryTokens, sessionId);
   }
 
   // Clear pending actions
@@ -3289,11 +3302,11 @@ Please narrate the outcome of these actions and describe what happens next.`;
     sessionId,
     response: aiResponse,
     turn: session.current_turn + 1,
-    tokensUsed: newTotalTokens,
-    compacted: newTotalTokens > maxTokens
+    tokensUsed: recentHistoryTokens,
+    compacted: shouldCompact
   });
 
-  return { response: aiResponse, tokensUsed: newTotalTokens };
+  return { response: aiResponse, tokensUsed: recentHistoryTokens };
 }
 
 // Compact history function
