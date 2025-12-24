@@ -2847,6 +2847,17 @@ Please narrate the outcome of these actions and describe what happens next.`;
     ...aiMessages
   ];
 
+  // Debug: Log what's being sent to AI
+  console.log('=== AI Request Debug ===');
+  console.log(`Compacted count: ${compactedCount}`);
+  console.log(`Full history length: ${fullHistory.length}`);
+  console.log(`Recent history length (sent to AI): ${recentHistory.length}`);
+  console.log(`Has story summary: ${!!session.story_summary}`);
+  if (session.story_summary) {
+    console.log(`Story summary length: ${session.story_summary.length} chars`);
+  }
+  console.log(`Total messages to AI: ${messages.length} (1 system + ${aiMessages.length} conversation)`);
+
   // Call AI API
   const response = await fetch(apiConfig.api_endpoint, {
     method: 'POST',
