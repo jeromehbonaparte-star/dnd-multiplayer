@@ -1427,22 +1427,20 @@ function toggleSection(charId, section) {
   sectionExpandedStates[charId][section] = !getSectionState(charId, section);
   saveSectionStates();
 
-  // Update the section visually
+  // Update ALL matching sections visually (both party sidebar and character cards)
   const selector = `.section-collapsible[data-char="${charId}"][data-section="${section}"]`;
-  console.log('Looking for element with selector:', selector);
-  const sectionEl = document.querySelector(selector);
-  console.log('Found element:', sectionEl);
+  const sectionEls = document.querySelectorAll(selector);
+  console.log('Found elements:', sectionEls.length);
 
-  if (sectionEl) {
+  sectionEls.forEach(sectionEl => {
     sectionEl.classList.toggle('expanded', sectionExpandedStates[charId][section]);
     const icon = sectionEl.querySelector('.section-toggle-icon');
     if (icon) {
       icon.textContent = sectionExpandedStates[charId][section] ? '▼' : '▶';
     }
-    console.log('Section toggled, expanded:', sectionExpandedStates[charId][section]);
-  } else {
-    console.error('Could not find section element!');
-  }
+  });
+
+  console.log('Section toggled, expanded:', sectionExpandedStates[charId][section]);
 }
 
 // Use event delegation for section toggle - attach once to document
