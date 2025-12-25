@@ -178,6 +178,29 @@
         </div>
         <p class="settings-note">DM Instructions are built-in and automatically updated with new features (XP tracking, dice rolling, etc.)</p>
 
+        <h2>Text-to-Speech (TTS)</h2>
+        <p class="settings-note">AI-powered narration for DM messages. Click the speaker icon on any DM message to hear it read aloud.</p>
+        <div class="form-group">
+          <label>Voice</label>
+          <select id="tts-voice" onchange="ttsManager.setVoice(this.value)">
+            <option value="alloy">Alloy (Neutral)</option>
+            <option value="echo">Echo (Male)</option>
+            <option value="fable">Fable (British)</option>
+            <option value="onyx" selected>Onyx (Deep Male)</option>
+            <option value="nova">Nova (Female)</option>
+            <option value="shimmer">Shimmer (Soft Female)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Speed: <span id="tts-speed-value">1.0x</span></label>
+          <input type="range" id="tts-speed" min="0.5" max="2.0" step="0.1" value="1.0"
+                 oninput="document.getElementById('tts-speed-value').textContent = this.value + 'x'; ttsManager.setSpeed(this.value)">
+        </div>
+        <div class="form-group">
+          <button onclick="ttsManager.stop()" class="btn-secondary">Stop Current Playback</button>
+        </div>
+        <p class="settings-note">TTS requires an OpenAI API key. Set OPENAI_TTS_API_KEY in environment, or use an OpenAI configuration above.</p>
+
         <h2>Security</h2>
         <div class="form-group">
           <label>Change Game Password</label>

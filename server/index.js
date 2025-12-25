@@ -3364,6 +3364,144 @@ function estimateTokens(text) {
   return Math.ceil(text.length / 4);
 }
 
+// ============================================
+// TTS (Text-to-Speech) Functions
+// ============================================
+
+// Split text into chunks for TTS (OpenAI limit is 4096 chars)
+function splitTextForTTS(text, maxLength = 4000) {
+  const chunks = [];
+
+  // Split by sentence-ending punctuation, keeping the punctuation
+  const sentences = text.match(/[^.!?]+[.!?]+[\s]*/g) || [text];
+  let currentChunk = '';
+
+  for (const sentence of sentences) {
+    // If single sentence exceeds max, split by clauses
+    if (sentence.length > maxLength) {
+      if (currentChunk) {
+        chunks.push(currentChunk.trim());
+        currentChunk = '';
+      }
+      // Split long sentence by commas/semicolons
+      const clauses = sentence.split(/(?<=[,;])\s*/);
+      for (const clause of clauses) {
+        if ((currentChunk + clause).length > maxLength) {
+          if (currentChunk) chunks.push(currentChunk.trim());
+          currentChunk = clause;
+        } else {
+          currentChunk += clause;
+        }
+      }
+    } else if ((currentChunk + sentence).length > maxLength) {
+      chunks.push(currentChunk.trim());
+      currentChunk = sentence;
+    } else {
+      currentChunk += sentence;
+    }
+  }
+
+  if (currentChunk.trim()) {
+    chunks.push(currentChunk.trim());
+  }
+
+  return chunks.length > 0 ? chunks : [text];
+}
+
+// Get TTS metadata (chunk count and info)
+app.post('/api/tts/info', checkPassword, (req, res) => {
+  const { text } = req.body;
+
+  if (!text) {
+    return res.status(400).json({ error: 'Text is required' });
+  }
+
+  const chunks = splitTextForTTS(text);
+
+  res.json({
+    totalChunks: chunks.length,
+    totalLength: text.length,
+    chunks: chunks.map((c, i) => ({
+      index: i,
+      length: c.length,
+      preview: c.substring(0, 50) + (c.length > 50 ? '...' : '')
+    }))
+  });
+});
+
+// Generate TTS audio for a chunk
+app.post('/api/tts/audio', checkPassword, async (req, res) => {
+  const { text, chunkIndex = 0, voice = 'alloy', speed = 1.0 } = req.body;
+
+  if (!text) {
+    return res.status(400).json({ error: 'Text is required' });
+  }
+
+  // Get API key - use existing OpenAI-compatible config or dedicated TTS key
+  const ttsApiKey = process.env.OPENAI_TTS_API_KEY || getOpenAIApiKey();
+
+  if (!ttsApiKey) {
+    return res.status(400).json({ error: 'No OpenAI API key configured for TTS. Add OPENAI_TTS_API_KEY to environment or configure an OpenAI API in settings.' });
+  }
+
+  const chunks = splitTextForTTS(text);
+  const chunk = chunks[parseInt(chunkIndex)];
+
+  if (!chunk) {
+    return res.status(404).json({ error: 'Chunk not found' });
+  }
+
+  try {
+    console.log(`TTS Request: chunk ${chunkIndex + 1}/${chunks.length}, ${chunk.length} chars, voice: ${voice}, speed: ${speed}`);
+
+    const response = await fetch('https://api.openai.com/v1/audio/speech', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${ttsApiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'tts-1',
+        input: chunk,
+        voice: voice,
+        speed: parseFloat(speed) || 1.0
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('TTS API Error:', errorText);
+      return res.status(response.status).json({ error: `TTS API Error: ${errorText}` });
+    }
+
+    // Stream the audio response back
+    res.set('Content-Type', 'audio/mpeg');
+    res.set('X-Chunk-Index', chunkIndex.toString());
+    res.set('X-Total-Chunks', chunks.length.toString());
+
+    const arrayBuffer = await response.arrayBuffer();
+    res.send(Buffer.from(arrayBuffer));
+
+  } catch (error) {
+    console.error('TTS Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Helper to get OpenAI API key from active config
+function getOpenAIApiKey() {
+  const activeConfig = getActiveApiConfig();
+  if (activeConfig && activeConfig.api_endpoint && activeConfig.api_endpoint.includes('openai.com')) {
+    return activeConfig.api_key;
+  }
+  // Check all configs for an OpenAI one
+  const configs = db.prepare('SELECT * FROM api_configs WHERE endpoint LIKE ?').all('%openai.com%');
+  if (configs.length > 0) {
+    return configs[0].api_key;
+  }
+  return null;
+}
+
 // Socket.IO connection
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);

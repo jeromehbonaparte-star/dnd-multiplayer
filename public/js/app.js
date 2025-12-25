@@ -7,6 +7,203 @@ let characters = [];  // All characters (for character selection)
 let sessionCharacters = [];  // Characters for the current session
 let socket = null;
 
+// ============================================
+// TTS (Text-to-Speech) Manager
+// ============================================
+
+class TTSManager {
+  constructor() {
+    this.voice = localStorage.getItem('tts-voice') || 'onyx';
+    this.speed = parseFloat(localStorage.getItem('tts-speed')) || 1.0;
+    this.currentAudio = null;
+    this.isPlaying = false;
+    this.currentText = null;
+    this.currentChunkIndex = 0;
+    this.totalChunks = 0;
+    this.onStateChange = null; // Callback for UI updates
+  }
+
+  setVoice(voice) {
+    this.voice = voice;
+    localStorage.setItem('tts-voice', voice);
+  }
+
+  setSpeed(speed) {
+    this.speed = parseFloat(speed);
+    localStorage.setItem('tts-speed', this.speed.toString());
+  }
+
+  async speak(text, buttonEl = null) {
+    // Stop any current playback
+    this.stop();
+
+    this.currentText = text;
+    this.currentChunkIndex = 0;
+    this.activeButton = buttonEl;
+
+    try {
+      // Get chunk info first
+      const info = await api('/api/tts/info', 'POST', { text });
+      this.totalChunks = info.totalChunks;
+
+      console.log(`TTS: Starting playback of ${this.totalChunks} chunks`);
+
+      // Update button state
+      if (this.activeButton) {
+        this.activeButton.classList.add('tts-playing');
+        this.activeButton.innerHTML = '⏹';
+        this.activeButton.title = 'Stop (playing...)';
+      }
+
+      // Start playing chunks
+      await this.playChunk(0);
+
+    } catch (error) {
+      console.error('TTS Error:', error);
+      this.resetState();
+      showNotification('TTS Error: ' + (error.message || 'Failed to generate speech'));
+    }
+  }
+
+  async playChunk(index) {
+    if (index >= this.totalChunks || !this.currentText) {
+      this.resetState();
+      return;
+    }
+
+    this.currentChunkIndex = index;
+    this.isPlaying = true;
+
+    try {
+      // Fetch audio for this chunk
+      const response = await fetch('/api/tts/audio', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Game-Password': password
+        },
+        body: JSON.stringify({
+          text: this.currentText,
+          chunkIndex: index,
+          voice: this.voice,
+          speed: this.speed
+        })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to generate audio');
+      }
+
+      const audioBlob = await response.blob();
+      const audioUrl = URL.createObjectURL(audioBlob);
+
+      this.currentAudio = new Audio(audioUrl);
+
+      // Update progress indicator
+      if (this.activeButton && this.totalChunks > 1) {
+        this.activeButton.title = `Stop (${index + 1}/${this.totalChunks})`;
+      }
+
+      // Play and chain to next chunk
+      this.currentAudio.onended = () => {
+        URL.revokeObjectURL(audioUrl);
+        this.playChunk(index + 1);
+      };
+
+      this.currentAudio.onerror = (e) => {
+        console.error('Audio playback error:', e);
+        URL.revokeObjectURL(audioUrl);
+        this.resetState();
+      };
+
+      await this.currentAudio.play();
+
+      // Pre-fetch next chunk for smoother playback
+      if (index + 1 < this.totalChunks) {
+        this.prefetchChunk(index + 1);
+      }
+
+    } catch (error) {
+      console.error('TTS playback error:', error);
+      this.resetState();
+      showNotification('TTS Error: ' + error.message);
+    }
+  }
+
+  async prefetchChunk(index) {
+    // Pre-fetch in background for smoother playback
+    try {
+      fetch('/api/tts/audio', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Game-Password': password
+        },
+        body: JSON.stringify({
+          text: this.currentText,
+          chunkIndex: index,
+          voice: this.voice,
+          speed: this.speed
+        })
+      });
+    } catch (e) {
+      // Ignore prefetch errors
+    }
+  }
+
+  stop() {
+    if (this.currentAudio) {
+      this.currentAudio.pause();
+      this.currentAudio.src = '';
+      this.currentAudio = null;
+    }
+    this.resetState();
+  }
+
+  resetState() {
+    this.isPlaying = false;
+    this.currentText = null;
+    this.currentChunkIndex = 0;
+    this.totalChunks = 0;
+
+    // Reset button state
+    if (this.activeButton) {
+      this.activeButton.classList.remove('tts-playing');
+      this.activeButton.innerHTML = '🔊';
+      this.activeButton.title = 'Play narration';
+    }
+    this.activeButton = null;
+
+    if (this.onStateChange) {
+      this.onStateChange(false);
+    }
+  }
+
+  togglePlayback(text, buttonEl) {
+    if (this.isPlaying && this.currentText === text) {
+      this.stop();
+    } else {
+      this.speak(text, buttonEl);
+    }
+  }
+}
+
+// Global TTS Manager instance
+const ttsManager = new TTSManager();
+
+// TTS click handler for play buttons
+function handleTTSClick(buttonEl) {
+  // Decode the base64-encoded content from data attribute
+  const encodedContent = buttonEl.dataset.ttsContent;
+  if (!encodedContent) {
+    showNotification('TTS Error: No content found');
+    return;
+  }
+  const text = decodeURIComponent(atob(encodedContent));
+  ttsManager.togglePlayback(text, buttonEl);
+}
+
 // State persistence for mobile tab switching
 function saveAppState() {
   const state = {
@@ -341,6 +538,21 @@ async function loadSettings() {
     document.getElementById('max-tokens').value = settings.max_tokens_before_compact || 8000;
     // Load API configurations
     await loadApiConfigs();
+
+    // Restore TTS settings from localStorage
+    const ttsVoiceEl = document.getElementById('tts-voice');
+    const ttsSpeedEl = document.getElementById('tts-speed');
+    const ttsSpeedValueEl = document.getElementById('tts-speed-value');
+
+    if (ttsVoiceEl) {
+      ttsVoiceEl.value = ttsManager.voice;
+    }
+    if (ttsSpeedEl) {
+      ttsSpeedEl.value = ttsManager.speed;
+    }
+    if (ttsSpeedValueEl) {
+      ttsSpeedValueEl.textContent = ttsManager.speed + 'x';
+    }
   } catch (error) {
     console.error('Failed to load settings:', error);
   }
@@ -1510,10 +1722,16 @@ function renderStoryHistory(history) {
         turnActions = [];
       }
 
-      // Render DM narration
+      // Render DM narration with TTS play button
+      const ttsId = 'tts-' + Math.random().toString(36).substr(2, 9);
+      // Store content in base64 to avoid escaping issues with special characters
+      const ttsContent = btoa(encodeURIComponent(entry.content));
       html += `
         <div class="story-entry assistant narration">
-          <div class="role">Dungeon Master</div>
+          <div class="narration-header">
+            <div class="role">Dungeon Master</div>
+            <button class="tts-play-btn" id="${ttsId}" data-tts-content="${ttsContent}" onclick="handleTTSClick(this)" title="Play narration">🔊</button>
+          </div>
           <div class="content">${formatContent(entry.content)}</div>
         </div>
       `;
