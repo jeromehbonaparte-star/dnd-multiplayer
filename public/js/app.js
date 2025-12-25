@@ -907,7 +907,7 @@ async function loadAutoReplyCharacters() {
 
   try {
     const data = await api(`/api/sessions/${sessionId}`);
-    const characters = data.characters || [];
+    const characters = data.sessionCharacters || [];
 
     if (characters.length === 0) {
       charSelect.innerHTML = '<option value="">No characters in this session</option>';
