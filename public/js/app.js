@@ -7,6 +7,27 @@ let characters = [];  // All characters (for character selection)
 let sessionCharacters = [];  // Characters for the current session
 let socket = null;
 
+// Global click handler for section toggles (using capture phase to ensure it fires)
+document.addEventListener('click', function(e) {
+  // Check if clicked element or any parent is a section-header
+  const header = e.target.closest('.section-header');
+  if (header) {
+    const parent = header.closest('.section-collapsible');
+    if (parent) {
+      const charId = parent.dataset.char;
+      const section = parent.dataset.section;
+      if (charId && section) {
+        console.log('Global handler caught click on section:', { charId, section });
+        e.preventDefault();
+        e.stopPropagation();
+        if (typeof toggleSection === 'function') {
+          toggleSection(charId, section);
+        }
+      }
+    }
+  }
+}, true); // true = capture phase
+
 // ============================================
 // TTS (Text-to-Speech) Manager
 // ============================================
