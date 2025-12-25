@@ -3029,9 +3029,6 @@ window.addEventListener('beforeunload', () => {
 // ============================================
 
 let currentCombat = null;
-let combatEnemyList = [];
-let combatPartyInitiatives = [];
-let editingCombatantId = null;
 
 // Load combat state when session loads
 async function loadCombat() {
@@ -3047,16 +3044,16 @@ async function loadCombat() {
 }
 
 function renderCombatTracker() {
-  const noComabatMsg = document.getElementById('no-combat-message');
+  const noCombatMsg = document.getElementById('no-combat-message');
   const combatActive = document.getElementById('combat-active');
 
   if (!currentCombat) {
-    noComabatMsg.style.display = 'block';
+    noCombatMsg.style.display = 'block';
     combatActive.style.display = 'none';
     return;
   }
 
-  noComabatMsg.style.display = 'none';
+  noCombatMsg.style.display = 'none';
   combatActive.style.display = 'block';
 
   document.getElementById('combat-name').textContent = currentCombat.name || 'Combat';
@@ -3071,8 +3068,7 @@ function renderCombatTracker() {
     const conditions = (c.conditions || []).join(', ');
 
     return `
-      <div class="combatant ${isCurrent ? 'current-turn' : ''} ${!c.is_active ? 'defeated' : ''} ${isPlayer ? 'player' : 'enemy'}"
-           onclick="openCombatantModal('${c.id}')">
+      <div class="combatant ${isCurrent ? 'current-turn' : ''} ${!c.is_active ? 'defeated' : ''} ${isPlayer ? 'player' : 'enemy'}">
         <div class="combatant-init">${c.initiative}</div>
         <div class="combatant-info">
           <div class="combatant-name">${escapeHtml(c.name)}</div>
@@ -3086,343 +3082,10 @@ function renderCombatTracker() {
       </div>
     `;
   }).join('');
-
-  // Add button to add more combatants
-  orderEl.innerHTML += `
-    <div class="add-combatant-btn" onclick="openAddCombatantModal()">
-      + Add Combatant
-    </div>
-  `;
 }
 
-// Start Combat Modal
-function openStartCombatModal() {
-  if (!currentSession) {
-    alert('Please select a session first');
-    return;
-  }
+// Combat is now AI-driven - manual controls removed
 
-  combatEnemyList = [];
-  combatPartyInitiatives = sessionCharacters.map(c => ({
-    character_id: c.id,
-    name: c.character_name,
-    initiative: null,
-    hp: c.hp,
-    max_hp: c.max_hp,
-    ac: c.ac || 10,
-    is_player: true
-  }));
-
-  renderPartyInitiativeList();
-  renderEnemyList();
-
-  document.getElementById('combat-name-input').value = '';
-  document.getElementById('start-combat-modal').classList.add('active');
-}
-
-function closeStartCombatModal() {
-  document.getElementById('start-combat-modal').classList.remove('active');
-}
-
-function renderPartyInitiativeList() {
-  const listEl = document.getElementById('party-initiative-list');
-  listEl.innerHTML = combatPartyInitiatives.map((p, idx) => `
-    <div class="party-init-row">
-      <span class="init-name">${escapeHtml(p.name)}</span>
-      <input type="number" class="init-input" value="${p.initiative || ''}"
-             onchange="updatePartyInitiative(${idx}, this.value)" placeholder="Init">
-      <span class="init-info">HP:${p.hp} AC:${p.ac}</span>
-    </div>
-  `).join('');
-}
-
-function updatePartyInitiative(idx, value) {
-  combatPartyInitiatives[idx].initiative = parseInt(value) || null;
-}
-
-async function rollAllPartyInitiative() {
-  if (!currentSession) return;
-
-  try {
-    const result = await api(`/api/sessions/${currentSession.id}/combat/roll-party-initiative`, 'POST');
-    combatPartyInitiatives = result.initiatives;
-    renderPartyInitiativeList();
-  } catch (error) {
-    alert('Failed to roll initiative: ' + error.message);
-  }
-}
-
-function renderEnemyList() {
-  const listEl = document.getElementById('enemy-list');
-  if (combatEnemyList.length === 0) {
-    listEl.innerHTML = '<div class="no-enemies">No enemies added yet</div>';
-    return;
-  }
-
-  listEl.innerHTML = combatEnemyList.map((e, idx) => `
-    <div class="enemy-row">
-      <span class="enemy-name">${escapeHtml(e.name)}</span>
-      <span>Init: ${e.initiative || '?'}</span>
-      <span>HP: ${e.hp}</span>
-      <span>AC: ${e.ac}</span>
-      <button onclick="removeEnemy(${idx})" class="btn-tiny btn-danger">X</button>
-    </div>
-  `).join('');
-}
-
-function addEnemyToList() {
-  const name = document.getElementById('new-enemy-name').value.trim();
-  const init = parseInt(document.getElementById('new-enemy-init').value) || Math.floor(Math.random() * 20) + 1;
-  const hp = parseInt(document.getElementById('new-enemy-hp').value) || 10;
-  const ac = parseInt(document.getElementById('new-enemy-ac').value) || 10;
-
-  if (!name) {
-    alert('Please enter an enemy name');
-    return;
-  }
-
-  combatEnemyList.push({
-    name,
-    initiative: init,
-    hp,
-    max_hp: hp,
-    ac,
-    is_player: false
-  });
-
-  // Clear inputs
-  document.getElementById('new-enemy-name').value = '';
-  document.getElementById('new-enemy-init').value = '';
-  document.getElementById('new-enemy-hp').value = '';
-  document.getElementById('new-enemy-ac').value = '';
-
-  renderEnemyList();
-}
-
-function removeEnemy(idx) {
-  combatEnemyList.splice(idx, 1);
-  renderEnemyList();
-}
-
-async function startCombat() {
-  if (!currentSession) return;
-
-  const name = document.getElementById('combat-name-input').value.trim() || 'Combat';
-
-  // Combine party and enemies
-  const allCombatants = [
-    ...combatPartyInitiatives.filter(p => p.initiative !== null).map(p => ({
-      character_id: p.character_id,
-      name: p.name,
-      initiative: p.initiative,
-      hp: p.hp,
-      max_hp: p.max_hp,
-      ac: p.ac,
-      is_player: true
-    })),
-    ...combatEnemyList.map(e => ({
-      name: e.name,
-      initiative: e.initiative,
-      hp: e.hp,
-      max_hp: e.max_hp,
-      ac: e.ac,
-      is_player: false
-    }))
-  ];
-
-  if (allCombatants.length === 0) {
-    alert('Please add at least one combatant with initiative');
-    return;
-  }
-
-  try {
-    const result = await api(`/api/sessions/${currentSession.id}/combat/start`, 'POST', {
-      name,
-      combatants: allCombatants
-    });
-    currentCombat = result.combat;
-    renderCombatTracker();
-    closeStartCombatModal();
-    showNotification('Combat started!');
-  } catch (error) {
-    alert('Failed to start combat: ' + error.message);
-  }
-}
-
-// Combat controls
-async function nextTurn() {
-  if (!currentSession || !currentCombat) return;
-
-  try {
-    const result = await api(`/api/sessions/${currentSession.id}/combat/next-turn`, 'POST');
-    currentCombat = result.combat;
-    renderCombatTracker();
-  } catch (error) {
-    alert('Failed to advance turn: ' + error.message);
-  }
-}
-
-async function prevTurn() {
-  if (!currentSession || !currentCombat) return;
-
-  try {
-    const result = await api(`/api/sessions/${currentSession.id}/combat/prev-turn`, 'POST');
-    currentCombat = result.combat;
-    renderCombatTracker();
-  } catch (error) {
-    alert('Failed to go back: ' + error.message);
-  }
-}
-
-async function endCombat() {
-  if (!currentSession || !currentCombat) return;
-
-  if (!confirm('End the current combat?')) return;
-
-  try {
-    await api(`/api/sessions/${currentSession.id}/combat/end`, 'POST');
-    currentCombat = null;
-    renderCombatTracker();
-    showNotification('Combat ended');
-  } catch (error) {
-    alert('Failed to end combat: ' + error.message);
-  }
-}
-
-// Combatant edit modal
-function openCombatantModal(combatantId) {
-  if (!currentCombat) return;
-
-  const combatant = currentCombat.combatants.find(c => c.id === combatantId);
-  if (!combatant) return;
-
-  editingCombatantId = combatantId;
-
-  document.getElementById('combatant-modal-title').textContent = `Edit: ${combatant.name}`;
-  document.getElementById('combatant-hp').value = combatant.hp;
-  document.getElementById('combatant-max-hp').textContent = combatant.max_hp;
-  document.getElementById('combatant-initiative').value = combatant.initiative;
-  document.getElementById('combatant-notes').value = combatant.notes || '';
-  document.getElementById('combatant-active').checked = combatant.is_active;
-
-  // Set conditions checkboxes
-  const conditions = combatant.conditions || [];
-  document.querySelectorAll('.conditions-grid input[type="checkbox"]').forEach(cb => {
-    cb.checked = conditions.includes(cb.value);
-  });
-
-  document.getElementById('combatant-modal').classList.add('active');
-}
-
-function closeCombatantModal() {
-  document.getElementById('combatant-modal').classList.remove('active');
-  editingCombatantId = null;
-}
-
-function quickDamage(amount) {
-  const hpInput = document.getElementById('combatant-hp');
-  hpInput.value = Math.max(0, parseInt(hpInput.value) - amount);
-}
-
-function quickHeal(amount) {
-  const hpInput = document.getElementById('combatant-hp');
-  const maxHp = parseInt(document.getElementById('combatant-max-hp').textContent) || 999;
-  hpInput.value = Math.min(maxHp, parseInt(hpInput.value) + amount);
-}
-
-async function saveCombatant() {
-  if (!currentSession || !editingCombatantId) return;
-
-  const hp = parseInt(document.getElementById('combatant-hp').value);
-  const initiative = parseInt(document.getElementById('combatant-initiative').value);
-  const notes = document.getElementById('combatant-notes').value;
-  const isActive = document.getElementById('combatant-active').checked;
-
-  const conditions = [];
-  document.querySelectorAll('.conditions-grid input[type="checkbox"]:checked').forEach(cb => {
-    conditions.push(cb.value);
-  });
-
-  try {
-    const result = await api(`/api/sessions/${currentSession.id}/combat/update-combatant`, 'POST', {
-      combatant_id: editingCombatantId,
-      hp,
-      initiative,
-      conditions,
-      notes,
-      is_active: isActive
-    });
-    currentCombat = result.combat;
-    renderCombatTracker();
-    closeCombatantModal();
-  } catch (error) {
-    alert('Failed to update combatant: ' + error.message);
-  }
-}
-
-async function removeCombatant() {
-  if (!currentSession || !editingCombatantId) return;
-
-  if (!confirm('Remove this combatant from combat?')) return;
-
-  try {
-    const result = await api(`/api/sessions/${currentSession.id}/combat/remove-combatant`, 'POST', {
-      combatant_id: editingCombatantId
-    });
-    currentCombat = result.combat;
-    renderCombatTracker();
-    closeCombatantModal();
-  } catch (error) {
-    alert('Failed to remove combatant: ' + error.message);
-  }
-}
-
-// Add combatant mid-combat
-function openAddCombatantModal() {
-  document.getElementById('add-combatant-name').value = '';
-  document.getElementById('add-combatant-init').value = '';
-  document.getElementById('add-combatant-hp').value = '10';
-  document.getElementById('add-combatant-max-hp').value = '10';
-  document.getElementById('add-combatant-ac').value = '10';
-  document.getElementById('add-combatant-is-player').checked = false;
-  document.getElementById('add-combatant-modal').classList.add('active');
-}
-
-function closeAddCombatantModal() {
-  document.getElementById('add-combatant-modal').classList.remove('active');
-}
-
-async function addCombatantMidCombat() {
-  if (!currentSession || !currentCombat) return;
-
-  const name = document.getElementById('add-combatant-name').value.trim();
-  const initiative = parseInt(document.getElementById('add-combatant-init').value);
-  const hp = parseInt(document.getElementById('add-combatant-hp').value) || 10;
-  const maxHp = parseInt(document.getElementById('add-combatant-max-hp').value) || hp;
-  const ac = parseInt(document.getElementById('add-combatant-ac').value) || 10;
-  const isPlayer = document.getElementById('add-combatant-is-player').checked;
-
-  if (!name) {
-    alert('Please enter a name');
-    return;
-  }
-
-  try {
-    const result = await api(`/api/sessions/${currentSession.id}/combat/add-combatant`, 'POST', {
-      name,
-      initiative: initiative || Math.floor(Math.random() * 20) + 1,
-      hp,
-      max_hp: maxHp,
-      ac,
-      is_player: isPlayer
-    });
-    currentCombat = result.combat;
-    renderCombatTracker();
-    closeAddCombatantModal();
-  } catch (error) {
-    alert('Failed to add combatant: ' + error.message);
-  }
-}
 
 // ============================================
 // QUICK EDIT MODAL (Direct field editing)

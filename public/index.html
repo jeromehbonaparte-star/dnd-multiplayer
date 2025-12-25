@@ -51,21 +51,13 @@
 
           <h3>Combat Tracker</h3>
           <div id="combat-tracker">
-            <div id="no-combat-message">No active combat</div>
+            <div id="no-combat-message">No active combat<br><small>The AI will start combat when needed</small></div>
             <div id="combat-active" style="display: none;">
               <div class="combat-header">
                 <span id="combat-name">Combat</span>
                 <span id="combat-round">Round 1</span>
               </div>
               <div id="initiative-order"></div>
-              <div class="combat-controls">
-                <button onclick="prevTurn()" class="btn-small">Prev</button>
-                <button onclick="nextTurn()" class="btn-small btn-primary">Next Turn</button>
-                <button onclick="endCombat()" class="btn-small btn-danger">End</button>
-              </div>
-            </div>
-            <div class="combat-start-controls">
-              <button onclick="openStartCombatModal()" class="btn-combat">Start Combat</button>
             </div>
           </div>
 
@@ -485,127 +477,6 @@
     </div>
   </div>
 
-  <!-- Start Combat Modal -->
-  <div id="start-combat-modal" class="modal">
-    <div class="modal-content combat-modal-content">
-      <span class="modal-close" onclick="closeStartCombatModal()">&times;</span>
-      <h2>Start Combat</h2>
-      <div class="form-group">
-        <label>Combat Name</label>
-        <input type="text" id="combat-name-input" placeholder="e.g., Goblin Ambush">
-      </div>
-
-      <h3>Party Initiative</h3>
-      <div id="party-initiative-list"></div>
-      <button onclick="rollAllPartyInitiative()" class="btn-secondary">Roll All Party Initiative</button>
-
-      <h3>Add Enemies/NPCs</h3>
-      <div id="enemy-list"></div>
-      <div class="add-enemy-form">
-        <input type="text" id="new-enemy-name" placeholder="Name (e.g., Goblin 1)">
-        <input type="number" id="new-enemy-init" placeholder="Init" style="width: 60px;">
-        <input type="number" id="new-enemy-hp" placeholder="HP" style="width: 60px;">
-        <input type="number" id="new-enemy-ac" placeholder="AC" style="width: 60px;">
-        <button onclick="addEnemyToList()" class="btn-small">Add</button>
-      </div>
-
-      <div class="modal-buttons">
-        <button onclick="startCombat()" class="btn-primary">Start Combat</button>
-        <button onclick="closeStartCombatModal()" class="btn-secondary">Cancel</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Combatant Edit Modal -->
-  <div id="combatant-modal" class="modal">
-    <div class="modal-content combatant-modal-content">
-      <span class="modal-close" onclick="closeCombatantModal()">&times;</span>
-      <h2 id="combatant-modal-title">Edit Combatant</h2>
-      <div class="form-group">
-        <label>HP</label>
-        <div class="hp-controls">
-          <button onclick="quickDamage(5)" class="btn-damage">-5</button>
-          <button onclick="quickDamage(1)" class="btn-damage">-1</button>
-          <input type="number" id="combatant-hp" min="0">
-          <span>/</span>
-          <span id="combatant-max-hp">0</span>
-          <button onclick="quickHeal(1)" class="btn-heal">+1</button>
-          <button onclick="quickHeal(5)" class="btn-heal">+5</button>
-        </div>
-      </div>
-      <div class="form-group">
-        <label>Initiative</label>
-        <input type="number" id="combatant-initiative">
-      </div>
-      <div class="form-group">
-        <label>Conditions</label>
-        <div class="conditions-grid">
-          <label><input type="checkbox" value="Blinded"> Blinded</label>
-          <label><input type="checkbox" value="Charmed"> Charmed</label>
-          <label><input type="checkbox" value="Deafened"> Deafened</label>
-          <label><input type="checkbox" value="Frightened"> Frightened</label>
-          <label><input type="checkbox" value="Grappled"> Grappled</label>
-          <label><input type="checkbox" value="Incapacitated"> Incapacitated</label>
-          <label><input type="checkbox" value="Invisible"> Invisible</label>
-          <label><input type="checkbox" value="Paralyzed"> Paralyzed</label>
-          <label><input type="checkbox" value="Petrified"> Petrified</label>
-          <label><input type="checkbox" value="Poisoned"> Poisoned</label>
-          <label><input type="checkbox" value="Prone"> Prone</label>
-          <label><input type="checkbox" value="Restrained"> Restrained</label>
-          <label><input type="checkbox" value="Stunned"> Stunned</label>
-          <label><input type="checkbox" value="Unconscious"> Unconscious</label>
-          <label><input type="checkbox" value="Concentrating"> Concentrating</label>
-        </div>
-      </div>
-      <div class="form-group">
-        <label>Notes</label>
-        <textarea id="combatant-notes" rows="2" placeholder="Quick notes..."></textarea>
-      </div>
-      <div class="form-group checkbox-group">
-        <label><input type="checkbox" id="combatant-active"> Active in combat</label>
-      </div>
-      <div class="modal-buttons">
-        <button onclick="saveCombatant()" class="btn-primary">Save</button>
-        <button onclick="removeCombatant()" class="btn-danger">Remove</button>
-        <button onclick="closeCombatantModal()" class="btn-secondary">Cancel</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Add Combatant Mid-Combat Modal -->
-  <div id="add-combatant-modal" class="modal">
-    <div class="modal-content">
-      <span class="modal-close" onclick="closeAddCombatantModal()">&times;</span>
-      <h2>Add Combatant</h2>
-      <div class="form-group">
-        <label>Name</label>
-        <input type="text" id="add-combatant-name" placeholder="Name">
-      </div>
-      <div class="form-group">
-        <label>Initiative</label>
-        <input type="number" id="add-combatant-init" placeholder="Initiative roll">
-      </div>
-      <div class="form-group">
-        <label>HP</label>
-        <input type="number" id="add-combatant-hp" placeholder="HP" value="10">
-      </div>
-      <div class="form-group">
-        <label>Max HP</label>
-        <input type="number" id="add-combatant-max-hp" placeholder="Max HP" value="10">
-      </div>
-      <div class="form-group">
-        <label>AC</label>
-        <input type="number" id="add-combatant-ac" placeholder="AC" value="10">
-      </div>
-      <div class="form-group checkbox-group">
-        <label><input type="checkbox" id="add-combatant-is-player"> Is Player Character</label>
-      </div>
-      <div class="modal-buttons">
-        <button onclick="addCombatantMidCombat()" class="btn-primary">Add</button>
-        <button onclick="closeAddCombatantModal()" class="btn-secondary">Cancel</button>
-      </div>
-    </div>
-  </div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="/js/app.js"></script>
