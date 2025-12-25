@@ -2070,6 +2070,90 @@ app.post('/api/sessions/:id/gm-message', checkPassword, checkAdminPassword, (req
   res.json({ success: true, message: 'GM message added. It will be included in the next AI response.' });
 });
 
+// Get session summary (for viewing/editing)
+app.get('/api/sessions/:id/summary', checkPassword, checkAdminPassword, (req, res) => {
+  const sessionId = req.params.id;
+  const session = db.prepare('SELECT * FROM game_sessions WHERE id = ?').get(sessionId);
+
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  const fullHistory = JSON.parse(session.full_history || '[]');
+
+  res.json({
+    summary: session.story_summary || '',
+    compactedCount: session.compacted_count || 0,
+    totalMessages: fullHistory.length,
+    uncompactedMessages: fullHistory.length - (session.compacted_count || 0)
+  });
+});
+
+// Update session summary manually (admin only)
+app.post('/api/sessions/:id/summary', checkPassword, checkAdminPassword, (req, res) => {
+  const sessionId = req.params.id;
+  const { summary } = req.body;
+
+  const session = db.prepare('SELECT * FROM game_sessions WHERE id = ?').get(sessionId);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  db.prepare('UPDATE game_sessions SET story_summary = ? WHERE id = ?').run(summary || '', sessionId);
+
+  console.log(`Summary manually updated for session ${sessionId}`);
+  res.json({ success: true, message: 'Summary updated successfully.' });
+});
+
+// Force compact session history (admin only)
+app.post('/api/sessions/:id/force-compact', checkPassword, checkAdminPassword, async (req, res) => {
+  const sessionId = req.params.id;
+  const session = db.prepare('SELECT * FROM game_sessions WHERE id = ?').get(sessionId);
+
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  const apiConfig = getActiveApiConfig();
+  if (!apiConfig || !apiConfig.api_key) {
+    return res.status(400).json({ error: 'No active API configuration.' });
+  }
+
+  const fullHistory = JSON.parse(session.full_history || '[]');
+  const compactedCount = session.compacted_count || 0;
+  const characters = getSessionCharacters(sessionId);
+
+  // Get messages since last compaction
+  const recentHistory = fullHistory.slice(compactedCount);
+
+  if (recentHistory.length === 0) {
+    return res.status(400).json({ error: 'No new messages to compact.' });
+  }
+
+  try {
+    console.log(`Force compacting session ${sessionId}...`);
+    const newSummary = await compactHistory(apiConfig, session.story_summary, recentHistory, characters);
+
+    // Update database
+    db.prepare('UPDATE game_sessions SET story_summary = ?, compacted_count = ?, total_tokens = 0 WHERE id = ?')
+      .run(newSummary, fullHistory.length, sessionId);
+
+    // Notify clients
+    io.emit('session_compacted', { sessionId, compactedCount: fullHistory.length });
+
+    res.json({
+      success: true,
+      message: `Compacted ${recentHistory.length} messages into summary.`,
+      newSummaryLength: newSummary.length,
+      messagesCompacted: recentHistory.length
+    });
+
+  } catch (error) {
+    console.error('Force compact error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Recalculate XP from session history (for existing sessions)
 app.post('/api/sessions/:id/recalculate-xp', checkPassword, (req, res) => {
   const sessionId = req.params.id;
@@ -3406,7 +3490,7 @@ Please narrate the outcome of these actions and describe what happens next.`;
     console.log('Compacting history...');
     // Compact the recent history (messages since last compaction)
     const recentHistoryToCompact = fullHistory.slice(compactedCount);
-    newSummary = await compactHistory(apiConfig, session.story_summary, recentHistoryToCompact);
+    newSummary = await compactHistory(apiConfig, session.story_summary, recentHistoryToCompact, characters);
     // Mark all current messages as compacted
     newCompactedCount = fullHistory.length;
     // Keep full history for display, reset token tracking
@@ -3432,44 +3516,110 @@ Please narrate the outcome of these actions and describe what happens next.`;
   return { response: aiResponse, tokensUsed: recentHistoryTokens };
 }
 
-// Compact history function
-async function compactHistory(apiConfig, existingSummary, history) {
-  const historyText = history.map(h => `${h.role}: ${h.content}`).join('\n\n');
+// Compact history function - Creates structured summary for AI context
+async function compactHistory(apiConfig, existingSummary, history, characters = []) {
+  // Format history with better context
+  const historyText = history.map(h => {
+    if (h.type === 'action' && h.character_name) {
+      return `[${h.character_name}]: ${h.content}`;
+    } else if (h.type === 'narration' || h.role === 'assistant') {
+      return `[DM]: ${h.content}`;
+    } else if (h.type === 'gm_nudge') {
+      return `[GM INSTRUCTION]: ${h.content}`;
+    } else if (h.hidden || h.type === 'context') {
+      return ''; // Skip hidden context
+    }
+    return `${h.role}: ${h.content}`;
+  }).filter(t => t).join('\n\n');
 
-  const compactPrompt = `You are summarizing a D&D adventure for continuity purposes.
-Create a concise but comprehensive summary that captures:
-- Key plot points and story progression
-- Important NPCs encountered
-- Major decisions made by the party
-- Current location and situation
-- Any ongoing quests or objectives
+  // Get character names for the prompt
+  const characterNames = characters.map(c => c.character_name).join(', ') || 'the party';
 
-${existingSummary ? `PREVIOUS SUMMARY:\n${existingSummary}\n\n` : ''}
-RECENT EVENTS TO ADD TO SUMMARY:
+  const compactPrompt = `You are creating a STRUCTURED SUMMARY of a D&D adventure for continuity purposes.
+This summary will be used to maintain context in future sessions, so accuracy and completeness are critical.
+
+PLAYER CHARACTERS: ${characterNames}
+
+${existingSummary ? `=== EXISTING SUMMARY (update and expand this) ===\n${existingSummary}\n\n` : ''}=== RECENT EVENTS TO INCORPORATE ===
 ${historyText}
 
-Provide an updated comprehensive summary:`;
+=== OUTPUT FORMAT (use this EXACT structure) ===
 
-  const response = await fetch(apiConfig.api_endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiConfig.api_key}`
-    },
-    body: JSON.stringify({
-      model: apiConfig.api_model,
-      messages: [{ role: 'user', content: compactPrompt }],
-      max_tokens: 64000
-    })
-  });
+## STORY SO FAR
+[2-4 paragraphs summarizing the overall plot progression, major events, and narrative arc]
 
-  if (!response.ok) {
-    return existingSummary + '\n\n[Compaction failed - continuing with truncated history]';
+## CURRENT SITUATION
+[1-2 paragraphs: Where is the party RIGHT NOW? What were they just doing? What immediate situation are they in?]
+
+## ACTIVE QUESTS & OBJECTIVES
+${characters.length > 0 ? characters.map(c => `- List any active quests or goals`).join('\n') : '- List any active quests or goals for the party'}
+
+## KEY NPCs ENCOUNTERED
+[For each important NPC:]
+- **NPC Name**: Who they are, relationship to party (friendly/hostile/neutral), last known status/location
+
+## IMPORTANT DISCOVERIES
+- Key items found, secrets learned, locations discovered
+- Any plot-relevant information the party has learned
+
+## UNRESOLVED THREADS
+- Mysteries or questions left unanswered
+- Enemies that escaped or threats that remain
+- Promises made, debts owed, loose ends
+
+## PARTY STATUS NOTES
+- Any ongoing conditions, curses, blessings affecting the party
+- Resources gained or lost (if narratively significant)
+- Reputation changes with factions
+
+=== INSTRUCTIONS ===
+1. Be SPECIFIC with names, places, and details - vague summaries lose critical context
+2. If updating an existing summary, MERGE the information - don't just append
+3. Keep the most recent events in CURRENT SITUATION section
+4. Remove outdated information (completed quests, dead NPCs, resolved threads)
+5. Prioritize information the AI will need to maintain story consistency
+
+Generate the structured summary now:`;
+
+  console.log('=== Compacting History ===');
+  console.log(`Previous summary length: ${existingSummary?.length || 0} chars`);
+  console.log(`History entries to compact: ${history.length}`);
+
+  try {
+    const response = await fetch(apiConfig.api_endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiConfig.api_key}`
+      },
+      body: JSON.stringify({
+        model: apiConfig.api_model,
+        messages: [{ role: 'user', content: compactPrompt }],
+        max_tokens: 4000 // Summaries should be concise
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Compaction API error:', errorText);
+      return existingSummary + '\n\n[Compaction failed - API error]';
+    }
+
+    const data = await response.json();
+    const summary = extractAIMessage(data);
+
+    if (!summary) {
+      console.error('Compaction failed - no summary extracted');
+      return existingSummary + '\n\n[Compaction failed - could not parse response]';
+    }
+
+    console.log(`New summary length: ${summary.length} chars`);
+    return summary;
+
+  } catch (error) {
+    console.error('Compaction error:', error);
+    return existingSummary + `\n\n[Compaction failed - ${error.message}]`;
   }
-
-  const data = await response.json();
-  const summary = extractAIMessage(data);
-  return summary || existingSummary + '\n\n[Compaction failed - could not parse response]';
 }
 
 function estimateTokens(text) {

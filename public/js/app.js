@@ -400,6 +400,22 @@ function initSocket() {
       showNotification('Combat ended');
     }
   });
+
+  // Session compacted event (from force compact or auto-compact)
+  socket.on('session_compacted', ({ sessionId, compactedCount }) => {
+    showNotification(`Session history compacted! ${compactedCount} entries summarized.`);
+
+    // If the Summary Management panel is open for this session, refresh it
+    const summarySelect = document.getElementById('summary-session-select');
+    if (summarySelect && summarySelect.value == sessionId) {
+      loadSessionSummary();
+    }
+
+    // Reload session if we're viewing the compacted session
+    if (currentSession && currentSession.id === sessionId) {
+      loadSession(sessionId);
+    }
+  });
 }
 
 // API helper
@@ -587,6 +603,9 @@ async function loadSettings() {
 
     // Load sessions for GM Mode dropdown
     await loadGMSessionDropdown();
+
+    // Load sessions for Summary Management dropdown
+    await loadSummarySessionDropdown();
   } catch (error) {
     console.error('Failed to load settings:', error);
   }
@@ -629,6 +648,108 @@ async function loadGMSessionInfo() {
   } catch (error) {
     console.error('Failed to load session info:', error);
     infoDiv.style.display = 'none';
+  }
+}
+
+// ============================================
+// Story Summary Management Functions
+// ============================================
+
+async function loadSummarySessionDropdown() {
+  try {
+    const sessions = await api('/api/sessions');
+    const select = document.getElementById('summary-session-select');
+    if (!select) return;
+
+    select.innerHTML = '<option value="">-- Select a session --</option>' +
+      sessions.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('');
+  } catch (error) {
+    console.error('Failed to load sessions for summary:', error);
+  }
+}
+
+async function loadSessionSummary() {
+  const sessionId = document.getElementById('summary-session-select').value;
+  const infoDiv = document.getElementById('summary-info');
+  const textarea = document.getElementById('summary-textarea');
+  const statusEl = document.getElementById('summary-status');
+
+  if (!sessionId) {
+    infoDiv.style.display = 'none';
+    textarea.value = '';
+    return;
+  }
+
+  try {
+    const data = await api(`/api/sessions/${sessionId}/summary`);
+
+    document.getElementById('summary-total-msgs').textContent = data.totalMessages;
+    document.getElementById('summary-compacted-msgs').textContent = data.compactedCount;
+    document.getElementById('summary-pending-msgs').textContent = data.uncompactedMessages;
+
+    textarea.value = data.summary || '';
+    infoDiv.style.display = 'block';
+    statusEl.textContent = '';
+
+  } catch (error) {
+    console.error('Failed to load summary:', error);
+    statusEl.textContent = 'Error loading summary: ' + error.message;
+    statusEl.style.color = 'var(--danger)';
+  }
+}
+
+async function saveSummary() {
+  const sessionId = document.getElementById('summary-session-select').value;
+  const summary = document.getElementById('summary-textarea').value;
+  const statusEl = document.getElementById('summary-status');
+
+  if (!sessionId) {
+    statusEl.textContent = 'Please select a session first.';
+    statusEl.style.color = 'var(--danger)';
+    return;
+  }
+
+  try {
+    await api(`/api/sessions/${sessionId}/summary`, 'POST', { summary });
+    statusEl.textContent = 'Summary saved successfully!';
+    statusEl.style.color = 'var(--success)';
+  } catch (error) {
+    statusEl.textContent = 'Error saving summary: ' + error.message;
+    statusEl.style.color = 'var(--danger)';
+  }
+}
+
+async function forceCompact() {
+  const sessionId = document.getElementById('summary-session-select').value;
+  const statusEl = document.getElementById('summary-status');
+  const btn = document.getElementById('force-compact-btn');
+
+  if (!sessionId) {
+    statusEl.textContent = 'Please select a session first.';
+    statusEl.style.color = 'var(--danger)';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Compacting...';
+  statusEl.textContent = 'Generating summary from recent messages...';
+  statusEl.style.color = 'var(--text-muted)';
+
+  try {
+    const result = await api(`/api/sessions/${sessionId}/force-compact`, 'POST');
+
+    statusEl.textContent = result.message;
+    statusEl.style.color = 'var(--success)';
+
+    // Reload the summary
+    await loadSessionSummary();
+
+  } catch (error) {
+    statusEl.textContent = 'Error: ' + error.message;
+    statusEl.style.color = 'var(--danger)';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Force Compact Now';
   }
 }
 

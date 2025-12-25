@@ -223,6 +223,31 @@
         </div>
         <p id="gm-status" class="settings-note"></p>
 
+        <h2>Story Summary Management</h2>
+        <p class="settings-note">The AI uses a summary of past events to maintain story continuity. You can view, edit, or force-regenerate this summary.</p>
+        <div class="form-group">
+          <label>Select Session</label>
+          <select id="summary-session-select" onchange="loadSessionSummary()">
+            <option value="">-- Select a session --</option>
+          </select>
+        </div>
+        <div id="summary-info" class="summary-info" style="display: none;">
+          <div class="summary-stats">
+            <span>Total Messages: <strong id="summary-total-msgs">0</strong></span>
+            <span>Compacted: <strong id="summary-compacted-msgs">0</strong></span>
+            <span>Pending: <strong id="summary-pending-msgs">0</strong></span>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Current Summary</label>
+          <textarea id="summary-textarea" rows="10" placeholder="No summary yet. The AI will create one automatically when the history gets long, or you can force compact below."></textarea>
+        </div>
+        <div class="form-group summary-buttons">
+          <button onclick="saveSummary()" class="btn-secondary">Save Summary</button>
+          <button onclick="forceCompact()" class="btn-primary" id="force-compact-btn">Force Compact Now</button>
+        </div>
+        <p id="summary-status" class="settings-note"></p>
+
         <h2>Security</h2>
         <div class="form-group">
           <label>Change Game Password</label>
