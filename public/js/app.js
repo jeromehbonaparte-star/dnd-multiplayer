@@ -1282,7 +1282,7 @@ function renderCharactersList() {
       const isExpanded = getSectionState(c.id, sectionId);
       return `
         <div class="section-collapsible ${colorClass} ${isExpanded ? 'expanded' : ''}" data-char="${c.id}" data-section="${sectionId}">
-          <div class="section-header" data-toggle-char="${c.id}" data-toggle-section="${sectionId}">
+          <div class="section-header" onclick="event.stopPropagation(); toggleSection('${c.id}', '${sectionId}')">
             <span class="section-toggle-icon">${isExpanded ? '▼' : '▶'}</span>
             <strong>${label}</strong>
           </div>
@@ -1582,7 +1582,7 @@ function updatePartyList() {
       const isExpanded = getSectionState(c.id, sectionId);
       return `
         <div class="section-collapsible party-section ${colorClass} ${isExpanded ? 'expanded' : ''}" data-char="${c.id}" data-section="${sectionId}">
-          <div class="section-header" data-toggle-char="${c.id}" data-toggle-section="${sectionId}">
+          <div class="section-header" onclick="event.stopPropagation(); toggleSection('${c.id}', '${sectionId}')">
             <span class="section-toggle-icon">${isExpanded ? '▼' : '▶'}</span>
             <strong>${label}</strong>
           </div>
