@@ -2096,20 +2096,28 @@ app.get('/api/sessions/:id', checkPassword, (req, res) => {
 app.delete('/api/sessions/:id', checkPassword, (req, res) => {
   const sessionId = req.params.id;
 
-  // Delete associated pending actions first
-  db.prepare('DELETE FROM pending_actions WHERE session_id = ?').run(sessionId);
+  try {
+    // Delete associated pending actions first
+    db.prepare('DELETE FROM pending_actions WHERE session_id = ?').run(sessionId);
 
-  // Delete session character links
-  db.prepare('DELETE FROM session_characters WHERE session_id = ?').run(sessionId);
+    // Delete session character links
+    db.prepare('DELETE FROM session_characters WHERE session_id = ?').run(sessionId);
 
-  // Delete the session
-  const result = db.prepare('DELETE FROM game_sessions WHERE id = ?').run(sessionId);
+    // Delete associated combats
+    db.prepare('DELETE FROM combats WHERE session_id = ?').run(sessionId);
 
-  if (result.changes > 0) {
-    io.emit('session_deleted', sessionId);
-    res.json({ success: true });
-  } else {
-    res.status(404).json({ error: 'Session not found' });
+    // Delete the session
+    const result = db.prepare('DELETE FROM game_sessions WHERE id = ?').run(sessionId);
+
+    if (result.changes > 0) {
+      io.emit('session_deleted', sessionId);
+      res.json({ success: true });
+    } else {
+      res.status(404).json({ error: 'Session not found' });
+    }
+  } catch (error) {
+    console.error('Error deleting session:', error);
+    res.status(500).json({ error: 'Failed to delete session: ' + error.message });
   }
 });
 
