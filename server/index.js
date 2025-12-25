@@ -1507,29 +1507,36 @@ app.post('/api/characters/:id/reset-level', checkPassword, async (req, res) => {
   const resetClasses = {};
   resetClasses[character.class] = 1;
 
-  // Use AI to determine which passives and feats to keep (level 1 appropriate)
+  // Use AI to determine which features to keep (level 1 appropriate)
   let level1Passives = '';
   let level1Feats = '';
   let level1ClassFeatures = '';
+  let level1Spells = '';
+  let level1Skills = '';
 
   const apiConfig = getActiveApiConfig();
-  if (apiConfig && apiConfig.api_key && (character.passives || character.feats || character.class_features)) {
+  if (apiConfig && apiConfig.api_key && (character.passives || character.feats || character.class_features || character.spells || character.skills)) {
     try {
       const aiPrompt = `You are a D&D 5e rules expert. A ${character.race} ${character.class} is being reset to Level 1.
 
 Current passives: ${character.passives || 'None'}
 Current feats: ${character.feats || 'None'}
 Current class features: ${character.class_features || 'None'}
+Current spells: ${character.spells || 'None'}
+Current skills: ${character.skills || 'None'}
 
 Determine which of these should be KEPT for a Level 1 character:
 - Racial abilities/traits should be kept (e.g., Darkvision, Fey Ancestry, etc.)
 - Background features should be kept
 - Level 1 class features should be kept
 - Feats from Variant Human or custom lineage at level 1 should be kept
+- Cantrips known at level 1 should be kept
+- Level 1 spells the class would know/prepare at level 1 should be kept (check class spell progression)
+- Skills from race, class, and background at level 1 should be kept
 - Remove anything gained from leveling up past level 1
 
 Respond in this EXACT JSON format only, no other text:
-{"passives": "comma-separated list or empty string", "feats": "comma-separated list or empty string", "class_features": "comma-separated list or empty string"}`;
+{"passives": "comma-separated list or empty string", "feats": "comma-separated list or empty string", "class_features": "comma-separated list or empty string", "spells": "comma-separated list or empty string", "skills": "comma-separated list or empty string"}`;
 
       const response = await fetch(apiConfig.api_endpoint, {
         method: 'POST',
@@ -1555,7 +1562,9 @@ Respond in this EXACT JSON format only, no other text:
           level1Passives = parsed.passives || '';
           level1Feats = parsed.feats || '';
           level1ClassFeatures = parsed.class_features || '';
-          console.log(`AI determined level 1 features: passives="${level1Passives}", feats="${level1Feats}", class_features="${level1ClassFeatures}"`);
+          level1Spells = parsed.spells || '';
+          level1Skills = parsed.skills || '';
+          console.log(`AI determined level 1 features: passives="${level1Passives}", feats="${level1Feats}", class_features="${level1ClassFeatures}", spells="${level1Spells}", skills="${level1Skills}"`);
         }
       }
     } catch (error) {
@@ -1572,14 +1581,14 @@ Respond in this EXACT JSON format only, no other text:
         hp = ?,
         max_hp = ?,
         classes = ?,
-        spells = '',
-        skills = '',
+        spells = ?,
+        skills = ?,
         passives = ?,
         class_features = ?,
         feats = ?,
         spell_slots = '{}'
     WHERE id = ?
-  `).run(level1HP, level1HP, JSON.stringify(resetClasses), level1Passives, level1ClassFeatures, level1Feats, req.params.id);
+  `).run(level1HP, level1HP, JSON.stringify(resetClasses), level1Spells, level1Skills, level1Passives, level1ClassFeatures, level1Feats, req.params.id);
 
   const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
 
@@ -1594,7 +1603,9 @@ Respond in this EXACT JSON format only, no other text:
     newHP: level1HP,
     keptPassives: level1Passives,
     keptFeats: level1Feats,
-    keptClassFeatures: level1ClassFeatures
+    keptClassFeatures: level1ClassFeatures,
+    keptSpells: level1Spells,
+    keptSkills: level1Skills
   });
 });
 

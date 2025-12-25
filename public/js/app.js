@@ -1667,7 +1667,7 @@ async function resetXP(id, name) {
 }
 
 async function resetLevel(id, name) {
-  if (!confirm(`Reset ${name} to Level 1?\n\nThis will:\n- Set level to 1\n- Set XP to 0\n- Reset HP to level 1 value\n- Clear spells and skills\n- AI will determine which passives, feats, and class features to keep\n\nThis cannot be undone!`)) return;
+  if (!confirm(`Reset ${name} to Level 1?\n\nThis will:\n- Set level to 1\n- Set XP to 0\n- Reset HP to level 1 value\n- AI will determine which spells, skills, passives, feats, and class features to keep\n\nThis cannot be undone!`)) return;
 
   try {
     showNotification(`Resetting ${name} to Level 1... (AI is analyzing features to keep)`);
@@ -1675,9 +1675,11 @@ async function resetLevel(id, name) {
 
     let message = `${name} reset to Level 1 (HP: ${result.newHP})`;
     const kept = [];
+    if (result.keptSpells) kept.push(`Spells: ${result.keptSpells}`);
+    if (result.keptSkills) kept.push(`Skills: ${result.keptSkills}`);
     if (result.keptPassives) kept.push(`Passives: ${result.keptPassives}`);
     if (result.keptFeats) kept.push(`Feats: ${result.keptFeats}`);
-    if (result.keptClassFeatures) kept.push(`Class Features: ${result.keptClassFeatures}`);
+    if (result.keptClassFeatures) kept.push(`Features: ${result.keptClassFeatures}`);
 
     if (kept.length > 0) {
       message += `\nKept: ${kept.join(', ')}`;
