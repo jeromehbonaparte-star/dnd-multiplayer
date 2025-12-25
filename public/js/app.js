@@ -1354,7 +1354,10 @@ function renderCharactersList() {
         <div class="btn-row">
           <button class="btn-levelup" onclick="event.stopPropagation(); levelUpCharacter('${c.id}')" ${canLevel ? '' : 'disabled'}>${canLevel ? 'Level Up!' : 'Need XP'}</button>
           <button class="btn-spells" onclick="event.stopPropagation(); openSpellSlotsModal('${c.id}')">Spell Slots</button>
+        </div>
+        <div class="btn-row">
           <button class="btn-reset-xp" onclick="event.stopPropagation(); resetXP('${c.id}', '${c.character_name.replace(/'/g, "\\'")}')">Reset XP</button>
+          <button class="btn-reset-level" onclick="event.stopPropagation(); resetLevel('${c.id}', '${c.character_name.replace(/'/g, "\\'")}')">Reset Level</button>
         </div>
       </div>
     </div>
@@ -1660,6 +1663,19 @@ async function resetXP(id, name) {
   } catch (error) {
     console.error('Failed to reset XP:', error);
     alert('Failed to reset XP: ' + error.message);
+  }
+}
+
+async function resetLevel(id, name) {
+  if (!confirm(`Reset ${name} to Level 1?\n\nThis will:\n- Set level to 1\n- Set XP to 0\n- Reset HP to level 1 value\n- Clear all spells, skills, passives, class features, and feats\n\nThis cannot be undone!`)) return;
+
+  try {
+    const result = await api(`/api/characters/${id}/reset-level`, 'POST');
+    showNotification(`${name} has been reset to Level 1 (HP: ${result.newHP})`);
+    loadCharacters();
+  } catch (error) {
+    console.error('Failed to reset level:', error);
+    alert('Failed to reset level: ' + error.message);
   }
 }
 

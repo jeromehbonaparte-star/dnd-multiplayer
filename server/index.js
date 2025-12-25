@@ -1485,6 +1485,59 @@ app.get('/api/characters/:id/levelinfo', checkPassword, (req, res) => {
   });
 });
 
+// Reset character level to 1 (admin only)
+app.post('/api/characters/:id/reset-level', checkPassword, checkAdminPassword, (req, res) => {
+  const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
+
+  if (!character) {
+    return res.status(404).json({ error: 'Character not found' });
+  }
+
+  // Calculate level 1 HP: hit die max + CON modifier
+  const conModifier = Math.floor((character.constitution - 10) / 2);
+  const classHitDice = {
+    'Barbarian': 12, 'Fighter': 10, 'Paladin': 10, 'Ranger': 10,
+    'Bard': 8, 'Cleric': 8, 'Druid': 8, 'Monk': 8, 'Rogue': 8, 'Warlock': 8,
+    'Sorcerer': 6, 'Wizard': 6, 'Artificer': 8, 'Blood Hunter': 10
+  };
+  const hitDie = classHitDice[character.class] || 8;
+  const level1HP = hitDie + conModifier;
+
+  // Reset classes to just the primary class at level 1
+  const resetClasses = {};
+  resetClasses[character.class] = 1;
+
+  // Reset character to level 1
+  db.prepare(`
+    UPDATE characters
+    SET level = 1,
+        xp = 0,
+        hp = ?,
+        max_hp = ?,
+        classes = ?,
+        spells = '',
+        skills = '',
+        passives = '',
+        class_features = '',
+        feats = '',
+        spell_slots = '{}'
+    WHERE id = ?
+  `).run(level1HP, level1HP, JSON.stringify(resetClasses), req.params.id);
+
+  const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
+
+  console.log(`Character ${character.character_name} reset to level 1 by admin`);
+  io.emit('character_updated', updatedChar);
+
+  res.json({
+    success: true,
+    message: `${character.character_name} has been reset to level 1.`,
+    character: updatedChar,
+    previousLevel: character.level,
+    newHP: level1HP
+  });
+});
+
 // AI-assisted character editing
 app.post('/api/characters/:id/edit', checkPassword, async (req, res) => {
   const { editRequest, messages } = req.body;
@@ -3742,6 +3795,7 @@ app.post('/api/tts/audio', checkPassword, async (req, res) => {
     res.set('X-Total-Chunks', chunks.length.toString());
 
     const arrayBuffer = await response.arrayBuffer();
+    console.log(`TTS Response: Sending ${arrayBuffer.byteLength} bytes of audio`);
     res.send(Buffer.from(arrayBuffer));
 
   } catch (error) {
