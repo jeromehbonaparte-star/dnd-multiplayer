@@ -1667,11 +1667,23 @@ async function resetXP(id, name) {
 }
 
 async function resetLevel(id, name) {
-  if (!confirm(`Reset ${name} to Level 1?\n\nThis will:\n- Set level to 1\n- Set XP to 0\n- Reset HP to level 1 value\n- Clear all spells, skills, passives, class features, and feats\n\nThis cannot be undone!`)) return;
+  if (!confirm(`Reset ${name} to Level 1?\n\nThis will:\n- Set level to 1\n- Set XP to 0\n- Reset HP to level 1 value\n- Clear spells and skills\n- AI will determine which passives, feats, and class features to keep\n\nThis cannot be undone!`)) return;
 
   try {
+    showNotification(`Resetting ${name} to Level 1... (AI is analyzing features to keep)`);
     const result = await api(`/api/characters/${id}/reset-level`, 'POST');
-    showNotification(`${name} has been reset to Level 1 (HP: ${result.newHP})`);
+
+    let message = `${name} reset to Level 1 (HP: ${result.newHP})`;
+    const kept = [];
+    if (result.keptPassives) kept.push(`Passives: ${result.keptPassives}`);
+    if (result.keptFeats) kept.push(`Feats: ${result.keptFeats}`);
+    if (result.keptClassFeatures) kept.push(`Class Features: ${result.keptClassFeatures}`);
+
+    if (kept.length > 0) {
+      message += `\nKept: ${kept.join(', ')}`;
+    }
+
+    showNotification(message);
     loadCharacters();
   } catch (error) {
     console.error('Failed to reset level:', error);
