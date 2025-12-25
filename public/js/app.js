@@ -496,7 +496,22 @@ async function api(endpoint, method = 'GET', body = null, requireAdmin = false) 
     throw new Error('Admin access required');
   }
 
-  return response.json();
+  // Check content type before parsing
+  const contentType = response.headers.get('content-type');
+  if (!contentType || !contentType.includes('application/json')) {
+    // Server returned non-JSON (likely HTML error page)
+    const text = await response.text();
+    console.error('Non-JSON response:', response.status, text.substring(0, 200));
+    throw new Error(`Server error: ${response.status} ${response.statusText}`);
+  }
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error || `Request failed: ${response.status}`);
+  }
+
+  return data;
 }
 
 // Admin authentication
