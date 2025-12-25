@@ -35,6 +35,8 @@ class TTSManager {
   }
 
   async speak(text, buttonEl = null) {
+    console.log('TTSManager.speak() called with text length:', text?.length);
+
     // Stop any current playback
     this.stop();
 
@@ -44,7 +46,9 @@ class TTSManager {
 
     try {
       // Get chunk info first
+      console.log('Fetching TTS info...');
       const info = await api('/api/tts/info', 'POST', { text });
+      console.log('TTS info received:', info);
       this.totalChunks = info.totalChunks;
 
       console.log(`TTS: Starting playback of ${this.totalChunks} chunks`);
@@ -60,7 +64,10 @@ class TTSManager {
   }
 
   async playChunk(index) {
+    console.log(`TTSManager.playChunk(${index}) called, totalChunks: ${this.totalChunks}`);
+
     if (index >= this.totalChunks || !this.currentText) {
+      console.log('Playback complete or no text');
       this.resetState();
       return;
     }
@@ -72,6 +79,7 @@ class TTSManager {
 
     try {
       // Fetch audio for this chunk
+      console.log(`Fetching audio for chunk ${index}...`);
       const response = await fetch('/api/tts/audio', {
         method: 'POST',
         headers: {
@@ -86,18 +94,22 @@ class TTSManager {
         })
       });
 
+      console.log('Audio fetch response:', response.status, response.ok);
+
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.error || 'Failed to generate audio');
       }
 
       const audioBlob = await response.blob();
+      console.log('Audio blob received, size:', audioBlob.size, 'type:', audioBlob.type);
       const audioUrl = URL.createObjectURL(audioBlob);
 
       this.currentAudio = new Audio(audioUrl);
 
       // Play and chain to next chunk
       this.currentAudio.onended = () => {
+        console.log('Audio chunk ended');
         URL.revokeObjectURL(audioUrl);
         this.playChunk(index + 1);
       };
@@ -108,7 +120,9 @@ class TTSManager {
         this.resetState();
       };
 
+      console.log('Starting audio playback...');
       await this.currentAudio.play();
+      console.log('Audio playback started successfully');
 
       // Pre-fetch next chunk for smoother playback
       if (index + 1 < this.totalChunks) {
@@ -225,14 +239,25 @@ const ttsManager = new TTSManager();
 
 // TTS click handler for play buttons
 function handleTTSClick(buttonEl) {
+  console.log('TTS button clicked', buttonEl);
+
   // Decode the base64-encoded content from data attribute
   const encodedContent = buttonEl.dataset.ttsContent;
+  console.log('Encoded content:', encodedContent ? encodedContent.substring(0, 50) + '...' : 'NONE');
+
   if (!encodedContent) {
     showNotification('TTS Error: No content found');
     return;
   }
-  const text = decodeURIComponent(atob(encodedContent));
-  ttsManager.togglePlayback(text, buttonEl);
+
+  try {
+    const text = decodeURIComponent(atob(encodedContent));
+    console.log('Decoded text:', text.substring(0, 100) + '...');
+    ttsManager.togglePlayback(text, buttonEl);
+  } catch (e) {
+    console.error('TTS decode error:', e);
+    showNotification('TTS Error: Failed to decode content');
+  }
 }
 
 // State persistence for mobile tab switching
