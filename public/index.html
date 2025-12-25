@@ -196,8 +196,9 @@
           <input type="range" id="tts-speed" min="0.5" max="2.0" step="0.1" value="1.0"
                  oninput="document.getElementById('tts-speed-value').textContent = this.value + 'x'; ttsManager.setSpeed(this.value)">
         </div>
-        <div class="form-group">
-          <button onclick="ttsManager.stop()" class="btn-secondary">Stop Current Playback</button>
+        <div class="form-group tts-controls-row">
+          <button onclick="ttsManager.isPaused ? ttsManager.resume() : ttsManager.pause()" class="btn-secondary" id="tts-pause-btn">Pause</button>
+          <button onclick="ttsManager.stop()" class="btn-secondary">Stop</button>
         </div>
         <p class="settings-note">TTS requires an OpenAI API key. Set OPENAI_TTS_API_KEY in environment, or use an OpenAI configuration above.</p>
 

@@ -2255,6 +2255,14 @@ nav {
   animation: tts-pulse 1.5s ease-in-out infinite;
 }
 
+/* Paused state */
+.tts-play-btn.tts-paused {
+  background: var(--bg-secondary);
+  color: var(--accent);
+  border-color: var(--accent);
+  animation: none;
+}
+
 @keyframes tts-pulse {
   0%, 100% {
     box-shadow: 0 0 0 0 rgba(201, 162, 39, 0.4);
@@ -2265,6 +2273,15 @@ nav {
 }
 
 /* TTS Settings Section */
+.tts-controls-row {
+  display: flex;
+  gap: 10px;
+}
+
+.tts-controls-row button {
+  flex: 1;
+}
+
 #tts-speed {
   width: 100%;
   margin-top: 5px;

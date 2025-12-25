@@ -17,6 +17,7 @@ class TTSManager {
     this.speed = parseFloat(localStorage.getItem('tts-speed')) || 1.0;
     this.currentAudio = null;
     this.isPlaying = false;
+    this.isPaused = false;
     this.currentText = null;
     this.currentChunkIndex = 0;
     this.totalChunks = 0;
@@ -48,13 +49,6 @@ class TTSManager {
 
       console.log(`TTS: Starting playback of ${this.totalChunks} chunks`);
 
-      // Update button state
-      if (this.activeButton) {
-        this.activeButton.classList.add('tts-playing');
-        this.activeButton.innerHTML = '⏹';
-        this.activeButton.title = 'Stop (playing...)';
-      }
-
       // Start playing chunks
       await this.playChunk(0);
 
@@ -73,6 +67,8 @@ class TTSManager {
 
     this.currentChunkIndex = index;
     this.isPlaying = true;
+    this.isPaused = false;
+    this.updateButtonState();
 
     try {
       // Fetch audio for this chunk
@@ -99,11 +95,6 @@ class TTSManager {
       const audioUrl = URL.createObjectURL(audioBlob);
 
       this.currentAudio = new Audio(audioUrl);
-
-      // Update progress indicator
-      if (this.activeButton && this.totalChunks > 1) {
-        this.activeButton.title = `Stop (${index + 1}/${this.totalChunks})`;
-      }
 
       // Play and chain to next chunk
       this.currentAudio.onended = () => {
@@ -152,6 +143,22 @@ class TTSManager {
     }
   }
 
+  pause() {
+    if (this.currentAudio && this.isPlaying && !this.isPaused) {
+      this.currentAudio.pause();
+      this.isPaused = true;
+      this.updateButtonState();
+    }
+  }
+
+  resume() {
+    if (this.currentAudio && this.isPaused) {
+      this.currentAudio.play();
+      this.isPaused = false;
+      this.updateButtonState();
+    }
+  }
+
   stop() {
     if (this.currentAudio) {
       this.currentAudio.pause();
@@ -161,15 +168,33 @@ class TTSManager {
     this.resetState();
   }
 
+  updateButtonState() {
+    if (!this.activeButton) return;
+
+    if (this.isPaused) {
+      this.activeButton.classList.add('tts-paused');
+      this.activeButton.classList.remove('tts-playing');
+      this.activeButton.innerHTML = '▶️';
+      this.activeButton.title = 'Resume';
+    } else if (this.isPlaying) {
+      this.activeButton.classList.add('tts-playing');
+      this.activeButton.classList.remove('tts-paused');
+      this.activeButton.innerHTML = '⏸️';
+      const progress = this.totalChunks > 1 ? ` (${this.currentChunkIndex + 1}/${this.totalChunks})` : '';
+      this.activeButton.title = 'Pause' + progress;
+    }
+  }
+
   resetState() {
     this.isPlaying = false;
+    this.isPaused = false;
     this.currentText = null;
     this.currentChunkIndex = 0;
     this.totalChunks = 0;
 
     // Reset button state
     if (this.activeButton) {
-      this.activeButton.classList.remove('tts-playing');
+      this.activeButton.classList.remove('tts-playing', 'tts-paused');
       this.activeButton.innerHTML = '🔊';
       this.activeButton.title = 'Play narration';
     }
@@ -181,9 +206,15 @@ class TTSManager {
   }
 
   togglePlayback(text, buttonEl) {
-    if (this.isPlaying && this.currentText === text) {
-      this.stop();
+    // If same text is playing, toggle pause/resume
+    if (this.currentText === text && (this.isPlaying || this.isPaused)) {
+      if (this.isPaused) {
+        this.resume();
+      } else {
+        this.pause();
+      }
     } else {
+      // Different text or not playing - start new playback
       this.speak(text, buttonEl);
     }
   }
