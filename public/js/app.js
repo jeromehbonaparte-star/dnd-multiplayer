@@ -124,9 +124,16 @@ class TTSManager {
 
       const audioBlob = await response.blob();
       console.log('Audio blob received, size:', audioBlob.size, 'type:', audioBlob.type);
+
+      if (audioBlob.size === 0) {
+        throw new Error('Received empty audio blob');
+      }
+
       const audioUrl = URL.createObjectURL(audioBlob);
+      console.log('Audio URL created:', audioUrl);
 
       this.currentAudio = new Audio(audioUrl);
+      this.currentAudio.volume = 1.0;
 
       // Play and chain to next chunk
       this.currentAudio.onended = () => {
@@ -136,14 +143,27 @@ class TTSManager {
       };
 
       this.currentAudio.onerror = (e) => {
-        console.error('Audio playback error:', e);
+        console.error('Audio playback error:', e, this.currentAudio.error);
         URL.revokeObjectURL(audioUrl);
         this.resetState();
+        showNotification('Audio playback failed - check console for details');
+      };
+
+      this.currentAudio.oncanplaythrough = () => {
+        console.log('Audio can play through, duration:', this.currentAudio.duration);
       };
 
       console.log('Starting audio playback...');
-      await this.currentAudio.play();
-      console.log('Audio playback started successfully');
+      try {
+        await this.currentAudio.play();
+        console.log('Audio playback started successfully');
+      } catch (playError) {
+        console.error('Play error:', playError);
+        // Autoplay might be blocked - show notification
+        showNotification('Click anywhere on the page first, then try TTS again (autoplay policy)');
+        this.resetState();
+        return;
+      }
 
       // Pre-fetch next chunk for smoother playback
       if (index + 1 < this.totalChunks) {
