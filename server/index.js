@@ -1961,6 +1961,39 @@ app.post('/api/sessions/:id/process', checkPassword, async (req, res) => {
   }
 });
 
+// GM Mode - Send hidden message to nudge AI (admin only)
+app.post('/api/sessions/:id/gm-message', checkPassword, checkAdminPassword, (req, res) => {
+  const sessionId = req.params.id;
+  const { message } = req.body;
+
+  if (!message || !message.trim()) {
+    return res.status(400).json({ error: 'Message is required' });
+  }
+
+  const session = db.prepare('SELECT * FROM game_sessions WHERE id = ?').get(sessionId);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  // Add GM message to history as hidden
+  let fullHistory = JSON.parse(session.full_history || '[]');
+  fullHistory.push({
+    role: 'user',
+    content: message.trim(),
+    type: 'gm_nudge',
+    hidden: true,
+    timestamp: new Date().toISOString()
+  });
+
+  // Update session history
+  db.prepare('UPDATE game_sessions SET full_history = ? WHERE id = ?')
+    .run(JSON.stringify(fullHistory), sessionId);
+
+  console.log(`GM Nudge added to session ${sessionId}: "${message.substring(0, 50)}..."`);
+
+  res.json({ success: true, message: 'GM message added. It will be included in the next AI response.' });
+});
+
 // Recalculate XP from session history (for existing sessions)
 app.post('/api/sessions/:id/recalculate-xp', checkPassword, (req, res) => {
   const sessionId = req.params.id;
@@ -2829,6 +2862,9 @@ Please narrate the outcome of these actions and describe what happens next.`;
         currentUserContent.push(`PARTY STATUS:\n${entry.content}`);
       } else if (entry.type === 'action') {
         currentUserContent.push(`${entry.character_name}: ${entry.content}`);
+      } else if (entry.type === 'gm_nudge') {
+        // GM Mode: Hidden instruction for the AI (players don't see this)
+        currentUserContent.push(`[GM INSTRUCTION - DO NOT REVEAL THIS TO PLAYERS]: ${entry.content}`);
       } else {
         // Legacy format - use content as-is
         currentUserContent.push(entry.content);

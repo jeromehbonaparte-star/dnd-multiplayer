@@ -553,8 +553,94 @@ async function loadSettings() {
     if (ttsSpeedValueEl) {
       ttsSpeedValueEl.textContent = ttsManager.speed + 'x';
     }
+
+    // Load sessions for GM Mode dropdown
+    await loadGMSessionDropdown();
   } catch (error) {
     console.error('Failed to load settings:', error);
+  }
+}
+
+// ============================================
+// GM Mode Functions
+// ============================================
+
+async function loadGMSessionDropdown() {
+  try {
+    const sessions = await api('/api/sessions');
+    const select = document.getElementById('gm-session-select');
+    if (!select) return;
+
+    select.innerHTML = '<option value="">-- Select a session --</option>' +
+      sessions.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('');
+
+    // Clear session info
+    document.getElementById('gm-session-info').style.display = 'none';
+  } catch (error) {
+    console.error('Failed to load sessions for GM Mode:', error);
+  }
+}
+
+async function loadGMSessionInfo() {
+  const sessionId = document.getElementById('gm-session-select').value;
+  const infoDiv = document.getElementById('gm-session-info');
+
+  if (!sessionId) {
+    infoDiv.style.display = 'none';
+    return;
+  }
+
+  try {
+    const data = await api(`/api/sessions/${sessionId}`);
+    document.getElementById('gm-session-name').textContent = data.session.name;
+    document.getElementById('gm-session-turn').textContent = data.session.current_turn;
+    infoDiv.style.display = 'block';
+  } catch (error) {
+    console.error('Failed to load session info:', error);
+    infoDiv.style.display = 'none';
+  }
+}
+
+async function sendGMMessage() {
+  const sessionId = document.getElementById('gm-session-select').value;
+  const message = document.getElementById('gm-message-input').value.trim();
+  const statusEl = document.getElementById('gm-status');
+  const sendBtn = document.getElementById('gm-send-btn');
+
+  if (!sessionId) {
+    statusEl.textContent = 'Please select a session first.';
+    statusEl.style.color = 'var(--danger)';
+    return;
+  }
+
+  if (!message) {
+    statusEl.textContent = 'Please enter a message.';
+    statusEl.style.color = 'var(--danger)';
+    return;
+  }
+
+  // Disable button while sending
+  sendBtn.disabled = true;
+  sendBtn.textContent = 'Sending...';
+  statusEl.textContent = '';
+
+  try {
+    const result = await api(`/api/sessions/${sessionId}/gm-message`, 'POST', { message });
+
+    // Success
+    statusEl.textContent = result.message || 'GM message sent! It will influence the next AI response.';
+    statusEl.style.color = 'var(--success)';
+    document.getElementById('gm-message-input').value = '';
+
+    // Update session info to show it's been modified
+    loadGMSessionInfo();
+
+  } catch (error) {
+    statusEl.textContent = 'Error: ' + (error.message || 'Failed to send message');
+    statusEl.style.color = 'var(--danger)';
+  } finally {
+    sendBtn.disabled = false;
+    sendBtn.textContent = 'Send GM Nudge';
   }
 }
 

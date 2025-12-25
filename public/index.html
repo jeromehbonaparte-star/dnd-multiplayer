@@ -201,6 +201,27 @@
         </div>
         <p class="settings-note">TTS requires an OpenAI API key. Set OPENAI_TTS_API_KEY in environment, or use an OpenAI configuration above.</p>
 
+        <h2>GM Mode</h2>
+        <p class="settings-note">Send hidden instructions to the AI. Players won't see these messages, but the AI will use them to guide the story.</p>
+        <div class="form-group">
+          <label>Select Session</label>
+          <select id="gm-session-select" onchange="loadGMSessionInfo()">
+            <option value="">-- Select a session --</option>
+          </select>
+        </div>
+        <div id="gm-session-info" class="gm-session-info" style="display: none;">
+          <p>Session: <strong id="gm-session-name"></strong></p>
+          <p>Turn: <span id="gm-session-turn"></span></p>
+        </div>
+        <div class="form-group">
+          <label>GM Message</label>
+          <textarea id="gm-message-input" rows="4" placeholder="Example: Have a mysterious stranger approach the party with urgent news about the dragon's lair..."></textarea>
+        </div>
+        <div class="form-group">
+          <button onclick="sendGMMessage()" class="btn-primary" id="gm-send-btn">Send GM Nudge</button>
+        </div>
+        <p id="gm-status" class="settings-note"></p>
+
         <h2>Security</h2>
         <div class="form-group">
           <label>Change Game Password</label>

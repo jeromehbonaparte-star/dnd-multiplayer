@@ -2302,3 +2302,63 @@ nav {
     gap: 8px;
   }
 }
+
+/* ============================================
+   GM Mode Styles
+   ============================================ */
+
+#gm-session-select {
+  width: 100%;
+  padding: 8px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 1rem;
+}
+
+#gm-session-select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.gm-session-info {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px 15px;
+  margin-bottom: 15px;
+}
+
+.gm-session-info p {
+  margin: 5px 0;
+  font-size: 0.9rem;
+}
+
+#gm-message-input {
+  width: 100%;
+  padding: 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 1rem;
+  font-family: inherit;
+  resize: vertical;
+  min-height: 80px;
+}
+
+#gm-message-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+#gm-message-input::placeholder {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+#gm-status {
+  margin-top: 10px;
+  font-weight: 500;
+}
