@@ -1415,15 +1415,29 @@ function toggleSection(charId, section) {
   }
 }
 
-// Attach event listeners for section toggle headers using event delegation
+// Use event delegation for section toggle - attach once to document
+let sectionToggleListenerAttached = false;
+
 function attachSectionToggleListeners() {
-  document.querySelectorAll('.section-header[data-toggle-char][data-toggle-section]').forEach(header => {
-    // Remove existing listener to prevent duplicates
-    header.removeEventListener('click', handleSectionToggleClick);
-    header.addEventListener('click', handleSectionToggleClick);
+  // Only attach the delegated listener once
+  if (sectionToggleListenerAttached) return;
+  sectionToggleListenerAttached = true;
+
+  document.addEventListener('click', function(e) {
+    // Find the closest section-header with the toggle data attributes
+    const header = e.target.closest('.section-header[data-toggle-char][data-toggle-section]');
+    if (header) {
+      e.stopPropagation();
+      const charId = header.dataset.toggleChar;
+      const section = header.dataset.toggleSection;
+      if (charId && section) {
+        toggleSection(charId, section);
+      }
+    }
   });
 }
 
+// Legacy function kept for compatibility but not used
 function handleSectionToggleClick(e) {
   e.stopPropagation();
   const charId = e.currentTarget.dataset.toggleChar;
