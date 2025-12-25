@@ -699,16 +699,29 @@ async function loadSettings() {
 async function loadGMSessionDropdown() {
   try {
     const sessions = await api('/api/sessions');
-    const select = document.getElementById('gm-session-select');
-    if (!select) return;
-
-    select.innerHTML = '<option value="">-- Select a session --</option>' +
+    const sessionOptions = '<option value="">-- Select a session --</option>' +
       sessions.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('');
 
-    // Clear session info
-    document.getElementById('gm-session-info').style.display = 'none';
+    // GM Mode dropdown
+    const gmSelect = document.getElementById('gm-session-select');
+    if (gmSelect) {
+      gmSelect.innerHTML = sessionOptions;
+      document.getElementById('gm-session-info').style.display = 'none';
+    }
+
+    // Auto-Reply dropdown
+    const autoReplySelect = document.getElementById('autoreply-session-select');
+    if (autoReplySelect) {
+      autoReplySelect.innerHTML = sessionOptions;
+    }
+
+    // Summary dropdown
+    const summarySelect = document.getElementById('summary-session-select');
+    if (summarySelect) {
+      summarySelect.innerHTML = sessionOptions;
+    }
   } catch (error) {
-    console.error('Failed to load sessions for GM Mode:', error);
+    console.error('Failed to load sessions for settings dropdowns:', error);
   }
 }
 
@@ -874,6 +887,91 @@ async function sendGMMessage() {
   } finally {
     sendBtn.disabled = false;
     sendBtn.textContent = 'Send GM Nudge';
+  }
+}
+
+// ============================================
+// AI Auto-Reply Functions
+// ============================================
+
+async function loadAutoReplyCharacters() {
+  const sessionId = document.getElementById('autoreply-session-select').value;
+  const charSelect = document.getElementById('autoreply-character-select');
+  const statusEl = document.getElementById('autoreply-status');
+
+  if (!sessionId) {
+    charSelect.innerHTML = '<option value="">-- Select a session first --</option>';
+    charSelect.disabled = true;
+    return;
+  }
+
+  try {
+    const data = await api(`/api/sessions/${sessionId}`);
+    const characters = data.characters || [];
+
+    if (characters.length === 0) {
+      charSelect.innerHTML = '<option value="">No characters in this session</option>';
+      charSelect.disabled = true;
+      return;
+    }
+
+    charSelect.innerHTML = '<option value="">-- Select a character --</option>' +
+      characters.map(c => `<option value="${c.id}">${escapeHtml(c.character_name)} (${c.race} ${c.class})</option>`).join('');
+    charSelect.disabled = false;
+    statusEl.textContent = '';
+  } catch (error) {
+    console.error('Failed to load characters:', error);
+    charSelect.innerHTML = '<option value="">Error loading characters</option>';
+    charSelect.disabled = true;
+    statusEl.textContent = 'Error: ' + error.message;
+    statusEl.style.color = 'var(--danger)';
+  }
+}
+
+async function generateAutoReply() {
+  const sessionId = document.getElementById('autoreply-session-select').value;
+  const characterId = document.getElementById('autoreply-character-select').value;
+  const context = document.getElementById('autoreply-context').value.trim();
+  const statusEl = document.getElementById('autoreply-status');
+  const btn = document.getElementById('autoreply-btn');
+
+  if (!sessionId) {
+    statusEl.textContent = 'Please select a session first.';
+    statusEl.style.color = 'var(--danger)';
+    return;
+  }
+
+  if (!characterId) {
+    statusEl.textContent = 'Please select a character.';
+    statusEl.style.color = 'var(--danger)';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Generating...';
+  statusEl.textContent = 'AI is thinking...';
+  statusEl.style.color = 'var(--text-muted)';
+
+  try {
+    const result = await api(`/api/sessions/${sessionId}/auto-reply`, 'POST', {
+      character_id: characterId,
+      context: context || null
+    });
+
+    if (result.success) {
+      statusEl.innerHTML = `<strong>Action generated:</strong> "${escapeHtml(result.action)}"<br><em>${result.message}</em>`;
+      statusEl.style.color = 'var(--success)';
+      document.getElementById('autoreply-context').value = '';
+    } else {
+      statusEl.textContent = 'Error: ' + (result.error || 'Unknown error');
+      statusEl.style.color = 'var(--danger)';
+    }
+  } catch (error) {
+    statusEl.textContent = 'Error: ' + (error.message || 'Failed to generate action');
+    statusEl.style.color = 'var(--danger)';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Generate & Send Action';
   }
 }
 

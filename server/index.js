@@ -2202,6 +2202,150 @@ app.post('/api/sessions/:id/gm-message', checkPassword, checkAdminPassword, (req
   res.json({ success: true, message: 'GM message added. It will be included in the next AI response.' });
 });
 
+// AI Auto-Reply - Generate and submit action for a character
+app.post('/api/sessions/:id/auto-reply', checkPassword, async (req, res) => {
+  const sessionId = req.params.id;
+  const { character_id, context } = req.body;
+
+  if (!character_id) {
+    return res.status(400).json({ error: 'Character ID is required' });
+  }
+
+  const session = db.prepare('SELECT * FROM game_sessions WHERE id = ?').get(sessionId);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(character_id);
+  if (!character) {
+    return res.status(404).json({ error: 'Character not found' });
+  }
+
+  // Get recent history for context
+  const fullHistory = JSON.parse(session.full_history || '[]');
+  const recentHistory = fullHistory.slice(-15); // Last 15 messages for context
+
+  // Get all characters in session for party context
+  const sessionChars = getSessionCharacters(sessionId);
+  const partyContext = sessionChars.map(c => `${c.character_name} (${c.race} ${c.class}, Level ${c.level})`).join(', ');
+
+  // Build prompt for AI to generate character action
+  const prompt = `You are generating a brief in-character action/response for a D&D 5e character.
+
+CHARACTER:
+Name: ${character.character_name}
+Race: ${character.race}
+Class: ${character.class}
+Level: ${character.level}
+Background: ${character.background || 'Unknown'}
+Personality: ${character.personality_traits || 'Not specified'}
+Backstory: ${character.backstory || 'Not specified'}
+
+PARTY: ${partyContext}
+
+RECENT GAME EVENTS:
+${recentHistory.map(m => {
+  if (m.role === 'assistant') return `DM: ${m.content.substring(0, 500)}`;
+  if (m.character_name) return `${m.character_name}: ${m.content}`;
+  return '';
+}).filter(Boolean).join('\n')}
+
+${context ? `GUIDANCE FROM GM: ${context}` : ''}
+
+Generate a SHORT (1-3 sentences) in-character action or response that ${character.character_name} would take right now. Include:
+- What they say (in quotes) and/or what they do
+- Stay true to their personality and background
+- React appropriately to the current situation
+
+RESPOND WITH ONLY THE CHARACTER'S ACTION - no explanations, no meta-commentary, just the action text.`;
+
+  try {
+    // Get active API config
+    const activeConfig = db.prepare('SELECT * FROM api_configs WHERE is_active = 1').get();
+    if (!activeConfig) {
+      return res.status(500).json({ error: 'No active API configuration' });
+    }
+
+    const apiResponse = await fetch(activeConfig.endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${activeConfig.api_key}`
+      },
+      body: JSON.stringify({
+        model: activeConfig.model,
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 200,
+        temperature: 0.8
+      })
+    });
+
+    if (!apiResponse.ok) {
+      const errorText = await apiResponse.text();
+      console.error('AI API error for auto-reply:', errorText);
+      return res.status(500).json({ error: 'Failed to generate action' });
+    }
+
+    const aiData = await apiResponse.json();
+    const generatedAction = aiData.choices?.[0]?.message?.content?.trim();
+
+    if (!generatedAction) {
+      return res.status(500).json({ error: 'AI returned empty response' });
+    }
+
+    console.log(`Auto-reply generated for ${character.character_name}: "${generatedAction.substring(0, 100)}..."`);
+
+    // Now submit this action as if the player did it
+    const existing = db.prepare('SELECT * FROM pending_actions WHERE session_id = ? AND character_id = ?').get(sessionId, character_id);
+    if (existing) {
+      db.prepare('UPDATE pending_actions SET action = ? WHERE id = ?').run(generatedAction, existing.id);
+    } else {
+      db.prepare('INSERT INTO pending_actions (id, session_id, character_id, action) VALUES (?, ?, ?, ?)').run(uuidv4(), sessionId, character_id, generatedAction);
+    }
+
+    const pendingActions = db.prepare('SELECT * FROM pending_actions WHERE session_id = ?').all(sessionId);
+    const characters = getSessionCharacters(sessionId);
+
+    io.emit('action_submitted', { sessionId, pendingActions, character_id });
+
+    // Check if all characters have submitted actions
+    if (pendingActions.length >= characters.length && characters.length > 0) {
+      // Process turn with AI
+      try {
+        const result = await processAITurn(sessionId, pendingActions, characters);
+        res.json({
+          success: true,
+          action: generatedAction,
+          processed: true,
+          result,
+          message: `Action submitted and turn processed for ${character.character_name}`
+        });
+      } catch (error) {
+        console.error('AI processing error:', error);
+        res.json({
+          success: true,
+          action: generatedAction,
+          processed: false,
+          error: error.message,
+          message: `Action submitted for ${character.character_name}, but turn processing failed`
+        });
+      }
+    } else {
+      res.json({
+        success: true,
+        action: generatedAction,
+        processed: false,
+        waiting: characters.length - pendingActions.length,
+        message: `Action submitted for ${character.character_name}. Waiting for ${characters.length - pendingActions.length} more player(s).`
+      });
+    }
+
+  } catch (error) {
+    console.error('Auto-reply error:', error);
+    res.status(500).json({ error: 'Failed to generate auto-reply: ' + error.message });
+  }
+});
+
 // Get session summary (for viewing/editing)
 app.get('/api/sessions/:id/summary', checkPassword, checkAdminPassword, (req, res) => {
   const sessionId = req.params.id;
