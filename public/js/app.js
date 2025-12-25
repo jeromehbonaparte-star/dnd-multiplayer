@@ -1773,6 +1773,13 @@ async function deleteSession(id, name) {
 
   try {
     await api(`/api/sessions/${id}`, 'DELETE');
+    showNotification(`Session "${name}" deleted`);
+    // Clear current session if it was the deleted one
+    if (currentSession && currentSession.id === id) {
+      currentSession = null;
+      document.getElementById('story-container').innerHTML = '<p class="no-session">Select or create a session to begin your adventure!</p>';
+    }
+    loadSessions();
   } catch (error) {
     console.error('Failed to delete session:', error);
     alert('Failed to delete session: ' + error.message);
