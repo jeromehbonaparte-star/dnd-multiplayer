@@ -1398,6 +1398,8 @@ function getSectionState(charId, section) {
 }
 
 function toggleSection(charId, section) {
+  console.log('toggleSection called:', { charId, section });
+
   if (!sectionExpandedStates[charId]) {
     sectionExpandedStates[charId] = {};
   }
@@ -1405,13 +1407,20 @@ function toggleSection(charId, section) {
   saveSectionStates();
 
   // Update the section visually
-  const sectionEl = document.querySelector(`.section-collapsible[data-char="${charId}"][data-section="${section}"]`);
+  const selector = `.section-collapsible[data-char="${charId}"][data-section="${section}"]`;
+  console.log('Looking for element with selector:', selector);
+  const sectionEl = document.querySelector(selector);
+  console.log('Found element:', sectionEl);
+
   if (sectionEl) {
     sectionEl.classList.toggle('expanded', sectionExpandedStates[charId][section]);
     const icon = sectionEl.querySelector('.section-toggle-icon');
     if (icon) {
       icon.textContent = sectionExpandedStates[charId][section] ? '▼' : '▶';
     }
+    console.log('Section toggled, expanded:', sectionExpandedStates[charId][section]);
+  } else {
+    console.error('Could not find section element!');
   }
 }
 
