@@ -426,7 +426,8 @@ Embed tags naturally in your narrative. NEVER output stat blocks or JSON.
 **COMBAT:**
 [COMBAT: START Goblin Ambush] → start combat
 [COMBAT: END] → end combat
-[COMBAT: NEXT] → next turn
+[COMBAT: NEXT] → advance to next turn
+[COMBAT: PREV] → go back to previous turn
 
 ═══════════════════════════════════════════════════════════════
 ⚠️ NEVER FORGET TAGS - CHECK BEFORE EVERY RESPONSE
