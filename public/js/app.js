@@ -2368,7 +2368,7 @@ async function recalculateLoot() {
     return;
   }
 
-  if (!confirm('Recalculate gold and inventory from session history? This will scan all DM responses for [GOLD: ...] and [ITEM: ...] tags.')) return;
+  if (!confirm('Recalculate gold and inventory from session history? This will scan all DM responses for [MONEY: ...] and [ITEM: ...] tags.')) return;
 
   try {
     const result = await api(`/api/sessions/${currentSession.id}/recalculate-loot`, 'POST');
@@ -2377,13 +2377,37 @@ async function recalculateLoot() {
       const itemCount = Object.values(result.inventoryChanges).filter(arr => arr.length > 0).length;
       const summary = goldCount > 0 || itemCount > 0
         ? `Loot recalculated! Found gold for ${goldCount} characters and items for ${itemCount} characters.`
-        : 'No [GOLD: ...] or [ITEM: ...] tags found in session history.';
+        : 'No [MONEY: ...] or [ITEM: ...] tags found in session history.';
       alert(summary);
       loadCharacters();
     }
   } catch (error) {
     console.error('Failed to recalculate loot:', error);
     alert('Failed to recalculate loot: ' + error.message);
+  }
+}
+
+async function recalculateInventory() {
+  if (!currentSession) {
+    alert('Please select a session first');
+    return;
+  }
+
+  if (!confirm('Recalculate inventory from session history? This will scan all DM responses for [ITEM: ...] tags and rebuild inventory from scratch.\n\nNote: This will REPLACE current inventory with what is found in tags.')) return;
+
+  try {
+    const result = await api(`/api/sessions/${currentSession.id}/recalculate-inventory`, 'POST');
+    if (result.success) {
+      const itemCount = Object.values(result.inventoryChanges).filter(arr => arr.length > 0).length;
+      const summary = itemCount > 0
+        ? `Inventory recalculated! Found items for ${itemCount} character(s).`
+        : 'No [ITEM: ...] tags found in session history.';
+      alert(summary);
+      loadCharacters();
+    }
+  } catch (error) {
+    console.error('Failed to recalculate inventory:', error);
+    alert('Failed to recalculate inventory: ' + error.message);
   }
 }
 
