@@ -2491,7 +2491,7 @@ function openEditModal(charId) {
   document.getElementById('modal-title').textContent = `Edit ${char.character_name}`;
   document.getElementById('modal-chat-messages').innerHTML = `
     <div class="chat-message assistant">
-      <div class="message-content">What would you like to change about ${char.character_name}? You can ask me to update stats, equipment, spells, skills, or anything else.</div>
+      <div class="message-content">What would you like to change about ${char.character_name}? You can ask me to update stats, spells, skills, appearance, backstory, or anything else. (Use the Inventory button to manage items.)</div>
     </div>
   `;
   document.getElementById('modal-input').value = '';

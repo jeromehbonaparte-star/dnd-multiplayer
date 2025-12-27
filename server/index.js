@@ -209,6 +209,59 @@ for (const char of charsToMigrateAc) {
   }
 }
 
+// Migrate equipment text to inventory items
+const charsWithEquipment = db.prepare("SELECT id, equipment, inventory FROM characters WHERE equipment IS NOT NULL AND equipment != ''").all();
+for (const char of charsWithEquipment) {
+  try {
+    // Parse existing inventory
+    let inventory = [];
+    try {
+      inventory = JSON.parse(char.inventory || '[]');
+    } catch (e) {
+      inventory = [];
+    }
+
+    // Parse equipment text (comma or newline separated)
+    const equipmentText = char.equipment || '';
+    const equipmentItems = equipmentText
+      .split(/[,\n]/)
+      .map(item => item.trim())
+      .filter(item => item.length > 0);
+
+    // Add equipment items to inventory (avoid duplicates)
+    for (const itemName of equipmentItems) {
+      // Check for quantity pattern like "10 torches" or "Arrows x20"
+      let name = itemName;
+      let quantity = 1;
+
+      const qtyPrefixMatch = itemName.match(/^(\d+)\s+(.+)$/);
+      const qtySuffixMatch = itemName.match(/^(.+?)\s*x(\d+)$/i);
+
+      if (qtyPrefixMatch) {
+        quantity = parseInt(qtyPrefixMatch[1]);
+        name = qtyPrefixMatch[2];
+      } else if (qtySuffixMatch) {
+        name = qtySuffixMatch[1].trim();
+        quantity = parseInt(qtySuffixMatch[2]);
+      }
+
+      // Check if item already exists in inventory
+      const existingItem = inventory.find(i => i.name.toLowerCase() === name.toLowerCase());
+      if (existingItem) {
+        existingItem.quantity = (existingItem.quantity || 1) + quantity;
+      } else {
+        inventory.push({ name, quantity });
+      }
+    }
+
+    // Update inventory and clear equipment
+    db.prepare('UPDATE characters SET inventory = ?, equipment = NULL WHERE id = ?')
+      .run(JSON.stringify(inventory), char.id);
+  } catch (e) {
+    console.error(`Failed to migrate equipment for character ${char.id}:`, e);
+  }
+}
+
 // Migrate game_sessions table - add compacted_count column
 const sessionColumns = db.prepare("PRAGMA table_info(game_sessions)").all().map(c => c.name);
 if (!sessionColumns.includes('compacted_count')) {
@@ -772,15 +825,15 @@ app.get('/api/characters', checkPassword, (req, res) => {
 });
 
 app.post('/api/characters', checkPassword, (req, res) => {
-  const { player_name, character_name, race, class: charClass, strength, dexterity, constitution, intelligence, wisdom, charisma, background, equipment } = req.body;
+  const { player_name, character_name, race, class: charClass, strength, dexterity, constitution, intelligence, wisdom, charisma, background } = req.body;
 
   const id = uuidv4();
   const hp = 10 + Math.floor((constitution - 10) / 2); // Basic HP calculation
 
   db.prepare(`
-    INSERT INTO characters (id, player_name, character_name, race, class, strength, dexterity, constitution, intelligence, wisdom, charisma, hp, max_hp, background, equipment)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, player_name, character_name, race, charClass, strength, dexterity, constitution, intelligence, wisdom, charisma, hp, hp, background, equipment);
+    INSERT INTO characters (id, player_name, character_name, race, class, strength, dexterity, constitution, intelligence, wisdom, charisma, hp, max_hp, background)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, player_name, character_name, race, charClass, strength, dexterity, constitution, intelligence, wisdom, charisma, hp, hp, background);
 
   const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(id);
   io.emit('character_created', character);
@@ -1455,7 +1508,7 @@ CURRENT CHARACTER:
 - Background: ${character.background}
 - Appearance: ${character.appearance || 'Not set'}
 - Backstory: ${character.backstory || 'Not set'}
-- Equipment: ${character.equipment}
+- Inventory: ${(() => { try { const inv = JSON.parse(character.inventory || '[]'); return inv.length > 0 ? inv.map(i => i.quantity > 1 ? `${i.name} x${i.quantity}` : i.name).join(', ') : 'Empty'; } catch(e) { return 'Empty'; } })()}
 - Spells: ${character.spells || 'None'}
 - Skills: ${character.skills || 'None'}
 - Passives: ${character.passives || 'None'}
@@ -1466,8 +1519,9 @@ USER'S EDIT REQUEST: ${editRequest}
 
 Discuss the changes with the user. When you have confirmed ALL changes, output the COMPLETE updated character in this EXACT JSON format.
 IMPORTANT: Include ALL fields with their current or updated values - do not omit any fields!
+NOTE: Inventory is managed through gameplay [ITEM:] tags, not through character editing.
 
-EDIT_COMPLETE:{"character_name":"...","race":"...","class":"PrimaryClass","classes":{"Fighter":5,"Wizard":2},"level":N,"strength":N,"dexterity":N,"constitution":N,"intelligence":N,"wisdom":N,"charisma":N,"hp":N,"max_hp":N,"ac":N,"spell_slots":{"1":{"current":N,"max":N}},"background":"...","appearance":"Physical description","backstory":"Character history","equipment":"...","spells":"...","skills":"...","passives":"...","class_features":"Class abilities like Second Wind, Sneak Attack","feats":"..."}
+EDIT_COMPLETE:{"character_name":"...","race":"...","class":"PrimaryClass","classes":{"Fighter":5,"Wizard":2},"level":N,"strength":N,"dexterity":N,"constitution":N,"intelligence":N,"wisdom":N,"charisma":N,"hp":N,"max_hp":N,"ac":N,"spell_slots":{"1":{"current":N,"max":N}},"background":"...","appearance":"Physical description","backstory":"Character history","spells":"...","skills":"...","passives":"...","class_features":"Class abilities like Second Wind, Sneak Attack","feats":"..."}
 
 MULTICLASS FORMAT:
 - "class" is the primary class (highest level)
@@ -1557,7 +1611,7 @@ Only include fields that should be changed. Keep the conversation helpful and en
 
           const fields = ['character_name', 'race', 'class', 'level', 'strength', 'dexterity', 'constitution',
                          'intelligence', 'wisdom', 'charisma', 'hp', 'max_hp', 'ac', 'background',
-                         'appearance', 'backstory', 'equipment', 'spells', 'skills', 'passives', 'class_features', 'feats'];
+                         'appearance', 'backstory', 'spells', 'skills', 'passives', 'class_features', 'feats'];
 
           fields.forEach(field => {
             if (editData[field] !== undefined && editData[field] !== null) {
@@ -1682,7 +1736,7 @@ SPELLS for Level 1 spellcasters:
 - Other casters: Appropriate cantrips and spells for level 1
 
 When you have ALL information needed, output the final character in this EXACT JSON format on a single line:
-CHARACTER_COMPLETE:{"player_name":"...","character_name":"...","race":"...","class":"...","classes":{"ClassName":1},"strength":N,"dexterity":N,"constitution":N,"intelligence":N,"wisdom":N,"charisma":N,"background":"D&D Background like Soldier or Noble","appearance":"Physical description: hair, eyes, height, build, distinguishing features","backstory":"2-4 sentences about history and motivations","equipment":"...","spells":"Cantrips: X, Y. Spells: A, B, C","skills":"Skill1, Skill2 (proficient), Skill3","passives":"Passive Perception: N, Darkvision 60ft","class_features":"Second Wind, Fighting Style: Defense","feats":"Feat Name (if any, otherwise empty string)"}
+CHARACTER_COMPLETE:{"player_name":"...","character_name":"...","race":"...","class":"...","classes":{"ClassName":1},"strength":N,"dexterity":N,"constitution":N,"intelligence":N,"wisdom":N,"charisma":N,"background":"D&D Background like Soldier or Noble","appearance":"Physical description: hair, eyes, height, build, distinguishing features","backstory":"2-4 sentences about history and motivations","starting_items":"Longsword, Shield, Chain Mail, Explorer's Pack, 10 gold pieces","spells":"Cantrips: X, Y. Spells: A, B, C","skills":"Skill1, Skill2 (proficient), Skill3","passives":"Passive Perception: N, Darkvision 60ft","class_features":"Second Wind, Fighting Style: Defense","feats":"Feat Name (if any, otherwise empty string)"}
 
 Note: The "classes" field is a JSON object tracking levels in each class. For a level 1 Fighter it would be {"Fighter":1}. This supports multiclassing at higher levels.
 
@@ -1750,13 +1804,36 @@ app.post('/api/characters/ai-create', checkPassword, async (req, res) => {
             classesJson = JSON.stringify(classObj);
           }
 
+          // Convert starting_items (or equipment for backwards compat) to inventory JSON
+          const startingItemsText = charData.starting_items || charData.equipment || '';
+          const inventory = [];
+          if (startingItemsText) {
+            const items = startingItemsText.split(/[,\n]/).map(i => i.trim()).filter(i => i.length > 0);
+            for (const itemText of items) {
+              let name = itemText;
+              let quantity = 1;
+              // Check for "10 gold pieces" or "Arrows x20" patterns
+              const qtyPrefixMatch = itemText.match(/^(\d+)\s+(.+)$/);
+              const qtySuffixMatch = itemText.match(/^(.+?)\s*x(\d+)$/i);
+              if (qtyPrefixMatch) {
+                quantity = parseInt(qtyPrefixMatch[1]);
+                name = qtyPrefixMatch[2];
+              } else if (qtySuffixMatch) {
+                name = qtySuffixMatch[1].trim();
+                quantity = parseInt(qtySuffixMatch[2]);
+              }
+              inventory.push({ name, quantity });
+            }
+          }
+          const inventoryJson = JSON.stringify(inventory);
+
           db.prepare(`
-            INSERT INTO characters (id, player_name, character_name, race, class, level, xp, strength, dexterity, constitution, intelligence, wisdom, charisma, hp, max_hp, background, appearance, backstory, equipment, spells, skills, passives, class_features, feats, classes)
+            INSERT INTO characters (id, player_name, character_name, race, class, level, xp, strength, dexterity, constitution, intelligence, wisdom, charisma, hp, max_hp, background, appearance, backstory, inventory, spells, skills, passives, class_features, feats, classes)
             VALUES (?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `).run(id, charData.player_name, charData.character_name, charData.race, charData.class,
                  charData.strength, charData.dexterity, charData.constitution, charData.intelligence,
                  charData.wisdom, charData.charisma, hp, hp, charData.background, charData.appearance || '',
-                 charData.backstory || '', charData.equipment,
+                 charData.backstory || '', inventoryJson,
                  charData.spells || '', charData.skills || '', charData.passives || '',
                  charData.class_features || '', charData.feats || '', classesJson);
 
