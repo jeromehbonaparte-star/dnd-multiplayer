@@ -2109,13 +2109,23 @@ app.post('/api/sessions/:id/auto-reply', checkPassword, async (req, res) => {
     return res.status(404).json({ error: 'Character not found' });
   }
 
+  // Get story summary for context
+  const storySummary = session.story_summary || '';
+
   // Get recent history for context - filter out hidden/context messages
   const fullHistory = JSON.parse(session.full_history || '[]');
   const visibleHistory = fullHistory.filter(m => !m.hidden && m.type !== 'context');
-  const recentHistory = visibleHistory.slice(-20); // Last 20 visible messages
+  const recentHistory = visibleHistory.slice(-30); // Last 30 visible messages for better context
 
   // Find the most recent DM narration (this is what we need to respond to)
   const lastDMMessage = [...recentHistory].reverse().find(m => m.role === 'assistant');
+
+  // Get recent conversation flow (last few exchanges)
+  const recentExchanges = recentHistory.slice(-10).map(m => {
+    if (m.role === 'assistant') return `DM: ${m.content.substring(0, 800)}`;
+    if (m.character_name) return `${m.character_name}: ${m.content}`;
+    return null;
+  }).filter(Boolean).join('\n\n');
 
   // Find other player actions this turn (to avoid duplicating)
   const recentPlayerActions = recentHistory
@@ -2139,12 +2149,21 @@ Name: ${character.character_name}
 Race: ${character.race}
 Class: ${character.class} (Level ${character.level})
 Background: ${character.background || 'Unknown'}
+Backstory: ${character.backstory || 'Unknown'}
 Spells: ${spells || 'None'}
 Class Features: ${classFeatures || 'None'}
 Feats: ${feats || 'None'}
 HP: ${character.hp}/${character.max_hp}
 
 PARTY: ${partyContext}
+
+${storySummary ? `===== STORY SO FAR =====
+${storySummary}
+========================
+
+` : ''}===== RECENT EVENTS =====
+${recentExchanges}
+=========================
 
 ===== CURRENT SITUATION (RESPOND TO THIS) =====
 ${lastDMMessage ? lastDMMessage.content : 'The adventure begins...'}
