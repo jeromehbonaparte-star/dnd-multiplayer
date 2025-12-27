@@ -390,17 +390,17 @@ nav {
 .action-item .action-preview { cursor: help; }
 .btn-cancel-action {
   background: transparent;
-  border: 1px solid var(--error);
-  color: var(--error);
-  padding: 2px 6px;
-  font-size: 11px;
-  border-radius: 3px;
+  border: none;
+  color: var(--text-muted);
+  padding: 0 4px;
+  font-size: 10px;
   cursor: pointer;
+  opacity: 0.6;
   transition: all 0.2s;
 }
 .btn-cancel-action:hover {
-  background: var(--error);
-  color: white;
+  color: var(--error);
+  opacity: 1;
 }
 
 .party-actions { display: flex; gap: 6px; margin-top: 10px; }
