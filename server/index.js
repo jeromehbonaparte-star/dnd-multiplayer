@@ -476,6 +476,9 @@ Example - Player says "I kick down the door":
 
 Wait for all players to submit actions before narrating.`;
 
+// Response prefix for session AI - helps with immersion, stripped from final output
+const AI_RESPONSE_PREFIX = "All right! Let's get to writing!\n\n";
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../public')));
 
@@ -3419,7 +3422,9 @@ Please narrate the outcome of these actions and describe what happens next.`;
 
   const messages = [
     { role: 'system', content: DEFAULT_SYSTEM_PROMPT + (session.story_summary ? `\n\nSTORY SO FAR:\n${session.story_summary}` : '') },
-    ...aiMessages
+    ...aiMessages,
+    // Prefill assistant response to help with immersion (will be stripped from output)
+    { role: 'assistant', content: AI_RESPONSE_PREFIX }
   ];
 
   // Debug: Log what's being sent to AI
@@ -3453,11 +3458,18 @@ Please narrate the outcome of these actions and describe what happens next.`;
   }
 
   const data = await response.json();
-  const aiResponse = extractAIMessage(data);
+  let aiResponse = extractAIMessage(data);
 
   if (!aiResponse) {
     console.log('Failed to extract AI response:', JSON.stringify(data, null, 2));
     throw new Error('Could not parse AI response. Check server logs.');
+  }
+
+  // Strip the response prefix if present (it was used to help with immersion)
+  if (aiResponse.startsWith(AI_RESPONSE_PREFIX)) {
+    aiResponse = aiResponse.slice(AI_RESPONSE_PREFIX.length);
+  } else if (aiResponse.startsWith(AI_RESPONSE_PREFIX.trim())) {
+    aiResponse = aiResponse.slice(AI_RESPONSE_PREFIX.trim().length).trimStart();
   }
 
   const tokensUsed = data.usage?.total_tokens || estimateTokens(JSON.stringify(messages) + aiResponse);
