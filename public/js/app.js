@@ -418,6 +418,12 @@ function initSocket() {
     }
   });
 
+  socket.on('action_cancelled', ({ sessionId, pendingActions, character_id }) => {
+    if (currentSession && currentSession.id === sessionId) {
+      updatePendingActions(pendingActions);
+    }
+  });
+
   socket.on('turn_processing', ({ sessionId }) => {
     if (currentSession && currentSession.id === sessionId) {
       showNarratorTyping();
@@ -2160,10 +2166,29 @@ function updatePendingActions(pendingActions) {
     return `
       <div class="action-item ${action ? 'submitted' : ''}">
         <div class="player">${c.character_name}</div>
-        <div>${action ? 'Action submitted' : 'Waiting...'}</div>
+        <div class="action-status">
+          ${action ? `<span class="action-preview" title="${escapeHtml(action.action)}">Action submitted</span>
+            <button class="btn-cancel-action" onclick="cancelAction('${c.id}')" title="Cancel action">✕</button>`
+            : 'Waiting...'}
+        </div>
       </div>
     `;
   }).join('');
+}
+
+async function cancelAction(characterId) {
+  if (!currentSession) return;
+
+  try {
+    const result = await api(`/api/sessions/${currentSession.id}/action/${characterId}`, 'DELETE');
+    if (result.success) {
+      updatePendingActions(result.pendingActions);
+      showNotification('Action cancelled');
+    }
+  } catch (error) {
+    console.error('Failed to cancel action:', error);
+    alert('Failed to cancel action: ' + error.message);
+  }
 }
 
 function formatContent(content) {

@@ -2029,6 +2029,19 @@ app.post('/api/sessions/:id/action', checkPassword, async (req, res) => {
   }
 });
 
+// Cancel a pending action
+app.delete('/api/sessions/:id/action/:characterId', checkPassword, (req, res) => {
+  const sessionId = req.params.id;
+  const characterId = req.params.characterId;
+
+  db.prepare('DELETE FROM pending_actions WHERE session_id = ? AND character_id = ?').run(sessionId, characterId);
+
+  const pendingActions = db.prepare('SELECT * FROM pending_actions WHERE session_id = ?').all(sessionId);
+  io.emit('action_cancelled', { sessionId, pendingActions, character_id: characterId });
+
+  res.json({ success: true, pendingActions });
+});
+
 // Force process turn (DM override)
 app.post('/api/sessions/:id/process', checkPassword, async (req, res) => {
   const sessionId = req.params.id;
@@ -2096,9 +2109,18 @@ app.post('/api/sessions/:id/auto-reply', checkPassword, async (req, res) => {
     return res.status(404).json({ error: 'Character not found' });
   }
 
-  // Get recent history for context
+  // Get recent history for context - filter out hidden/context messages
   const fullHistory = JSON.parse(session.full_history || '[]');
-  const recentHistory = fullHistory.slice(-15); // Last 15 messages for context
+  const visibleHistory = fullHistory.filter(m => !m.hidden && m.type !== 'context');
+  const recentHistory = visibleHistory.slice(-20); // Last 20 visible messages
+
+  // Find the most recent DM narration (this is what we need to respond to)
+  const lastDMMessage = [...recentHistory].reverse().find(m => m.role === 'assistant');
+
+  // Find other player actions this turn (to avoid duplicating)
+  const recentPlayerActions = recentHistory
+    .filter(m => m.role === 'user' && m.character_name && m.character_name !== character.character_name)
+    .slice(-5);
 
   // Get all characters in session for party context
   const sessionChars = getSessionCharacters(sessionId);
@@ -2112,7 +2134,7 @@ app.post('/api/sessions/:id/auto-reply', checkPassword, async (req, res) => {
   // Build prompt for AI to generate character action
   const prompt = `You are writing a D&D turn action AS A PLAYER would write it - casual, natural, and practical.
 
-CHARACTER INFO:
+CHARACTER:
 Name: ${character.character_name}
 Race: ${character.race}
 Class: ${character.class} (Level ${character.level})
@@ -2124,33 +2146,32 @@ HP: ${character.hp}/${character.max_hp}
 
 PARTY: ${partyContext}
 
-RECENT EVENTS:
-${recentHistory.map(m => {
-  if (m.role === 'assistant') return `DM: ${m.content.substring(0, 500)}`;
-  if (m.character_name) return `${m.character_name}: ${m.content}`;
-  return '';
-}).filter(Boolean).join('\n')}
+===== CURRENT SITUATION (RESPOND TO THIS) =====
+${lastDMMessage ? lastDMMessage.content : 'The adventure begins...'}
+===============================================
 
+${recentPlayerActions.length > 0 ? `OTHER PLAYERS THIS TURN (don't duplicate their actions):
+${recentPlayerActions.map(m => `${m.character_name}: ${m.content}`).join('\n')}
+` : ''}
 ${context ? `PLAYER GUIDANCE: ${context}` : ''}
 
-Write a turn action like a REAL PLAYER would type it. Examples of good player actions:
-- "I cast Fireball centered on the group of enemies, trying to avoid hitting my allies"
-- "Roll a Perception check for me to see if I notice anything suspicious about the merchant"
-- "I go for the kill with Booming Blade and trigger Divine Smite. After combat I'll use Arcane Recovery"
-- "I try to persuade the guard to let us through, mentioning we're here to help with the goblin problem"
-- "I sneak around to flank the enemy and attack with Sneak Attack if I can"
+Write what ${character.character_name} does in response to the current situation.
 
-STYLE RULES:
-- Write like a casual human player, not a narrator
-- Use "I" statements (I attack, I cast, I try to...)
-- Mention specific abilities, spells, or skills when relevant
-- Can ask for rolls ("Roll X check for me")
-- Can include follow-up actions ("After that, I'll...")
-- Keep it practical and to the point (1-4 sentences)
-- DON'T write in third person or narrate dramatically
-- DON'T use flowery language or purple prose
+STYLE - Write like a real player:
+- Use "I" statements (I attack, I cast, I check...)
+- Mention specific abilities/spells when using them
+- Can ask for rolls ("Roll a Perception check for me")
+- Can chain actions ("I do X, then Y")
+- Be specific about targets and intentions
+- 1-4 sentences, casual tone
 
-Generate ONLY the action text - no quotes around it, no explanations.`;
+DON'T:
+- Repeat what other players already did
+- Write in third person or narrate dramatically
+- Use flowery/purple prose
+- Say generic things like "I attack the enemy" - be specific!
+
+Generate ONLY the action text.`;
 
   try {
     // Get active API config

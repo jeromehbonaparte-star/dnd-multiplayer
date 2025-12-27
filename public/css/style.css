@@ -386,6 +386,22 @@ nav {
 .action-item { font-size: 13px; }
 .action-item .player { font-family: var(--font-display); color: var(--accent); font-weight: 600; }
 .action-item.submitted { border-left: 4px solid var(--success); }
+.action-item .action-status { display: flex; align-items: center; gap: 8px; }
+.action-item .action-preview { cursor: help; }
+.btn-cancel-action {
+  background: transparent;
+  border: 1px solid var(--error);
+  color: var(--error);
+  padding: 2px 6px;
+  font-size: 11px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-cancel-action:hover {
+  background: var(--error);
+  color: white;
+}
 
 .party-actions { display: flex; gap: 6px; margin-top: 10px; }
 
