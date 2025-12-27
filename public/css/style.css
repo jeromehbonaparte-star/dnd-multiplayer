@@ -392,10 +392,11 @@ nav {
   background: transparent;
   border: none;
   color: var(--text-muted);
-  padding: 0 4px;
-  font-size: 10px;
+  padding: 0 2px;
+  font-size: 8px;
+  line-height: 1;
   cursor: pointer;
-  opacity: 0.6;
+  opacity: 0.5;
   transition: all 0.2s;
 }
 .btn-cancel-action:hover {
