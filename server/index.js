@@ -2104,35 +2104,53 @@ app.post('/api/sessions/:id/auto-reply', checkPassword, async (req, res) => {
   const sessionChars = getSessionCharacters(sessionId);
   const partyContext = sessionChars.map(c => `${c.character_name} (${c.race} ${c.class}, Level ${c.level})`).join(', ');
 
-  // Build prompt for AI to generate character action
-  const prompt = `You are generating a brief in-character action/response for a D&D 5e character.
+  // Parse character abilities for context
+  let classFeatures = character.class_features || '';
+  let spells = character.spells || '';
+  let feats = character.feats || '';
 
-CHARACTER:
+  // Build prompt for AI to generate character action
+  const prompt = `You are writing a D&D turn action AS A PLAYER would write it - casual, natural, and practical.
+
+CHARACTER INFO:
 Name: ${character.character_name}
 Race: ${character.race}
-Class: ${character.class}
-Level: ${character.level}
+Class: ${character.class} (Level ${character.level})
 Background: ${character.background || 'Unknown'}
-Personality: ${character.personality_traits || 'Not specified'}
-Backstory: ${character.backstory || 'Not specified'}
+Spells: ${spells || 'None'}
+Class Features: ${classFeatures || 'None'}
+Feats: ${feats || 'None'}
+HP: ${character.hp}/${character.max_hp}
 
 PARTY: ${partyContext}
 
-RECENT GAME EVENTS:
+RECENT EVENTS:
 ${recentHistory.map(m => {
   if (m.role === 'assistant') return `DM: ${m.content.substring(0, 500)}`;
   if (m.character_name) return `${m.character_name}: ${m.content}`;
   return '';
 }).filter(Boolean).join('\n')}
 
-${context ? `GUIDANCE FROM GM: ${context}` : ''}
+${context ? `PLAYER GUIDANCE: ${context}` : ''}
 
-Generate a SHORT (1-3 sentences) in-character action or response that ${character.character_name} would take right now. Include:
-- What they say (in quotes) and/or what they do
-- Stay true to their personality and background
-- React appropriately to the current situation
+Write a turn action like a REAL PLAYER would type it. Examples of good player actions:
+- "I cast Fireball centered on the group of enemies, trying to avoid hitting my allies"
+- "Roll a Perception check for me to see if I notice anything suspicious about the merchant"
+- "I go for the kill with Booming Blade and trigger Divine Smite. After combat I'll use Arcane Recovery"
+- "I try to persuade the guard to let us through, mentioning we're here to help with the goblin problem"
+- "I sneak around to flank the enemy and attack with Sneak Attack if I can"
 
-RESPOND WITH ONLY THE CHARACTER'S ACTION - no explanations, no meta-commentary, just the action text.`;
+STYLE RULES:
+- Write like a casual human player, not a narrator
+- Use "I" statements (I attack, I cast, I try to...)
+- Mention specific abilities, spells, or skills when relevant
+- Can ask for rolls ("Roll X check for me")
+- Can include follow-up actions ("After that, I'll...")
+- Keep it practical and to the point (1-4 sentences)
+- DON'T write in third person or narrate dramatically
+- DON'T use flowery language or purple prose
+
+Generate ONLY the action text - no quotes around it, no explanations.`;
 
   try {
     // Get active API config
@@ -2150,8 +2168,8 @@ RESPOND WITH ONLY THE CHARACTER'S ACTION - no explanations, no meta-commentary, 
       body: JSON.stringify({
         model: activeConfig.model,
         messages: [{ role: 'user', content: prompt }],
-        max_tokens: 200,
-        temperature: 0.8
+        max_tokens: 300,
+        temperature: 0.7
       })
     });
 
