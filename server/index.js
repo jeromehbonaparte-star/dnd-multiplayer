@@ -415,7 +415,8 @@ Embed tags naturally in your narrative. NEVER output stat blocks or JSON.
 **SPELLS:**
 [SPELL: Name -1st] → use 1st level slot
 [SPELL: Name -3rd] → use 3rd level slot
-[SPELL: Name +REST] → restore all slots
+[SPELL: Name +1st] → restore one 1st level slot (Arcane Recovery, etc.)
+[SPELL: Name +REST] → restore all slots (long rest)
 
 **AC EFFECTS:**
 [AC: Name +Shield of Faith +2 spell] → add effect
@@ -438,6 +439,8 @@ If ANY of these happen, the tag is MANDATORY:
 | Character takes damage | [HP: Name -X] |
 | Character healed | [HP: Name +X] |
 | Spell cast with slot | [SPELL: Name -Xth] |
+| Spell slot restored (Arcane Recovery, etc.) | [SPELL: Name +Xth] |
+| Long rest (restore all slots) | [SPELL: Name +REST] |
 | Item picked up/looted | [ITEM: Name +ItemName] |
 | Item used/consumed | [ITEM: Name -ItemName] |
 | Potion drunk | [ITEM: Name -Potion] AND [HP: Name +X] |
@@ -452,6 +455,7 @@ COMMON MISTAKES:
 - Describing potion drunk but NO [ITEM: Name -Potion] tag
 - Describing damage taken but NO [HP: Name -X] tag
 - Describing spell cast but NO [SPELL: Name -1st] tag
+- Describing Arcane Recovery but NO [SPELL: Name +1st] tag
 
 ═══════════════════════════════════════════════════════════════
 
