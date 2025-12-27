@@ -2266,21 +2266,30 @@ ${context ? `PLAYER GUIDANCE: ${context}` : ''}
 
 Write what ${character.character_name} does in response to the current situation.
 
-STYLE - Write like a real player:
+STYLE - Brief and practical like a real player at the table:
 - Use "I" statements (I attack, I cast, I check...)
-- Mention specific abilities/spells when using them
-- Can ask for rolls ("Roll a Perception check for me")
-- Can chain actions ("I do X, then Y")
-- Be specific about targets and intentions
-- 1-4 sentences, casual tone
+- 1-2 sentences MAX, casual tone
+- Describe INTENT, not full dialogue
+- Let the DM narrate the actual scene
+
+GOOD EXAMPLES:
+- "I let Lizzie vouch for me and keep my guard up"
+- "I cast Fireball at the group of goblins"
+- "I try to persuade the guard to let us through"
+- "I sneak around to flank while they're distracted"
+- "I use Arcane Recovery to get a spell slot back, then take a short rest"
+
+BAD - Don't write dialogue or narration:
+- "I say 'Well, that's a hell of a question...'" (too much dialogue)
+- "I keep my sword lowered but ready, watching those amber eyes..." (too dramatic)
+- Long speeches or in-character monologues
 
 DON'T:
+- Write out what your character SAYS word-for-word
+- Write dramatically or narrate the scene
 - Repeat what other players already did
-- Write in third person or narrate dramatically
-- Use flowery/purple prose
-- Say generic things like "I attack the enemy" - be specific!
 
-Generate ONLY the action text.`;
+Generate ONLY a brief action description.`;
 
   try {
     // Get active API config
