@@ -430,6 +430,13 @@ function initSocket() {
     }
   });
 
+  socket.on('reroll_started', ({ sessionId }) => {
+    if (currentSession && currentSession.id === sessionId) {
+      showNarratorTyping();
+      showNotification('Regenerating response...');
+    }
+  });
+
   socket.on('turn_processed', ({ sessionId, response, turn, tokensUsed, compacted }) => {
     if (currentSession && currentSession.id === sessionId) {
       hideNarratorTyping();
@@ -2361,6 +2368,23 @@ async function forceProcessTurn() {
   } catch (error) {
     console.error('Failed to process turn:', error);
     alert('Failed to process turn: ' + error.message);
+  }
+}
+
+async function rerollLastResponse() {
+  if (!currentSession) {
+    alert('Please select a session first');
+    return;
+  }
+
+  if (!confirm('Regenerate the last AI response?')) return;
+
+  try {
+    await api(`/api/sessions/${currentSession.id}/reroll`, 'POST');
+    // The turn_processed event will handle refreshing the UI
+  } catch (error) {
+    console.error('Failed to reroll:', error);
+    alert('Failed to reroll: ' + error.message);
   }
 }
 

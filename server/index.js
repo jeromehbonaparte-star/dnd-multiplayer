@@ -2090,6 +2090,93 @@ app.post('/api/sessions/:id/gm-message', checkPassword, checkAdminPassword, (req
   res.json({ success: true, message: 'GM message added. It will be included in the next AI response.' });
 });
 
+// Reroll - Regenerate the last AI response (admin only)
+app.post('/api/sessions/:id/reroll', checkPassword, checkAdminPassword, async (req, res) => {
+  const sessionId = req.params.id;
+
+  const session = db.prepare('SELECT * FROM game_sessions WHERE id = ?').get(sessionId);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  let fullHistory = JSON.parse(session.full_history || '[]');
+
+  if (fullHistory.length === 0) {
+    return res.status(400).json({ error: 'No history to reroll' });
+  }
+
+  // Find the last assistant message
+  let lastAssistantIdx = -1;
+  for (let i = fullHistory.length - 1; i >= 0; i--) {
+    if (fullHistory[i].role === 'assistant') {
+      lastAssistantIdx = i;
+      break;
+    }
+  }
+
+  if (lastAssistantIdx === -1) {
+    return res.status(400).json({ error: 'No AI response to reroll' });
+  }
+
+  // Find the context message that started this turn (going backwards from assistant)
+  let turnStartIdx = lastAssistantIdx;
+  for (let i = lastAssistantIdx - 1; i >= 0; i--) {
+    if (fullHistory[i].type === 'context') {
+      turnStartIdx = i;
+      break;
+    }
+  }
+
+  // Collect the actions from this turn
+  const actionsThisTurn = [];
+  for (let i = turnStartIdx; i < lastAssistantIdx; i++) {
+    if (fullHistory[i].type === 'action' && fullHistory[i].character_id) {
+      actionsThisTurn.push({
+        character_id: fullHistory[i].character_id,
+        action: fullHistory[i].content
+      });
+    }
+  }
+
+  if (actionsThisTurn.length === 0) {
+    return res.status(400).json({ error: 'No actions found for this turn' });
+  }
+
+  // Remove everything from turnStartIdx onwards (context, actions, gm_nudges, and the assistant response)
+  fullHistory = fullHistory.slice(0, turnStartIdx);
+
+  // Also remove any gm_nudge messages from the remaining history
+  fullHistory = fullHistory.filter(entry => entry.type !== 'gm_nudge');
+
+  // Save the modified history
+  db.prepare('UPDATE game_sessions SET full_history = ? WHERE id = ?')
+    .run(JSON.stringify(fullHistory), sessionId);
+
+  // Clear any existing pending actions and re-create from collected actions
+  db.prepare('DELETE FROM pending_actions WHERE session_id = ?').run(sessionId);
+
+  for (const action of actionsThisTurn) {
+    db.prepare('INSERT INTO pending_actions (id, session_id, character_id, action) VALUES (?, ?, ?, ?)')
+      .run(uuidv4(), sessionId, action.character_id, action.action);
+  }
+
+  const pendingActions = db.prepare('SELECT * FROM pending_actions WHERE session_id = ?').all(sessionId);
+  const characters = getSessionCharacters(sessionId);
+
+  console.log(`Reroll initiated for session ${sessionId}: removed last response, ${actionsThisTurn.length} actions restored`);
+
+  // Notify clients that reroll is starting
+  io.emit('reroll_started', { sessionId });
+
+  try {
+    const result = await processAITurn(sessionId, pendingActions, characters);
+    res.json({ success: true, result });
+  } catch (error) {
+    console.error('Reroll AI processing error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // AI Auto-Reply - Generate and submit action for a character
 app.post('/api/sessions/:id/auto-reply', checkPassword, async (req, res) => {
   const sessionId = req.params.id;
