@@ -448,10 +448,20 @@ function initSocket() {
   });
 
   socket.on('character_updated', (character) => {
+    // Update the character in sessionCharacters if it exists there
+    const sessionIdx = sessionCharacters.findIndex(c => c.id === character.id);
+    if (sessionIdx !== -1) {
+      sessionCharacters[sessionIdx] = character;
+    }
     loadCharacters();
   });
 
   socket.on('character_leveled_up', ({ character, summary }) => {
+    // Update the character in sessionCharacters if it exists there
+    const sessionIdx = sessionCharacters.findIndex(c => c.id === character.id);
+    if (sessionIdx !== -1) {
+      sessionCharacters[sessionIdx] = character;
+    }
     loadCharacters();
     showNotification(`${character.character_name} leveled up to ${character.level}! ${summary}`);
   });
