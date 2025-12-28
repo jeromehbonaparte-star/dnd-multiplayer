@@ -435,31 +435,152 @@
 
   <!-- Quick Edit Modal (direct field editing) -->
   <div id="quick-edit-modal" class="modal">
-    <div class="modal-content">
+    <div class="modal-content quick-edit-modal-content">
       <span class="modal-close" onclick="closeQuickEditModal()">&times;</span>
-      <h2 id="quick-edit-title">Quick Edit</h2>
-      <div class="form-group">
-        <label>Appearance</label>
-        <textarea id="quick-edit-appearance" rows="3" placeholder="Physical description: hair, eyes, height, build, distinguishing features..."></textarea>
+      <h2 id="quick-edit-title">Edit Character</h2>
+
+      <!-- Tabs for sections -->
+      <div class="quick-edit-tabs">
+        <button class="quick-edit-tab active" onclick="showQuickEditSection('basic')">Basic Info</button>
+        <button class="quick-edit-tab" onclick="showQuickEditSection('stats')">Stats</button>
+        <button class="quick-edit-tab" onclick="showQuickEditSection('combat')">Combat</button>
+        <button class="quick-edit-tab" onclick="showQuickEditSection('abilities')">Abilities</button>
+        <button class="quick-edit-tab" onclick="showQuickEditSection('story')">Story</button>
       </div>
-      <div class="form-group">
-        <label>Backstory</label>
-        <textarea id="quick-edit-backstory" rows="4" placeholder="Character history, motivations, goals..."></textarea>
+
+      <!-- Basic Info Section -->
+      <div id="quick-edit-basic" class="quick-edit-section active">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Player Name</label>
+            <input type="text" id="quick-edit-player-name" placeholder="Your name">
+          </div>
+          <div class="form-group">
+            <label>Character Name</label>
+            <input type="text" id="quick-edit-character-name" placeholder="Character name">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Race</label>
+            <input type="text" id="quick-edit-race" placeholder="Human, Elf, Dwarf...">
+          </div>
+          <div class="form-group">
+            <label>Class</label>
+            <input type="text" id="quick-edit-class" placeholder="Fighter, Wizard...">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Level</label>
+            <input type="number" id="quick-edit-level" min="1" max="20">
+          </div>
+          <div class="form-group">
+            <label>XP</label>
+            <input type="number" id="quick-edit-xp" min="0">
+          </div>
+          <div class="form-group">
+            <label>Gold</label>
+            <input type="number" id="quick-edit-gold" min="0">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Background</label>
+          <input type="text" id="quick-edit-background" placeholder="Soldier, Noble, Criminal...">
+        </div>
       </div>
-      <div class="form-group">
-        <label>Class Features</label>
-        <textarea id="quick-edit-class-features" rows="2" placeholder="Second Wind, Fighting Style: Defense, Action Surge..."></textarea>
+
+      <!-- Stats Section -->
+      <div id="quick-edit-stats" class="quick-edit-section">
+        <div class="stats-grid">
+          <div class="form-group stat-input">
+            <label>STR</label>
+            <input type="number" id="quick-edit-strength" min="1" max="30">
+          </div>
+          <div class="form-group stat-input">
+            <label>DEX</label>
+            <input type="number" id="quick-edit-dexterity" min="1" max="30">
+          </div>
+          <div class="form-group stat-input">
+            <label>CON</label>
+            <input type="number" id="quick-edit-constitution" min="1" max="30">
+          </div>
+          <div class="form-group stat-input">
+            <label>INT</label>
+            <input type="number" id="quick-edit-intelligence" min="1" max="30">
+          </div>
+          <div class="form-group stat-input">
+            <label>WIS</label>
+            <input type="number" id="quick-edit-wisdom" min="1" max="30">
+          </div>
+          <div class="form-group stat-input">
+            <label>CHA</label>
+            <input type="number" id="quick-edit-charisma" min="1" max="30">
+          </div>
+        </div>
       </div>
-      <div class="form-group">
-        <label>Passives</label>
-        <textarea id="quick-edit-passives" rows="2" placeholder="Passive Perception: 14, Darkvision 60ft..."></textarea>
+
+      <!-- Combat Section -->
+      <div id="quick-edit-combat" class="quick-edit-section">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Current HP</label>
+            <input type="number" id="quick-edit-hp" min="0">
+          </div>
+          <div class="form-group">
+            <label>Max HP</label>
+            <input type="number" id="quick-edit-max-hp" min="1">
+          </div>
+          <div class="form-group">
+            <label>AC</label>
+            <input type="number" id="quick-edit-ac" min="0">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Spell Slots (JSON format)</label>
+          <input type="text" id="quick-edit-spell-slots" placeholder='{"1":{"current":4,"max":4},"2":{"current":3,"max":3}}'>
+          <small class="form-hint">Format: {"level":{"current":N,"max":N},...}</small>
+        </div>
       </div>
-      <div class="form-group">
-        <label>Feats</label>
-        <input type="text" id="quick-edit-feats" placeholder="Alert, Lucky, Sentinel...">
+
+      <!-- Abilities Section -->
+      <div id="quick-edit-abilities" class="quick-edit-section">
+        <div class="form-group">
+          <label>Spells</label>
+          <textarea id="quick-edit-spells" rows="2" placeholder="Fire Bolt, Shield, Magic Missile..."></textarea>
+        </div>
+        <div class="form-group">
+          <label>Skills</label>
+          <textarea id="quick-edit-skills" rows="2" placeholder="Perception +5, Stealth +3, Athletics +4..."></textarea>
+        </div>
+        <div class="form-group">
+          <label>Class Features</label>
+          <textarea id="quick-edit-class-features" rows="2" placeholder="Second Wind, Fighting Style: Defense, Action Surge..."></textarea>
+        </div>
+        <div class="form-group">
+          <label>Passives</label>
+          <textarea id="quick-edit-passives" rows="2" placeholder="Passive Perception: 14, Darkvision 60ft..."></textarea>
+        </div>
+        <div class="form-group">
+          <label>Feats</label>
+          <input type="text" id="quick-edit-feats" placeholder="Alert, Lucky, Sentinel...">
+        </div>
       </div>
+
+      <!-- Story Section -->
+      <div id="quick-edit-story" class="quick-edit-section">
+        <div class="form-group">
+          <label>Appearance</label>
+          <textarea id="quick-edit-appearance" rows="3" placeholder="Physical description: hair, eyes, height, build, distinguishing features..."></textarea>
+        </div>
+        <div class="form-group">
+          <label>Backstory</label>
+          <textarea id="quick-edit-backstory" rows="5" placeholder="Character history, motivations, goals..."></textarea>
+        </div>
+      </div>
+
       <div class="modal-buttons">
-        <button onclick="saveQuickEdit()" class="btn-primary">Save</button>
+        <button onclick="saveQuickEdit()" class="btn-primary">Save All Changes</button>
         <button onclick="closeQuickEditModal()" class="btn-secondary">Cancel</button>
       </div>
     </div>

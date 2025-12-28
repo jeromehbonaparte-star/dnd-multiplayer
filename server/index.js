@@ -1164,14 +1164,44 @@ app.post('/api/characters/:id/quick-update', checkPassword, (req, res) => {
     return res.status(404).json({ error: 'Character not found' });
   }
 
-  const allowedFields = ['appearance', 'backstory', 'class_features', 'passives', 'skills', 'spells', 'feats', 'background'];
+  // Text fields
+  const textFields = ['player_name', 'character_name', 'race', 'class', 'background',
+                      'appearance', 'backstory', 'class_features', 'passives',
+                      'skills', 'spells', 'feats'];
+  // Numeric fields
+  const numericFields = ['level', 'xp', 'strength', 'dexterity', 'constitution',
+                         'intelligence', 'wisdom', 'charisma', 'hp', 'max_hp', 'ac', 'gold'];
+  // JSON fields (need special handling)
+  const jsonFields = ['spell_slots', 'classes', 'inventory'];
+
   const updates = [];
   const values = [];
 
-  allowedFields.forEach(field => {
+  // Handle text fields
+  textFields.forEach(field => {
     if (req.body[field] !== undefined) {
       updates.push(`${field} = ?`);
-      values.push(req.body[field]);
+      values.push(String(req.body[field]));
+    }
+  });
+
+  // Handle numeric fields
+  numericFields.forEach(field => {
+    if (req.body[field] !== undefined) {
+      const num = parseInt(req.body[field]);
+      if (!isNaN(num)) {
+        updates.push(`${field} = ?`);
+        values.push(num);
+      }
+    }
+  });
+
+  // Handle JSON fields
+  jsonFields.forEach(field => {
+    if (req.body[field] !== undefined) {
+      updates.push(`${field} = ?`);
+      const val = req.body[field];
+      values.push(typeof val === 'string' ? val : JSON.stringify(val));
     }
   });
 
@@ -1891,11 +1921,18 @@ app.post('/api/characters/ai-create', checkPassword, async (req, res) => {
           // Convert starting_items (or equipment for backwards compat) to inventory JSON
           const startingItemsText = charData.starting_items || charData.equipment || '';
           const inventory = [];
+          let startingGold = 0;
           if (startingItemsText) {
             const items = startingItemsText.split(/[,\n]/).map(i => i.trim()).filter(i => i.length > 0);
             for (const itemText of items) {
               let name = itemText;
               let quantity = 1;
+              // Check for gold/gold pieces
+              const goldMatch = itemText.match(/^(\d+)\s*(gold|gp|gold pieces?)$/i);
+              if (goldMatch) {
+                startingGold += parseInt(goldMatch[1]);
+                continue; // Don't add gold to inventory
+              }
               // Check for "10 gold pieces" or "Arrows x20" patterns
               const qtyPrefixMatch = itemText.match(/^(\d+)\s+(.+)$/);
               const qtySuffixMatch = itemText.match(/^(.+?)\s*x(\d+)$/i);
@@ -1911,15 +1948,32 @@ app.post('/api/characters/ai-create', checkPassword, async (req, res) => {
           }
           const inventoryJson = JSON.stringify(inventory);
 
+          // Calculate base AC (10 + DEX mod, can be modified by armor later)
+          const dexMod = Math.floor((charData.dexterity - 10) / 2);
+          const baseAC = 10 + dexMod;
+
+          // Set up spell slots for spellcasting classes at level 1
+          let spellSlots = '{}';
+          const fullCasters = ['Wizard', 'Cleric', 'Druid', 'Bard', 'Sorcerer'];
+          const halfCasters = ['Paladin', 'Ranger']; // Get slots at level 2
+          const warlockClass = 'Warlock'; // Uses Pact Magic
+          const charClass = charData.class || '';
+
+          if (fullCasters.some(c => charClass.toLowerCase().includes(c.toLowerCase()))) {
+            spellSlots = JSON.stringify({ "1": { "current": 2, "max": 2 } });
+          } else if (charClass.toLowerCase().includes(warlockClass.toLowerCase())) {
+            spellSlots = JSON.stringify({ "1": { "current": 1, "max": 1 } });
+          }
+
           db.prepare(`
-            INSERT INTO characters (id, player_name, character_name, race, class, level, xp, strength, dexterity, constitution, intelligence, wisdom, charisma, hp, max_hp, background, appearance, backstory, inventory, spells, skills, passives, class_features, feats, classes)
-            VALUES (?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO characters (id, player_name, character_name, race, class, level, xp, strength, dexterity, constitution, intelligence, wisdom, charisma, hp, max_hp, ac, gold, background, appearance, backstory, inventory, spells, skills, passives, class_features, feats, classes, spell_slots)
+            VALUES (?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `).run(id, charData.player_name, charData.character_name, charData.race, charData.class,
                  charData.strength, charData.dexterity, charData.constitution, charData.intelligence,
-                 charData.wisdom, charData.charisma, hp, hp, charData.background, charData.appearance || '',
+                 charData.wisdom, charData.charisma, hp, hp, baseAC, startingGold, charData.background, charData.appearance || '',
                  charData.backstory || '', inventoryJson,
                  charData.spells || '', charData.skills || '', charData.passives || '',
-                 charData.class_features || '', charData.feats || '', classesJson);
+                 charData.class_features || '', charData.feats || '', classesJson, spellSlots);
 
           const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(id);
           io.emit('character_created', character);

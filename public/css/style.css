@@ -1371,10 +1371,81 @@ nav {
 }
 
 /* Quick Edit Modal */
-#quick-edit-modal .modal-content {
-  max-width: 550px;
+#quick-edit-modal .modal-content,
+.quick-edit-modal-content {
+  max-width: 650px;
+  max-height: 85vh;
   overflow-y: auto;
   position: relative;
+}
+
+.quick-edit-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 20px;
+  border-bottom: 2px solid var(--border-color);
+  padding-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.quick-edit-tab {
+  padding: 8px 16px;
+  background: var(--bg-medium);
+  border: 2px solid var(--border-color);
+  border-radius: 6px 6px 0 0;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+
+.quick-edit-tab:hover {
+  background: var(--bg-light);
+  border-color: var(--accent);
+}
+
+.quick-edit-tab.active {
+  background: var(--accent);
+  color: var(--bg-dark);
+  border-color: var(--accent);
+}
+
+.quick-edit-section {
+  display: none;
+}
+
+.quick-edit-section.active {
+  display: block;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.stat-input {
+  text-align: center;
+}
+
+.stat-input label {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.stat-input input {
+  text-align: center;
+  font-size: 1.2rem;
+  font-weight: 700;
 }
 
 #quick-edit-modal .form-group {
@@ -1390,7 +1461,8 @@ nav {
 }
 
 #quick-edit-modal textarea,
-#quick-edit-modal input[type="text"] {
+#quick-edit-modal input[type="text"],
+#quick-edit-modal input[type="number"] {
   width: 100%;
   padding: 10px 12px;
   border: 2px solid var(--border-color);
@@ -1404,9 +1476,17 @@ nav {
 }
 
 #quick-edit-modal textarea:focus,
-#quick-edit-modal input[type="text"]:focus {
+#quick-edit-modal input[type="text"]:focus,
+#quick-edit-modal input[type="number"]:focus {
   outline: none;
   border-color: var(--accent);
+}
+
+.form-hint {
+  display: block;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  margin-top: 4px;
 }
 
 #quick-edit-modal .modal-buttons {
@@ -1433,6 +1513,19 @@ nav {
   background: var(--bg-medium);
   color: var(--text);
   border: 2px solid var(--border-color);
+}
+
+@media (max-width: 500px) {
+  .quick-edit-tabs {
+    justify-content: center;
+  }
+  .quick-edit-tab {
+    padding: 6px 10px;
+    font-size: 0.8rem;
+  }
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
 /* Character Detail Sections - Styled Boxes */

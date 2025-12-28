@@ -3402,18 +3402,64 @@ function renderCombatTracker() {
 
 let quickEditCharId = null;
 
+function showQuickEditSection(sectionName) {
+  // Hide all sections
+  document.querySelectorAll('.quick-edit-section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.quick-edit-tab').forEach(t => t.classList.remove('active'));
+
+  // Show selected section
+  document.getElementById(`quick-edit-${sectionName}`).classList.add('active');
+  event.target.classList.add('active');
+}
+
 function openQuickEditModal(charId) {
   const char = characters.find(c => c.id === charId);
   if (!char) return;
 
   quickEditCharId = charId;
 
-  document.getElementById('quick-edit-title').textContent = `Quick Edit: ${char.character_name}`;
-  document.getElementById('quick-edit-appearance').value = char.appearance || '';
-  document.getElementById('quick-edit-backstory').value = char.backstory || '';
+  document.getElementById('quick-edit-title').textContent = `Edit: ${char.character_name}`;
+
+  // Basic Info
+  document.getElementById('quick-edit-player-name').value = char.player_name || '';
+  document.getElementById('quick-edit-character-name').value = char.character_name || '';
+  document.getElementById('quick-edit-race').value = char.race || '';
+  document.getElementById('quick-edit-class').value = char.class || '';
+  document.getElementById('quick-edit-level').value = char.level || 1;
+  document.getElementById('quick-edit-xp').value = char.xp || 0;
+  document.getElementById('quick-edit-gold').value = char.gold || 0;
+  document.getElementById('quick-edit-background').value = char.background || '';
+
+  // Stats
+  document.getElementById('quick-edit-strength').value = char.strength || 10;
+  document.getElementById('quick-edit-dexterity').value = char.dexterity || 10;
+  document.getElementById('quick-edit-constitution').value = char.constitution || 10;
+  document.getElementById('quick-edit-intelligence').value = char.intelligence || 10;
+  document.getElementById('quick-edit-wisdom').value = char.wisdom || 10;
+  document.getElementById('quick-edit-charisma').value = char.charisma || 10;
+
+  // Combat
+  document.getElementById('quick-edit-hp').value = char.hp || 10;
+  document.getElementById('quick-edit-max-hp').value = char.max_hp || 10;
+  document.getElementById('quick-edit-ac').value = char.ac || 10;
+  document.getElementById('quick-edit-spell-slots').value = char.spell_slots || '';
+
+  // Abilities
+  document.getElementById('quick-edit-spells').value = char.spells || '';
+  document.getElementById('quick-edit-skills').value = char.skills || '';
   document.getElementById('quick-edit-class-features').value = char.class_features || '';
   document.getElementById('quick-edit-passives').value = char.passives || '';
   document.getElementById('quick-edit-feats').value = char.feats || '';
+
+  // Story
+  document.getElementById('quick-edit-appearance').value = char.appearance || '';
+  document.getElementById('quick-edit-backstory').value = char.backstory || '';
+
+  // Reset to first tab
+  document.querySelectorAll('.quick-edit-section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.quick-edit-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('quick-edit-basic').classList.add('active');
+  document.querySelector('.quick-edit-tab').classList.add('active');
 
   document.getElementById('quick-edit-modal').classList.add('active');
 }
@@ -3427,16 +3473,46 @@ async function saveQuickEdit() {
   if (!quickEditCharId) return;
 
   const data = {
-    appearance: document.getElementById('quick-edit-appearance').value,
-    backstory: document.getElementById('quick-edit-backstory').value,
+    // Basic Info
+    player_name: document.getElementById('quick-edit-player-name').value,
+    character_name: document.getElementById('quick-edit-character-name').value,
+    race: document.getElementById('quick-edit-race').value,
+    class: document.getElementById('quick-edit-class').value,
+    level: parseInt(document.getElementById('quick-edit-level').value) || 1,
+    xp: parseInt(document.getElementById('quick-edit-xp').value) || 0,
+    gold: parseInt(document.getElementById('quick-edit-gold').value) || 0,
+    background: document.getElementById('quick-edit-background').value,
+
+    // Stats
+    strength: parseInt(document.getElementById('quick-edit-strength').value) || 10,
+    dexterity: parseInt(document.getElementById('quick-edit-dexterity').value) || 10,
+    constitution: parseInt(document.getElementById('quick-edit-constitution').value) || 10,
+    intelligence: parseInt(document.getElementById('quick-edit-intelligence').value) || 10,
+    wisdom: parseInt(document.getElementById('quick-edit-wisdom').value) || 10,
+    charisma: parseInt(document.getElementById('quick-edit-charisma').value) || 10,
+
+    // Combat
+    hp: parseInt(document.getElementById('quick-edit-hp').value) || 10,
+    max_hp: parseInt(document.getElementById('quick-edit-max-hp').value) || 10,
+    ac: parseInt(document.getElementById('quick-edit-ac').value) || 10,
+    spell_slots: document.getElementById('quick-edit-spell-slots').value,
+
+    // Abilities
+    spells: document.getElementById('quick-edit-spells').value,
+    skills: document.getElementById('quick-edit-skills').value,
     class_features: document.getElementById('quick-edit-class-features').value,
     passives: document.getElementById('quick-edit-passives').value,
-    feats: document.getElementById('quick-edit-feats').value
+    feats: document.getElementById('quick-edit-feats').value,
+
+    // Story
+    appearance: document.getElementById('quick-edit-appearance').value,
+    backstory: document.getElementById('quick-edit-backstory').value
   };
 
   try {
     await api(`/api/characters/${quickEditCharId}/quick-update`, 'POST', data);
-    loadCharacters();
+    await loadCharacters();
+    await refreshSessionCharacters();
     closeQuickEditModal();
     showNotification('Character updated!');
   } catch (error) {
