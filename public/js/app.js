@@ -649,9 +649,12 @@ function showLogin() {
 }
 
 // Tab navigation
+let storyScrollPosition = 0; // Track scroll position for game tab
+
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', async () => {
     const targetTab = btn.dataset.tab;
+    const currentTab = document.querySelector('.tab-btn.active')?.dataset.tab;
 
     // Require admin password for settings tab
     if (targetTab === 'settings' && !isAdminAuthenticated) {
@@ -659,11 +662,29 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
       if (!authenticated) return;
     }
 
+    // Save scroll position when leaving game tab
+    if (currentTab === 'game') {
+      const storyContainer = document.getElementById('story-container');
+      if (storyContainer) {
+        storyScrollPosition = storyContainer.scrollTop;
+      }
+    }
+
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
 
     btn.classList.add('active');
     document.getElementById(`${targetTab}-tab`).classList.add('active');
+
+    // Restore scroll position when returning to game tab
+    if (targetTab === 'game') {
+      requestAnimationFrame(() => {
+        const storyContainer = document.getElementById('story-container');
+        if (storyContainer) {
+          storyContainer.scrollTop = storyScrollPosition;
+        }
+      });
+    }
 
     // Load settings when tab is accessed
     if (targetTab === 'settings') {
@@ -1384,6 +1405,10 @@ function scrollStoryToBottom() {
   requestAnimationFrame(() => {
     setTimeout(() => {
       container.scrollTop = container.scrollHeight;
+      // Update saved position so tab switching preserves this position
+      if (typeof storyScrollPosition !== 'undefined') {
+        storyScrollPosition = container.scrollTop;
+      }
     }, 50);
   });
 }
@@ -2191,6 +2216,18 @@ async function loadSession(id) {
   }
 }
 
+// Helper to refresh session characters without reloading entire session
+async function refreshSessionCharacters() {
+  if (!currentSession) return;
+  try {
+    const data = await api(`/api/sessions/${currentSession.id}`);
+    sessionCharacters = data.sessionCharacters || [];
+    updatePartyList();
+  } catch (error) {
+    console.error('Failed to refresh session characters:', error);
+  }
+}
+
 function updatePendingActions(pendingActions) {
   const container = document.getElementById('pending-actions');
   const waitingCount = sessionCharacters.length - pendingActions.length;
@@ -2434,6 +2471,8 @@ async function recalculateXP() {
         : 'No XP tags found in session history.';
       alert(xpSummary);
       loadCharacters();
+      // Also refresh sessionCharacters so party list updates
+      await refreshSessionCharacters();
     }
   } catch (error) {
     console.error('Failed to recalculate XP:', error);
@@ -2459,6 +2498,7 @@ async function recalculateLoot() {
         : 'No [MONEY: ...] or [ITEM: ...] tags found in session history.';
       alert(summary);
       loadCharacters();
+      await refreshSessionCharacters();
     }
   } catch (error) {
     console.error('Failed to recalculate loot:', error);
@@ -2483,6 +2523,7 @@ async function recalculateInventory() {
         : 'No [ITEM: ...] tags found in session history.';
       alert(summary);
       loadCharacters();
+      await refreshSessionCharacters();
     }
   } catch (error) {
     console.error('Failed to recalculate inventory:', error);
@@ -2516,6 +2557,7 @@ async function recalculateACSpells() {
       }
       alert(summary);
       loadCharacters();
+      await refreshSessionCharacters();
     }
   } catch (error) {
     console.error('Failed to recalculate AC/spells:', error);
