@@ -2419,6 +2419,57 @@ nav {
   border-color: var(--accent);
 }
 
+/* Narration controls (TTS + Delete) */
+.narration-controls {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+/* Delete message button */
+.delete-msg-btn,
+.delete-action-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  opacity: 0.5;
+}
+
+.delete-msg-btn:hover,
+.delete-action-btn:hover {
+  background: var(--danger);
+  border-color: var(--danger);
+  opacity: 1;
+  transform: scale(1.1);
+}
+
+.story-entry:hover .delete-msg-btn,
+.player-action-bubble:hover .delete-action-btn {
+  opacity: 1;
+}
+
+/* Delete button on player action bubbles */
+.player-action-bubble {
+  position: relative;
+}
+
+.delete-action-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  font-size: 12px;
+}
+
 /* Mobile adjustments */
 @media (max-width: 768px) {
   .tts-play-btn {
@@ -2429,6 +2480,11 @@ nav {
 
   .narration-header {
     gap: 8px;
+  }
+
+  .delete-msg-btn,
+  .delete-action-btn {
+    opacity: 0.7;
   }
 }
 

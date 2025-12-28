@@ -3212,6 +3212,46 @@ app.post('/api/sessions/:id/recalculate-ac-spells', checkPassword, (req, res) =>
   res.json({ success: true, ...results });
 });
 
+// Delete a message from session history
+app.post('/api/sessions/:id/delete-message', checkPassword, (req, res) => {
+  const sessionId = req.params.id;
+  const { index } = req.body;
+
+  if (index === undefined || index < 0) {
+    return res.status(400).json({ error: 'Invalid message index' });
+  }
+
+  const session = db.prepare('SELECT * FROM game_sessions WHERE id = ?').get(sessionId);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  try {
+    const history = JSON.parse(session.full_history || '[]');
+
+    if (index >= history.length) {
+      return res.status(400).json({ error: 'Message index out of range' });
+    }
+
+    // Remove the message at the specified index
+    const deletedMessage = history.splice(index, 1)[0];
+
+    // Update the database
+    db.prepare('UPDATE game_sessions SET full_history = ? WHERE id = ?')
+      .run(JSON.stringify(history), sessionId);
+
+    // Notify clients
+    io.emit('session_updated', { id: sessionId });
+
+    console.log(`Deleted message at index ${index} from session ${sessionId}:`, deletedMessage?.type || deletedMessage?.role);
+
+    res.json({ success: true, deletedIndex: index, remainingCount: history.length });
+  } catch (error) {
+    console.error('Failed to delete message:', error);
+    res.status(500).json({ error: 'Failed to delete message: ' + error.message });
+  }
+});
+
 // ============================================
 // COMBAT TRACKER API ENDPOINTS
 // ============================================

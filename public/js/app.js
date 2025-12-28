@@ -2321,8 +2321,11 @@ function formatContent(content) {
 function renderStoryHistory(history) {
   let html = '';
   let turnActions = []; // Collect actions for a turn
+  let turnActionIndices = []; // Track original indices for delete
 
-  for (const entry of history) {
+  for (let i = 0; i < history.length; i++) {
+    const entry = history[i];
+
     // Skip hidden context messages (character sheets)
     if (entry.hidden || entry.type === 'context') {
       continue;
@@ -2331,25 +2334,30 @@ function renderStoryHistory(history) {
     // Handle player actions - collect and display as a group
     if (entry.type === 'action') {
       turnActions.push(entry);
+      turnActionIndices.push(i);
       continue;
     }
 
     // When we hit a narration or legacy assistant message, first render any collected actions
     if (entry.role === 'assistant' || entry.type === 'narration') {
       if (turnActions.length > 0) {
-        html += renderPlayerActionsGroup(turnActions);
+        html += renderPlayerActionsGroup(turnActions, turnActionIndices);
         turnActions = [];
+        turnActionIndices = [];
       }
 
-      // Render DM narration with TTS play button
+      // Render DM narration with TTS play button and delete button
       const ttsId = 'tts-' + Math.random().toString(36).substr(2, 9);
       // Store content in base64 to avoid escaping issues with special characters
       const ttsContent = btoa(encodeURIComponent(entry.content));
       html += `
-        <div class="story-entry assistant narration">
+        <div class="story-entry assistant narration" data-index="${i}">
           <div class="narration-header">
             <div class="role">Dungeon Master</div>
-            <button class="tts-play-btn" id="${ttsId}" data-tts-content="${ttsContent}" onclick="handleTTSClick(this)" title="Play narration">🔊</button>
+            <div class="narration-controls">
+              <button class="tts-play-btn" id="${ttsId}" data-tts-content="${ttsContent}" onclick="handleTTSClick(this)" title="Play narration">🔊</button>
+              <button class="delete-msg-btn" onclick="deleteStoryMessage(${i})" title="Delete this message">🗑️</button>
+            </div>
           </div>
           <div class="content">${formatContent(entry.content)}</div>
         </div>
@@ -2375,15 +2383,17 @@ function renderStoryHistory(history) {
                 content: action,
                 type: 'action'
               });
+              turnActionIndices.push(i); // All from same legacy entry
             }
           }
         }
       } else {
         // Just a plain user message
         html += `
-          <div class="story-entry user">
+          <div class="story-entry user" data-index="${i}">
             <div class="role">Players</div>
             <div class="content">${formatContent(entry.content)}</div>
+            <button class="delete-msg-btn" onclick="deleteStoryMessage(${i})" title="Delete this message">🗑️</button>
           </div>
         `;
       }
@@ -2392,20 +2402,22 @@ function renderStoryHistory(history) {
 
   // Render any remaining actions at the end
   if (turnActions.length > 0) {
-    html += renderPlayerActionsGroup(turnActions);
+    html += renderPlayerActionsGroup(turnActions, turnActionIndices);
   }
 
   return html;
 }
 
 // Render a group of player actions as individual character bubbles
-function renderPlayerActionsGroup(actions) {
+function renderPlayerActionsGroup(actions, indices = []) {
   if (actions.length === 0) return '';
 
   let html = '<div class="player-actions-group">';
   html += '<div class="actions-header">Player Actions</div>';
 
-  for (const action of actions) {
+  for (let i = 0; i < actions.length; i++) {
+    const action = actions[i];
+    const index = indices[i] !== undefined ? indices[i] : -1;
     const charName = action.character_name || 'Unknown';
     const playerName = action.player_name || '';
     const initial = charName.charAt(0).toUpperCase();
@@ -2415,18 +2427,41 @@ function renderPlayerActionsGroup(actions) {
     const colorClass = `char-color-${colorIndex}`;
 
     html += `
-      <div class="player-action-bubble ${colorClass}">
+      <div class="player-action-bubble ${colorClass}" data-index="${index}">
         <div class="action-avatar">${initial}</div>
         <div class="action-content">
           <div class="action-character-name">${escapeHtml(charName)}${playerName ? ` <span class="action-player-name">(${escapeHtml(playerName)})</span>` : ''}</div>
           <div class="action-text">${formatContent(action.content)}</div>
         </div>
+        ${index >= 0 ? `<button class="delete-action-btn" onclick="deleteStoryMessage(${index})" title="Delete this action">🗑️</button>` : ''}
       </div>
     `;
   }
 
   html += '</div>';
   return html;
+}
+
+// Delete a message from story history
+async function deleteStoryMessage(index) {
+  if (!currentSession) {
+    alert('No session selected');
+    return;
+  }
+
+  if (!confirm('Delete this message? This cannot be undone.')) {
+    return;
+  }
+
+  try {
+    await api(`/api/sessions/${currentSession.id}/delete-message`, 'POST', { index });
+    // Reload session to refresh history
+    await loadSession(currentSession.id);
+    showNotification('Message deleted');
+  } catch (error) {
+    console.error('Failed to delete message:', error);
+    alert('Failed to delete message: ' + error.message);
+  }
 }
 
 // Actions
