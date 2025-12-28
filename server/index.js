@@ -2553,20 +2553,29 @@ app.post('/api/sessions/:id/recalculate-xp', checkPassword, (req, res) => {
   const xpAwarded = {};
 
   // Scan all assistant messages for XP awards
+  console.log('=== Recalculating XP ===');
+  console.log('Session characters:', characters.map(c => c.character_name));
   for (const entry of history) {
     if (entry.role === 'assistant') {
-      const xpMatches = entry.content.match(/\[XP:([^\]]+)\]/gi);
+      // Match [XP: ...] with optional space after colon (consistent with live parsing)
+      const xpMatches = entry.content.match(/\[XP:\s*([^\]]+)\]/gi);
       if (xpMatches) {
+        console.log('Found XP tags:', xpMatches);
         for (const match of xpMatches) {
-          const xpAwards = match.replace(/\[XP:/i, '').replace(']', '').split(',');
+          const xpAwards = match.replace(/\[XP:\s*/i, '').replace(']', '').split(',');
           for (const award of xpAwards) {
-            const xpMatch = award.trim().match(/(.+?)\s*\+(\d+)/);
+            // Allow optional spaces around the + sign
+            const xpMatch = award.trim().match(/(.+?)\s*\+\s*(\d+)/);
+            console.log('XP parse:', award.trim(), '->', xpMatch);
             if (xpMatch) {
               const charName = xpMatch[1].trim();
               const xpAmount = parseInt(xpMatch[2]);
               const char = findCharacterByName(characters, charName);
               if (char) {
                 xpAwarded[char.id] = (xpAwarded[char.id] || 0) + xpAmount;
+                console.log(`XP found: ${charName} -> ${char.character_name} +${xpAmount}`);
+              } else {
+                console.log(`XP SKIP: Character "${charName}" not found in session`);
               }
             }
           }
@@ -2574,6 +2583,7 @@ app.post('/api/sessions/:id/recalculate-xp', checkPassword, (req, res) => {
       }
     }
   }
+  console.log('Total XP awarded:', xpAwarded);
 
   // Update character XP
   for (const [charId, xp] of Object.entries(xpAwarded)) {

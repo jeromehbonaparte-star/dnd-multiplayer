@@ -1400,16 +1400,21 @@ function scrollStoryToBottom() {
   const container = document.getElementById('story-container');
   if (!container) return;
 
-  // Use requestAnimationFrame + setTimeout to ensure DOM has fully rendered
-  // This fixes mobile browsers not scrolling to bottom on page refresh
+  // Helper to perform scroll and save position
+  const doScroll = () => {
+    container.scrollTop = container.scrollHeight;
+    if (typeof storyScrollPosition !== 'undefined') {
+      storyScrollPosition = container.scrollTop;
+    }
+  };
+
+  // Multiple scroll attempts for mobile compatibility
+  // Mobile browsers often need more time for DOM to fully render
+  doScroll(); // Immediate attempt
   requestAnimationFrame(() => {
-    setTimeout(() => {
-      container.scrollTop = container.scrollHeight;
-      // Update saved position so tab switching preserves this position
-      if (typeof storyScrollPosition !== 'undefined') {
-        storyScrollPosition = container.scrollTop;
-      }
-    }, 50);
+    doScroll(); // After next paint
+    setTimeout(doScroll, 100); // After 100ms
+    setTimeout(doScroll, 300); // After 300ms (for slower devices)
   });
 }
 
@@ -2466,12 +2471,21 @@ async function recalculateXP() {
   try {
     const result = await api(`/api/sessions/${currentSession.id}/recalculate-xp`, 'POST');
     if (result.success) {
-      const xpSummary = Object.entries(result.xpAwarded).length > 0
-        ? 'XP recalculated successfully!'
-        : 'No XP tags found in session history.';
+      const xpEntries = Object.entries(result.xpAwarded);
+      let xpSummary;
+      if (xpEntries.length > 0) {
+        // Show XP found for each character
+        const details = xpEntries.map(([charId, xp]) => {
+          const char = sessionCharacters.find(c => c.id === charId) || characters.find(c => c.id === charId);
+          return char ? `${char.character_name}: ${xp} XP` : `Unknown: ${xp} XP`;
+        }).join('\n');
+        xpSummary = `XP recalculated!\n\n${details}`;
+      } else {
+        xpSummary = 'No [XP: ...] tags found in session history.';
+      }
       alert(xpSummary);
-      loadCharacters();
-      // Also refresh sessionCharacters so party list updates
+      // Refresh both characters and sessionCharacters
+      await loadCharacters();
       await refreshSessionCharacters();
     }
   } catch (error) {
@@ -2497,7 +2511,7 @@ async function recalculateLoot() {
         ? `Loot recalculated! Found gold for ${goldCount} characters and items for ${itemCount} characters.`
         : 'No [MONEY: ...] or [ITEM: ...] tags found in session history.';
       alert(summary);
-      loadCharacters();
+      await loadCharacters();
       await refreshSessionCharacters();
     }
   } catch (error) {
@@ -2522,7 +2536,7 @@ async function recalculateInventory() {
         ? `Inventory recalculated! Found items for ${itemCount} character(s).`
         : 'No [ITEM: ...] tags found in session history.';
       alert(summary);
-      loadCharacters();
+      await loadCharacters();
       await refreshSessionCharacters();
     }
   } catch (error) {
@@ -2556,7 +2570,7 @@ async function recalculateACSpells() {
         summary = 'No AC or spell slot information found in session history.\nTip: You can manually set these values using the Spells button on each character.';
       }
       alert(summary);
-      loadCharacters();
+      await loadCharacters();
       await refreshSessionCharacters();
     }
   } catch (error) {
