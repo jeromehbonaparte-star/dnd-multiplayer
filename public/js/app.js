@@ -2505,6 +2505,38 @@ async function recalculateXP() {
   }
 }
 
+async function recalculateLevels() {
+  if (!currentSession) {
+    alert('Please select a session first');
+    return;
+  }
+
+  if (!confirm('Recalculate levels from session history? This will scan all DM responses for [LEVEL: ...] tags and natural language level-up mentions.')) return;
+
+  try {
+    const result = await api(`/api/sessions/${currentSession.id}/recalculate-levels`, 'POST');
+    if (result.success) {
+      const updates = result.levelUpdates || [];
+      let summary;
+      if (updates.length > 0) {
+        const details = updates.map(u =>
+          `${u.name}: Level ${u.oldLevel} -> ${u.newLevel} (XP: ${u.newXP}, HP: ${u.newHp}/${u.newMaxHp})`
+        ).join('\n');
+        summary = `Levels recalculated!\n\n${details}`;
+      } else {
+        summary = 'No level-up tags or mentions found in session history, or all characters already at correct level.';
+      }
+      alert(summary);
+      // Refresh both characters and sessionCharacters
+      await loadCharacters();
+      await refreshSessionCharacters();
+    }
+  } catch (error) {
+    console.error('Failed to recalculate levels:', error);
+    alert('Failed to recalculate levels: ' + error.message);
+  }
+}
+
 async function recalculateLoot() {
   if (!currentSession) {
     alert('Please select a session first');

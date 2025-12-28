@@ -2607,6 +2607,121 @@ app.post('/api/sessions/:id/recalculate-xp', checkPassword, (req, res) => {
   res.json({ success: true, xpAwarded });
 });
 
+// Recalculate levels from session history (for existing sessions without LEVEL tags)
+app.post('/api/sessions/:id/recalculate-levels', checkPassword, (req, res) => {
+  const sessionId = req.params.id;
+  const session = db.prepare('SELECT * FROM game_sessions WHERE id = ?').get(sessionId);
+
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  const characters = getSessionCharacters(sessionId);
+  const history = JSON.parse(session.full_history || '[]');
+  const levelUpdates = {}; // charId -> highest level mentioned
+
+  console.log('=== Recalculating Levels ===');
+  console.log('Session characters:', characters.map(c => c.character_name));
+
+  for (const entry of history) {
+    if (entry.role === 'assistant') {
+      // First, check for [LEVEL:] tags (newer format)
+      const levelMatches = entry.content.match(/\[LEVEL:\s*([^\]]+)\]/gi);
+      if (levelMatches) {
+        console.log('Found LEVEL tags:', levelMatches);
+        for (const match of levelMatches) {
+          const levelAwards = match.replace(/\[LEVEL:\s*/i, '').replace(']', '').split(',');
+          for (const award of levelAwards) {
+            const levelMatch = award.trim().match(/(.+?)\s*([=+])\s*(\d+)/);
+            if (levelMatch) {
+              const charName = levelMatch[1].trim();
+              const operator = levelMatch[2];
+              const levelValue = parseInt(levelMatch[3]);
+              const char = findCharacterByName(characters, charName);
+              if (char) {
+                let newLevel;
+                if (operator === '=') {
+                  newLevel = levelValue;
+                } else {
+                  // For +, use current highest tracked level as base
+                  const baseLevel = levelUpdates[char.id] || char.level || 1;
+                  newLevel = baseLevel + levelValue;
+                }
+                levelUpdates[char.id] = Math.max(levelUpdates[char.id] || 1, newLevel);
+                console.log(`LEVEL tag: ${charName} -> Level ${newLevel}`);
+              }
+            }
+          }
+        }
+      }
+
+      // Also check for natural language level-up mentions for old chats
+      // Patterns like: "reached level 5", "now level 5", "advanced to level 5", "is now level 5"
+      for (const char of characters) {
+        const namePattern = char.character_name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        // Match patterns like "Thorin reached level 5" or "Thorin is now level 5"
+        const patterns = [
+          new RegExp(`${namePattern}[^.]*(?:reached|now|advanced to|leveled up to|is now|becomes)\\s+level\\s+(\\d+)`, 'gi'),
+          new RegExp(`${namePattern}[^.]*level\\s+(\\d+)\\s+(?:now|achieved|reached)`, 'gi'),
+        ];
+
+        for (const pattern of patterns) {
+          let match;
+          while ((match = pattern.exec(entry.content)) !== null) {
+            const level = parseInt(match[1]);
+            if (level >= 1 && level <= 20) {
+              levelUpdates[char.id] = Math.max(levelUpdates[char.id] || 1, level);
+              console.log(`Natural language: ${char.character_name} -> Level ${level}`);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  console.log('Level updates to apply:', levelUpdates);
+
+  // Update character levels and set XP to threshold
+  const results = [];
+  for (const [charId, newLevel] of Object.entries(levelUpdates)) {
+    const char = characters.find(c => c.id == charId);
+    if (char && newLevel > (char.level || 1)) {
+      // Calculate HP gain for levels gained
+      const levelsGained = newLevel - (char.level || 1);
+      const conMod = Math.floor((char.constitution - 10) / 2);
+      const hitDie = 8;
+      let hpGain = 0;
+      for (let i = 0; i < levelsGained; i++) {
+        hpGain += Math.floor(hitDie / 2) + 1 + conMod;
+      }
+      const newMaxHp = char.max_hp + hpGain;
+      const newHp = char.hp + hpGain;
+      const newXP = getRequiredXP(newLevel);
+
+      db.prepare('UPDATE characters SET level = ?, max_hp = ?, hp = ?, xp = ? WHERE id = ?')
+        .run(newLevel, newMaxHp, newHp, newXP, charId);
+
+      results.push({
+        name: char.character_name,
+        oldLevel: char.level,
+        newLevel,
+        newXP,
+        newHp,
+        newMaxHp
+      });
+      console.log(`Updated: ${char.character_name} Level ${char.level} -> ${newLevel}, XP -> ${newXP}`);
+    }
+  }
+
+  // Notify clients
+  const updatedCharacters = getSessionCharacters(sessionId);
+  for (const char of updatedCharacters) {
+    io.emit('character_updated', char);
+  }
+
+  res.json({ success: true, levelUpdates: results });
+});
+
 // Recalculate gold and inventory from session history
 app.post('/api/sessions/:id/recalculate-loot', checkPassword, (req, res) => {
   const sessionId = req.params.id;
@@ -3653,15 +3768,18 @@ Please narrate the outcome of these actions and describe what happens next.`;
             const newMaxHp = Math.max(char.max_hp, char.max_hp + hpGain);
             const newHp = char.hp + hpGain; // Also heal by the HP gained
 
-            db.prepare('UPDATE characters SET level = ?, max_hp = ?, hp = ? WHERE id = ?')
-              .run(newLevel, newMaxHp, newHp, char.id);
+            // Set XP to the threshold for the new level
+            const newXP = getRequiredXP(newLevel);
+
+            db.prepare('UPDATE characters SET level = ?, max_hp = ?, hp = ?, xp = ? WHERE id = ?')
+              .run(newLevel, newMaxHp, newHp, newXP, char.id);
             const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(char.id);
             io.emit('character_updated', updatedChar);
             io.emit('character_leveled_up', {
               character: updatedChar,
-              summary: `Now level ${newLevel}! HP: ${updatedChar.hp}/${updatedChar.max_hp}`
+              summary: `Now level ${newLevel}! HP: ${updatedChar.hp}/${updatedChar.max_hp}, XP: ${newXP}`
             });
-            console.log(`Level Update: ${char.character_name} -> Level ${newLevel}, HP ${newHp}/${newMaxHp}`);
+            console.log(`Level Update: ${char.character_name} -> Level ${newLevel}, HP ${newHp}/${newMaxHp}, XP ${newXP}`);
           } else {
             console.log(`Level Update FAILED: Character "${charName}" not found in session`);
           }
