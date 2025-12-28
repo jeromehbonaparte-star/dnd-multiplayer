@@ -9,6 +9,12 @@ const { v4: uuidv4 } = require('uuid');
 const Database = require('better-sqlite3');
 const rateLimit = require('express-rate-limit');
 
+// Import modular utilities
+const logger = require('./lib/logger');
+const { validate, validateBody, schemas } = require('./lib/validation');
+const { getCached, setCache, invalidateCache } = require('./lib/cache');
+const { securityHeaders, corsMiddleware } = require('./middleware/security');
+
 const app = express();
 
 // Rate limiting for auth endpoints (prevent brute force)
@@ -258,7 +264,7 @@ for (const char of charsWithEquipment) {
     db.prepare('UPDATE characters SET inventory = ?, equipment = NULL WHERE id = ?')
       .run(JSON.stringify(inventory), char.id);
   } catch (e) {
-    console.error(`Failed to migrate equipment for character ${char.id}:`, e);
+    logger.error(`Failed to migrate equipment for character ${char.id}`, { error: e.message });
   }
 }
 
@@ -287,6 +293,20 @@ if (existingConfigs.count === 0) {
       .run(uuidv4(), 'Default', oldEndpoint?.value || 'https://api.openai.com/v1/chat/completions', oldKey.value, oldModel?.value || 'gpt-4');
   }
 }
+
+// ============================================
+// Database Indexes for Query Performance
+// ============================================
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_pending_actions_session ON pending_actions(session_id);
+  CREATE INDEX IF NOT EXISTS idx_pending_actions_character ON pending_actions(character_id);
+  CREATE INDEX IF NOT EXISTS idx_session_characters_session ON session_characters(session_id);
+  CREATE INDEX IF NOT EXISTS idx_session_characters_character ON session_characters(character_id);
+  CREATE INDEX IF NOT EXISTS idx_combats_session ON combats(session_id);
+  CREATE INDEX IF NOT EXISTS idx_api_configs_active ON api_configs(is_active);
+  CREATE INDEX IF NOT EXISTS idx_characters_created ON characters(created_at);
+  CREATE INDEX IF NOT EXISTS idx_game_sessions_created ON game_sessions(created_at);
+`);
 
 // Helper function to get active API config
 function getActiveApiConfig() {
@@ -347,17 +367,40 @@ const upsertSetting = db.prepare('INSERT OR REPLACE INTO settings (key, value) V
 const defaultPassword = process.env.GAME_PASSWORD;
 const adminPassword = process.env.ADMIN_PASSWORD;
 
+// Helper to generate secure random password
+function generateSecurePassword() {
+  return require('crypto').randomBytes(16).toString('hex');
+}
+
+// Check if passwords already exist in database
+const existingGamePassword = db.prepare('SELECT value FROM settings WHERE key = ?').get('game_password');
+const existingAdminPassword = db.prepare('SELECT value FROM settings WHERE key = ?').get('admin_password');
+
 // Always update passwords if environment variables are provided
 if (defaultPassword) {
   upsertSetting.run('game_password', bcrypt.hashSync(defaultPassword, 10));
-} else {
-  initSetting.run('game_password', bcrypt.hashSync('changeme', 10));
+} else if (!existingGamePassword) {
+  // Only generate random password on first run (no existing password)
+  const generatedGamePassword = generateSecurePassword();
+  upsertSetting.run('game_password', bcrypt.hashSync(generatedGamePassword, 10));
+  console.log('\n' + '='.repeat(60));
+  console.log('SECURITY: No GAME_PASSWORD env var set.');
+  console.log('Generated random game password: ' + generatedGamePassword);
+  console.log('Set GAME_PASSWORD env var to use a custom password.');
+  console.log('='.repeat(60) + '\n');
 }
 
 if (adminPassword) {
   upsertSetting.run('admin_password', bcrypt.hashSync(adminPassword, 10));
-} else {
-  initSetting.run('admin_password', bcrypt.hashSync('admin123', 10));
+} else if (!existingAdminPassword) {
+  // Only generate random password on first run (no existing password)
+  const generatedAdminPassword = generateSecurePassword();
+  upsertSetting.run('admin_password', bcrypt.hashSync(generatedAdminPassword, 10));
+  console.log('\n' + '='.repeat(60));
+  console.log('SECURITY: No ADMIN_PASSWORD env var set.');
+  console.log('Generated random admin password: ' + generatedAdminPassword);
+  console.log('Set ADMIN_PASSWORD env var to use a custom password.');
+  console.log('='.repeat(60) + '\n');
 }
 
 initSetting.run('api_endpoint', 'https://api.openai.com/v1/chat/completions');
@@ -479,7 +522,14 @@ Wait for all players to submit actions before narrating.`;
 // Response prefix for session AI - helps with immersion, stripped from final output
 const AI_RESPONSE_PREFIX = "All right! Let's get to writing!\n\n";
 
-app.use(express.json());
+// Request body size limits to prevent DoS
+app.use(express.json({ limit: '1mb' }));
+
+// Security middleware (from modules)
+app.use(securityHeaders);
+const allowedOrigins = process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',') : [];
+app.use(corsMiddleware(allowedOrigins));
+
 app.use(express.static(path.join(__dirname, '../public')));
 
 // Middleware to check game password
@@ -510,11 +560,12 @@ const checkAdminPassword = (req, res, next) => {
 app.use('/api/', apiLimiter);
 
 // Game login - with stricter rate limiting
-app.post('/api/auth', authLimiter, (req, res) => {
+app.post('/api/auth', authLimiter, validateBody(schemas.auth), (req, res) => {
   const { password } = req.body;
+  const sanitizedPassword = validate.sanitizeString(password, 200);
   const storedHash = db.prepare('SELECT value FROM settings WHERE key = ?').get('game_password');
 
-  if (bcrypt.compareSync(password, storedHash.value)) {
+  if (storedHash && bcrypt.compareSync(sanitizedPassword, storedHash.value)) {
     res.json({ success: true });
   } else {
     res.status(401).json({ error: 'Invalid password' });
@@ -522,11 +573,12 @@ app.post('/api/auth', authLimiter, (req, res) => {
 });
 
 // Admin auth endpoint - with stricter rate limiting
-app.post('/api/admin-auth', authLimiter, checkPassword, (req, res) => {
+app.post('/api/admin-auth', authLimiter, checkPassword, validateBody(schemas.adminAuth), (req, res) => {
   const { adminPassword } = req.body;
+  const sanitizedAdminPassword = validate.sanitizeString(adminPassword, 200);
   const storedHash = db.prepare('SELECT value FROM settings WHERE key = ?').get('admin_password');
 
-  if (bcrypt.compareSync(adminPassword || '', storedHash.value)) {
+  if (storedHash && bcrypt.compareSync(sanitizedAdminPassword, storedHash.value)) {
     res.json({ success: true });
   } else {
     res.status(403).json({ error: 'Invalid admin password' });
@@ -828,12 +880,26 @@ function getSessionCharacters(sessionId) {
 
 // Character routes
 app.get('/api/characters', checkPassword, (req, res) => {
+  const cacheKey = 'characters:list';
+  const cached = getCached(cacheKey);
+  if (cached) {
+    return res.json(cached);
+  }
+
   const characters = db.prepare('SELECT * FROM characters ORDER BY created_at DESC').all();
+  setCache(cacheKey, characters);
   res.json(characters);
 });
 
-app.post('/api/characters', checkPassword, (req, res) => {
+app.post('/api/characters', checkPassword, validateBody(schemas.character), (req, res) => {
   const { player_name, character_name, race, class: charClass, strength, dexterity, constitution, intelligence, wisdom, charisma, background } = req.body;
+
+  // Sanitize string inputs
+  const sanitizedPlayerName = validate.sanitizeString(player_name, 100);
+  const sanitizedCharName = validate.sanitizeString(character_name, 100);
+  const sanitizedRace = validate.sanitizeString(race, 100);
+  const sanitizedClass = validate.sanitizeString(charClass, 100);
+  const sanitizedBg = validate.sanitizeString(background || '', 5000);
 
   const id = uuidv4();
   const hp = 10 + Math.floor((constitution - 10) / 2); // Basic HP calculation
@@ -841,15 +907,17 @@ app.post('/api/characters', checkPassword, (req, res) => {
   db.prepare(`
     INSERT INTO characters (id, player_name, character_name, race, class, strength, dexterity, constitution, intelligence, wisdom, charisma, hp, max_hp, background)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, player_name, character_name, race, charClass, strength, dexterity, constitution, intelligence, wisdom, charisma, hp, hp, background);
+  `).run(id, sanitizedPlayerName, sanitizedCharName, sanitizedRace, sanitizedClass, strength, dexterity, constitution, intelligence, wisdom, charisma, hp, hp, sanitizedBg);
 
   const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(id);
+  invalidateCache('characters:');
   io.emit('character_created', character);
   res.json(character);
 });
 
 app.delete('/api/characters/:id', checkPassword, (req, res) => {
   db.prepare('DELETE FROM characters WHERE id = ?').run(req.params.id);
+  invalidateCache('characters:');
   io.emit('character_deleted', req.params.id);
   res.json({ success: true });
 });
@@ -1875,28 +1943,37 @@ app.get('/api/sessions', checkPassword, (req, res) => {
   res.json(sessions);
 });
 
-app.post('/api/sessions', checkPassword, async (req, res) => {
+app.post('/api/sessions', checkPassword, validateBody(schemas.session), async (req, res) => {
   const { name, scenario, scenarioPrompt, characterIds } = req.body;
+
+  // Sanitize inputs
+  const sanitizedName = validate.sanitizeString(name, 200);
+  const sanitizedScenario = validate.sanitizeString(scenario || 'classic_fantasy', 100);
+  const sanitizedPrompt = validate.sanitizeString(scenarioPrompt || '', 10000);
+
+  // Validate characterIds are UUIDs
+  const validCharIds = (characterIds || []).filter(id => validate.isUUID(id));
+
   const id = uuidv4();
 
-  db.prepare('INSERT INTO game_sessions (id, name, full_history, story_summary, scenario) VALUES (?, ?, ?, ?, ?)').run(id, name, '[]', '', scenario || 'classic_fantasy');
+  db.prepare('INSERT INTO game_sessions (id, name, full_history, story_summary, scenario) VALUES (?, ?, ?, ?, ?)').run(id, sanitizedName, '[]', '', sanitizedScenario);
 
   // Link selected characters to this session
-  if (characterIds && characterIds.length > 0) {
+  if (validCharIds && validCharIds.length > 0) {
     const insertCharacter = db.prepare('INSERT OR IGNORE INTO session_characters (id, session_id, character_id) VALUES (?, ?, ?)');
-    for (const charId of characterIds) {
+    for (const charId of validCharIds) {
       insertCharacter.run(uuidv4(), id, charId);
     }
   }
 
   // Generate opening scene with AI if scenario provided
-  if (scenarioPrompt) {
+  if (sanitizedPrompt) {
     try {
       const apiConfig = getActiveApiConfig();
       if (apiConfig && apiConfig.api_key) {
         // Get only the selected characters for this session
-        const characters = characterIds && characterIds.length > 0
-          ? db.prepare(`SELECT * FROM characters WHERE id IN (${characterIds.map(() => '?').join(',')})`).all(...characterIds)
+        const characters = validCharIds && validCharIds.length > 0
+          ? db.prepare(`SELECT * FROM characters WHERE id IN (${validCharIds.map(() => '?').join(',')})`).all(...validCharIds)
           : [];
 
         // Build character intro
@@ -1914,7 +1991,7 @@ app.post('/api/sessions', checkPassword, async (req, res) => {
           }).join('\n');
         }
 
-        const openingPrompt = `You are starting a new adventure with this setting: ${scenarioPrompt}${characterIntro}
+        const openingPrompt = `You are starting a new adventure with this setting: ${sanitizedPrompt}${characterIntro}
 
 Write an atmospheric opening scene that sets the mood and introduces the world. Describe where the party finds themselves and what they see, hear, and sense around them. Make it vivid and immersive, drawing the players into the story.
 
@@ -4167,14 +4244,14 @@ function getOpenAIApiKey() {
 
 // Socket.IO connection
 io.on('connection', (socket) => {
-  console.log('Client connected:', socket.id);
+  logger.debug('Client connected', { socketId: socket.id });
 
   socket.on('disconnect', () => {
-    console.log('Client disconnected:', socket.id);
+    logger.debug('Client disconnected', { socketId: socket.id });
   });
 });
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`D&D Multiplayer server running on port ${PORT}`);
+  logger.info(`D&D Multiplayer server running on port ${PORT}`);
 });

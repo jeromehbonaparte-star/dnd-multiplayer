@@ -929,7 +929,7 @@ async function loadAutoReplyCharacters() {
     }
 
     charSelect.innerHTML = '<option value="">-- Select a character --</option>' +
-      characters.map(c => `<option value="${c.id}">${escapeHtml(c.character_name)} (${c.race} ${c.class})</option>`).join('');
+      characters.map(c => `<option value="${c.id}">${escapeHtml(c.character_name)} (${escapeHtml(c.race)} ${escapeHtml(c.class)})</option>`).join('');
     charSelect.disabled = false;
     statusEl.textContent = '';
   } catch (error) {
@@ -972,7 +972,7 @@ async function generateAutoReply() {
     });
 
     if (result.success) {
-      statusEl.innerHTML = `<strong>Action generated:</strong> "${escapeHtml(result.action)}"<br><em>${result.message}</em>`;
+      statusEl.innerHTML = `<strong>Action generated:</strong> "${escapeHtml(result.action)}"<br><em>${escapeHtml(result.message)}</em>`;
       statusEl.style.color = 'var(--success)';
       document.getElementById('autoreply-context').value = '';
     } else {
@@ -1280,7 +1280,7 @@ async function startCharacterCreation() {
 
     document.getElementById('char-chat-input').focus();
   } catch (error) {
-    messagesContainer.innerHTML = `<div class="chat-message assistant"><div class="message-content">Error: ${error.message}. Make sure your API is configured in Settings.</div></div>`;
+    messagesContainer.innerHTML = `<div class="chat-message assistant"><div class="message-content">Error: ${escapeHtml(error.message)}. Make sure your API is configured in Settings.</div></div>`;
     resetCharacterCreation();
   }
 }
@@ -1444,16 +1444,19 @@ function renderCharactersList() {
     const acDisplay = formatAcDisplay(c);
 
     // Helper function to create collapsible section
-    const createSection = (sectionId, label, content, colorClass) => {
+    // isHtml=true means content is already sanitized HTML, false means escape it
+    const createSection = (sectionId, label, content, colorClass, isHtml = false) => {
       if (!content) return '';
       const isExpanded = getSectionState(c.id, sectionId);
+      // Escape plain text content and convert newlines to <br>
+      const safeContent = isHtml ? content : escapeHtml(content).replace(/\n/g, '<br>');
       return `
         <div class="section-collapsible ${colorClass} ${isExpanded ? 'expanded' : ''}" data-char="${c.id}" data-section="${sectionId}">
           <div class="section-header" onclick="event.stopPropagation(); toggleSection('${c.id}', '${sectionId}')">
             <span class="section-toggle-icon">${isExpanded ? '▼' : '▶'}</span>
-            <strong>${label}</strong>
+            <strong>${escapeHtml(label)}</strong>
           </div>
-          <div class="section-content">${content}</div>
+          <div class="section-content">${safeContent}</div>
         </div>
       `;
     };
@@ -1465,10 +1468,10 @@ function renderCharactersList() {
       <!-- Character Header (always visible) -->
       <div class="card-header">
         <div class="card-header-main">
-          <h3>${c.character_name}</h3>
+          <h3>${escapeHtml(c.character_name)}</h3>
         </div>
-        <div class="player">Played by ${c.player_name}</div>
-        <div class="race-class">${c.race} ${classDisplay}</div>
+        <div class="player">Played by ${escapeHtml(c.player_name)}</div>
+        <div class="race-class">${escapeHtml(c.race)} ${escapeHtml(classDisplay)}</div>
         <div class="card-summary">
           <div class="stats stats-mini">
             <div class="stat">${c.strength}<span>STR</span></div>
@@ -1498,7 +1501,7 @@ function renderCharactersList() {
         </div>
         ${createSection('appearance', 'Appearance', c.appearance, 'section-appearance')}
         ${createSection('backstory', 'Backstory', c.backstory, 'section-backstory')}
-        ${hasSpellSlots ? createSection('spellSlots', 'Spell Slots', spellSlotsDisplay, 'section-spellslots') : ''}
+        ${hasSpellSlots ? createSection('spellSlots', 'Spell Slots', spellSlotsDisplay, 'section-spellslots', true) : ''}
         ${createSection('skills', 'Skills', c.skills, 'section-skills')}
         ${createSection('spells', 'Spells', c.spells, 'section-spells')}
         ${createSection('passives', 'Passives', c.passives, 'section-passives')}
@@ -1506,9 +1509,9 @@ function renderCharactersList() {
         ${createSection('feats', 'Feats', feats, 'section-feats')}
         ${createSection('inventory', `Inventory (${itemCount} items)`,
           inventory.length > 0
-            ? inventory.map(item => `<div class="inventory-item">${item.name}${item.quantity > 1 ? ' x' + item.quantity : ''}</div>`).join('')
+            ? inventory.map(item => `<div class="inventory-item">${escapeHtml(item.name)}${item.quantity > 1 ? ' x' + item.quantity : ''}</div>`).join('')
             : '<div class="inventory-empty">No items</div>',
-          'section-inventory')}
+          'section-inventory', true)}
       </div>
 
       <!-- Action Buttons -->
@@ -1523,8 +1526,8 @@ function renderCharactersList() {
           <button class="btn-spells" onclick="event.stopPropagation(); openSpellSlotsModal('${c.id}')">Spell Slots</button>
         </div>
         <div class="btn-row">
-          <button class="btn-reset-xp" onclick="event.stopPropagation(); resetXP('${c.id}', '${c.character_name.replace(/'/g, "\\'")}')">Reset XP</button>
-          <button class="btn-reset-level" onclick="event.stopPropagation(); resetLevel('${c.id}', '${c.character_name.replace(/'/g, "\\'")}')">Reset Level</button>
+          <button class="btn-reset-xp" onclick="event.stopPropagation(); resetXP('${c.id}', '${escapeHtml(c.character_name).replace(/'/g, "\\'")}')">Reset XP</button>
+          <button class="btn-reset-level" onclick="event.stopPropagation(); resetLevel('${c.id}', '${escapeHtml(c.character_name).replace(/'/g, "\\'")}')">Reset Level</button>
         </div>
       </div>
     </div>
@@ -1717,7 +1720,7 @@ function toggleInventory(charId) {
 function updateCharacterSelect() {
   const select = document.getElementById('action-character');
   select.innerHTML = '<option value="">Select your character</option>' +
-    sessionCharacters.map(c => `<option value="${c.id}">${c.character_name} (${c.player_name})</option>`).join('');
+    sessionCharacters.map(c => `<option value="${c.id}">${escapeHtml(c.character_name)} (${escapeHtml(c.player_name)})</option>`).join('');
 }
 
 function updatePartyList() {
@@ -1751,16 +1754,19 @@ function updatePartyList() {
     const acShortDisplay = formatAcShort(c);
 
     // Helper function to create collapsible section for party view
-    const createPartySection = (sectionId, label, content, colorClass) => {
+    // isHtml=true means content is already sanitized HTML, false means escape it
+    const createPartySection = (sectionId, label, content, colorClass, isHtml = false) => {
       if (!content) return '';
       const isExpanded = getSectionState(c.id, sectionId);
+      // Escape plain text content and convert newlines to <br>
+      const safeContent = isHtml ? content : escapeHtml(content).replace(/\n/g, '<br>');
       return `
         <div class="section-collapsible party-section ${colorClass} ${isExpanded ? 'expanded' : ''}" data-char="${c.id}" data-section="${sectionId}">
           <div class="section-header" onclick="event.stopPropagation(); toggleSection('${c.id}', '${sectionId}')">
             <span class="section-toggle-icon">${isExpanded ? '▼' : '▶'}</span>
-            <strong>${label}</strong>
+            <strong>${escapeHtml(label)}</strong>
           </div>
-          <div class="section-content">${content}</div>
+          <div class="section-content">${safeContent}</div>
         </div>
       `;
     };
@@ -1770,10 +1776,10 @@ function updatePartyList() {
       <!-- Party Header (always visible) -->
       <div class="party-header">
         <div class="party-header-row">
-          <div class="name">${c.character_name}</div>
+          <div class="name">${escapeHtml(c.character_name)}</div>
           <div class="level">Lv.${c.level}</div>
         </div>
-        <div class="info">${c.race} ${c.class}</div>
+        <div class="info">${escapeHtml(c.race)} ${escapeHtml(c.class)}</div>
         <div class="party-summary">
           <div class="combat-info">
             <span class="hp">HP: ${c.hp}/${c.max_hp}</span>
@@ -1802,8 +1808,8 @@ function updatePartyList() {
         ${createPartySection('passives', 'Passives', c.passives, 'section-passives')}
         ${createPartySection('classFeatures', 'Class Features', c.class_features, 'section-classfeatures')}
         ${createPartySection('inventory', `Inventory (${itemCount})`,
-          itemCount > 0 ? inventory.map(i => `${i.name}${i.quantity > 1 ? ' x' + i.quantity : ''}`).join(', ') : 'None',
-          'section-inventory')}
+          itemCount > 0 ? inventory.map(i => `${escapeHtml(i.name)}${i.quantity > 1 ? ' x' + i.quantity : ''}`).join(', ') : 'None',
+          'section-inventory', true)}
       </div>
 
       <!-- Party Actions -->
@@ -1888,8 +1894,8 @@ async function loadSessions() {
     const list = document.getElementById('session-list');
     list.innerHTML = sessions.map(s => `
       <div class="session-item ${currentSession && currentSession.id === s.id ? 'active' : ''}">
-        <span class="session-name" onclick="loadSession('${s.id}')">${s.name}</span>
-        <button class="session-delete-btn" onclick="event.stopPropagation(); deleteSession('${s.id}', '${s.name.replace(/'/g, "\\'")}')" title="Delete session">X</button>
+        <span class="session-name" onclick="loadSession('${s.id}')">${escapeHtml(s.name)}</span>
+        <button class="session-delete-btn" onclick="event.stopPropagation(); deleteSession('${s.id}', '${escapeHtml(s.name).replace(/'/g, "\\'")}')" title="Delete session">X</button>
       </div>
     `).join('');
   } catch (error) {
@@ -2011,8 +2017,8 @@ function renderCharacterSelection() {
                value="${c.id}"
                onchange="toggleCharacterSelection('${c.id}', this.checked)">
         <div class="char-info">
-          <div class="char-name">${c.character_name}</div>
-          <div class="char-details">${c.race} ${classDisplay}</div>
+          <div class="char-name">${escapeHtml(c.character_name)}</div>
+          <div class="char-details">${escapeHtml(c.race)} ${escapeHtml(classDisplay)}</div>
         </div>
       </label>
     `;
@@ -2172,7 +2178,7 @@ function updatePendingActions(pendingActions) {
     const action = pendingActions.find(a => a.character_id === c.id);
     return `
       <div class="action-item ${action ? 'submitted' : ''}">
-        <div class="player">${c.character_name}</div>
+        <div class="player">${escapeHtml(c.character_name)}</div>
         <div class="action-status">
           ${action ? `<span class="action-preview" title="${escapeHtml(action.action)}">Action submitted</span>
             <button class="btn-cancel-action" onclick="cancelAction('${c.id}')" title="Cancel action">✕</button>`
@@ -2199,7 +2205,8 @@ async function cancelAction(characterId) {
 }
 
 function formatContent(content) {
-  return content
+  // SECURITY: Must escape HTML first to prevent XSS
+  return escapeHtml(content)
     .replace(/\n/g, '<br>')
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.*?)\*/g, '<em>$1</em>');
@@ -2677,7 +2684,7 @@ async function startLevelUpConversation(charId) {
     }
   } catch (error) {
     const messagesContainer = document.getElementById('modal-chat-messages');
-    messagesContainer.innerHTML = `<div class="chat-message assistant"><div class="message-content">Error: ${error.message}</div></div>`;
+    messagesContainer.innerHTML = `<div class="chat-message assistant"><div class="message-content">Error: ${escapeHtml(error.message)}</div></div>`;
   }
 }
 
