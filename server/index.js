@@ -446,6 +446,12 @@ Embed tags naturally in your narrative. NEVER output stat blocks or JSON.
 [XP: Name +100]
 [XP: Thorin +50, Elara +50] → multiple characters
 
+**LEVEL UP:** (when XP reaches threshold OR narrative milestone)
+[LEVEL: Name =4] → set to level 4
+[LEVEL: Name +1] → increase by 1 level
+[LEVEL: Thorin =5, Elara =5] → multiple characters
+Note: HP is automatically increased when leveling up.
+
 **MONEY:**
 [MONEY: Name +50] → gain money
 [MONEY: Name -25] → spend money
@@ -493,6 +499,7 @@ If ANY of these happen, the tag is MANDATORY:
 | Combat begins | [COMBAT: START Name] |
 | Combat ends | [COMBAT: END] |
 | Victory/milestone | [XP: Name +X] |
+| Character levels up | [LEVEL: Name =X] or [LEVEL: Name +1] |
 
 COMMON MISTAKES:
 - Describing loot found but NO [ITEM: Name +ItemName] tag
@@ -500,6 +507,7 @@ COMMON MISTAKES:
 - Describing damage taken but NO [HP: Name -X] tag
 - Describing spell cast but NO [SPELL: Name -1st] tag
 - Describing Arcane Recovery but NO [SPELL: Name +1st] tag
+- Describing level up but NO [LEVEL: Name =X] tag
 
 ═══════════════════════════════════════════════════════════════
 
@@ -3603,6 +3611,59 @@ Please narrate the outcome of these actions and describe what happens next.`;
             console.log(`XP Update: ${char.character_name} +${xpAmount} -> ${updatedChar.xp} XP`);
           } else {
             console.log(`XP Update FAILED: Character "${charName}" not found in session`);
+          }
+        }
+      }
+    }
+  }
+
+  // Parse and update LEVEL from AI response
+  // Format: [LEVEL: Name =4] (set to level 4) or [LEVEL: Name +1] (increase by 1)
+  const levelMatches = aiResponse.match(/\[LEVEL:\s*([^\]]+)\]/gi);
+  console.log('LEVEL tags found:', levelMatches);
+  if (levelMatches) {
+    for (const match of levelMatches) {
+      const levelAwards = match.replace(/\[LEVEL:\s*/i, '').replace(']', '').split(',');
+      for (const award of levelAwards) {
+        // Match "Name =4" or "Name +1"
+        const levelMatch = award.trim().match(/(.+?)\s*([=+])\s*(\d+)/);
+        console.log('Level parse:', award.trim(), '->', levelMatch);
+        if (levelMatch) {
+          const charName = levelMatch[1].trim();
+          const operator = levelMatch[2];
+          const levelValue = parseInt(levelMatch[3]);
+          const char = findCharacterByName(characters, charName);
+          if (char) {
+            let newLevel;
+            if (operator === '=') {
+              newLevel = levelValue;
+            } else {
+              newLevel = (char.level || 1) + levelValue;
+            }
+            // Update level and calculate new max HP (add hit die + CON mod per level gained)
+            const levelsGained = newLevel - char.level;
+            const conMod = Math.floor((char.constitution - 10) / 2);
+            // Estimate hit die based on class (default d8)
+            const hitDie = 8;
+            let hpGain = 0;
+            for (let i = 0; i < levelsGained; i++) {
+              // Average roll + CON mod per level
+              hpGain += Math.floor(hitDie / 2) + 1 + conMod;
+            }
+            const newMaxHp = Math.max(char.max_hp, char.max_hp + hpGain);
+            const newHp = char.hp + hpGain; // Also heal by the HP gained
+
+            db.prepare('UPDATE characters SET level = ?, max_hp = ?, hp = ? WHERE id = ?')
+              .run(newLevel, newMaxHp, newHp, char.id);
+            const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(char.id);
+            io.emit('character_updated', updatedChar);
+            io.emit('character_leveled_up', {
+              character: updatedChar,
+              summary: `Now level ${newLevel}! HP: ${updatedChar.hp}/${updatedChar.max_hp}`
+            });
+            console.log(`Level Update: ${char.character_name} -> Level ${newLevel}, HP ${newHp}/${newMaxHp}`);
+          } else {
+            console.log(`Level Update FAILED: Character "${charName}" not found in session`);
           }
         }
       }
