@@ -1402,7 +1402,16 @@ function scrollStoryToBottom() {
 
   // Helper to perform scroll and save position
   const doScroll = () => {
+    // Method 1: Set scrollTop
     container.scrollTop = container.scrollHeight;
+
+    // Method 2: Try scrollIntoView on the last child element
+    const historyContainer = document.getElementById('story-history');
+    if (historyContainer && historyContainer.lastElementChild) {
+      historyContainer.lastElementChild.scrollIntoView({ block: 'end', behavior: 'instant' });
+    }
+
+    // Save position for tab switching
     if (typeof storyScrollPosition !== 'undefined') {
       storyScrollPosition = container.scrollTop;
     }
@@ -1413,8 +1422,10 @@ function scrollStoryToBottom() {
   doScroll(); // Immediate attempt
   requestAnimationFrame(() => {
     doScroll(); // After next paint
-    setTimeout(doScroll, 100); // After 100ms
-    setTimeout(doScroll, 300); // After 300ms (for slower devices)
+    setTimeout(doScroll, 100);
+    setTimeout(doScroll, 300);
+    setTimeout(doScroll, 500);
+    setTimeout(doScroll, 1000); // Final attempt after 1 second
   });
 }
 
@@ -3280,6 +3291,15 @@ window.addEventListener('beforeunload', () => {
     document.getElementById('login-screen').classList.add('active');
   }
 })();
+
+// Extra scroll attempt after full page load (helps mobile)
+window.addEventListener('load', () => {
+  if (currentSession) {
+    // Delay to ensure everything is rendered
+    setTimeout(scrollStoryToBottom, 500);
+    setTimeout(scrollStoryToBottom, 1500);
+  }
+});
 
 // ============================================
 // COMBAT TRACKER FUNCTIONS
