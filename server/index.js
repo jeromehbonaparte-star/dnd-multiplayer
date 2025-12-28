@@ -1615,6 +1615,7 @@ CURRENT CHARACTER:
 - Classes: ${classesDisplay} (Total Level: ${character.level})
 - Classes JSON: ${classesJson}
 - XP: ${character.xp || 0}
+- Gold: ${character.gold || 0}
 - Stats: STR ${character.strength}, DEX ${character.dexterity}, CON ${character.constitution}, INT ${character.intelligence}, WIS ${character.wisdom}, CHA ${character.charisma}
 - HP: ${character.hp}/${character.max_hp}
 - AC (Armor Class): ${character.ac || 10}
@@ -1635,7 +1636,7 @@ Discuss the changes with the user. When you have confirmed ALL changes, output t
 IMPORTANT: Include ALL fields with their current or updated values - do not omit any fields!
 NOTE: Inventory is managed through gameplay [ITEM:] tags, not through character editing.
 
-EDIT_COMPLETE:{"character_name":"...","race":"...","class":"PrimaryClass","classes":{"Fighter":5,"Wizard":2},"level":N,"strength":N,"dexterity":N,"constitution":N,"intelligence":N,"wisdom":N,"charisma":N,"hp":N,"max_hp":N,"ac":N,"spell_slots":{"1":{"current":N,"max":N}},"background":"...","appearance":"Physical description","backstory":"Character history","spells":"...","skills":"...","passives":"...","class_features":"Class abilities like Second Wind, Sneak Attack","feats":"..."}
+EDIT_COMPLETE:{"character_name":"...","race":"...","class":"PrimaryClass","classes":{"Fighter":5,"Wizard":2},"level":N,"xp":N,"gold":N,"strength":N,"dexterity":N,"constitution":N,"intelligence":N,"wisdom":N,"charisma":N,"hp":N,"max_hp":N,"ac":N,"spell_slots":{"1":{"current":N,"max":N}},"background":"...","appearance":"Physical description","backstory":"Character history","spells":"...","skills":"...","passives":"...","class_features":"Class abilities like Second Wind, Sneak Attack","feats":"..."}
 
 MULTICLASS FORMAT:
 - "class" is the primary class (highest level)
@@ -1723,7 +1724,7 @@ Only include fields that should be changed. Keep the conversation helpful and en
           const updates = [];
           const values = [];
 
-          const fields = ['character_name', 'race', 'class', 'level', 'strength', 'dexterity', 'constitution',
+          const fields = ['character_name', 'race', 'class', 'level', 'xp', 'gold', 'strength', 'dexterity', 'constitution',
                          'intelligence', 'wisdom', 'charisma', 'hp', 'max_hp', 'ac', 'background',
                          'appearance', 'backstory', 'spells', 'skills', 'passives', 'class_features', 'feats'];
 
