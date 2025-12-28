@@ -1353,11 +1353,15 @@ async function sendCharacterMessage() {
 
     if (result.complete) {
       // Character created!
-      charCreationInProgress = false;
       messagesContainer.innerHTML += `<div class="chat-message assistant"><div class="message-content"><strong>Character created successfully!</strong> Check the Characters list.</div></div>`;
+      messagesContainer.innerHTML += `<div class="chat-message assistant"><div class="message-content">Want to create another character? Just describe them!</div></div>`;
       scrollChatToBottom();
       loadCharacters();
-      document.getElementById('start-creation-btn').disabled = false;
+      // Reset for next character creation but keep the conversation going
+      charCreationMessages = [];
+      input.disabled = false;
+      document.getElementById('char-chat-send').disabled = false;
+      input.focus();
       saveAppState(); // Save state after completion
     } else {
       input.disabled = false;
@@ -2733,12 +2737,20 @@ async function sendModalMessage() {
 
     if (result.complete) {
       loadCharacters();
+      await refreshSessionCharacters();
       if (isLevelUp) {
         messagesContainer.innerHTML += `<div class="chat-message assistant"><div class="message-content"><strong>Level up complete!</strong></div></div>`;
+        messagesContainer.innerHTML += `<div class="chat-message assistant"><div class="message-content">Want to make any other changes? Just ask!</div></div>`;
         showNotification(`${result.character.character_name} is now level ${result.character.level}!`);
+        // Reset for further changes
+        levelUpMessages = [];
       } else {
         messagesContainer.innerHTML += `<div class="chat-message assistant"><div class="message-content"><strong>Changes saved!</strong></div></div>`;
+        messagesContainer.innerHTML += `<div class="chat-message assistant"><div class="message-content">Want to make more changes? Just ask!</div></div>`;
+        // Reset for further changes
+        modalMessages = [];
       }
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
   } catch (error) {
     document.getElementById('modal-loading')?.remove();
