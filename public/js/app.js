@@ -1374,6 +1374,20 @@ function scrollChatToBottom() {
   container.scrollTop = container.scrollHeight;
 }
 
+// Scroll story container to bottom with delay for mobile compatibility
+function scrollStoryToBottom() {
+  const container = document.getElementById('story-container');
+  if (!container) return;
+
+  // Use requestAnimationFrame + setTimeout to ensure DOM has fully rendered
+  // This fixes mobile browsers not scrolling to bottom on page refresh
+  requestAnimationFrame(() => {
+    setTimeout(() => {
+      container.scrollTop = container.scrollHeight;
+    }, 50);
+  });
+}
+
 function formatChatMessage(text) {
   return escapeHtml(text)
     .replace(/\n/g, '<br>')
@@ -2160,9 +2174,8 @@ async function loadSession(id) {
     const historyContainer = document.getElementById('story-history');
     historyContainer.innerHTML = renderStoryHistory(history);
 
-    // Scroll to bottom
-    document.getElementById('story-container').scrollTop =
-      document.getElementById('story-container').scrollHeight;
+    // Scroll to bottom (with delay for mobile compatibility)
+    scrollStoryToBottom();
 
     // Update pending actions
     updatePendingActions(data.pendingActions);
