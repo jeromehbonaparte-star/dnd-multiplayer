@@ -308,7 +308,10 @@ function saveAppState() {
     currentSessionId: currentSession ? currentSession.id : null,
     currentTab: document.querySelector('.tab-btn.active')?.dataset.tab || 'game',
     charCreationInProgress: charCreationInProgress,
-    charCreationMessages: charCreationMessages
+    charCreationMessages: charCreationMessages,
+    // Auto-reply selections
+    autoReplySessionId: document.getElementById('autoreply-session-select')?.value || '',
+    autoReplyCharacterId: document.getElementById('autoreply-character-select')?.value || ''
   };
   sessionStorage.setItem('dnd-app-state', JSON.stringify(state));
 }
@@ -353,6 +356,21 @@ async function restoreSession() {
       // Restore current session
       if (state.currentSessionId) {
         await loadSession(state.currentSessionId);
+      }
+
+      // Restore auto-reply selections
+      if (state.autoReplySessionId) {
+        const autoReplySelect = document.getElementById('autoreply-session-select');
+        if (autoReplySelect) {
+          autoReplySelect.value = state.autoReplySessionId;
+          await loadAutoReplyCharacters();
+          if (state.autoReplyCharacterId) {
+            const charSelect = document.getElementById('autoreply-character-select');
+            if (charSelect) {
+              charSelect.value = state.autoReplyCharacterId;
+            }
+          }
+        }
       }
 
       // Restore character creation state
@@ -943,6 +961,9 @@ async function loadAutoReplyCharacters() {
   const charSelect = document.getElementById('autoreply-character-select');
   const statusEl = document.getElementById('autoreply-status');
 
+  // Save state when session changes
+  saveAppState();
+
   if (!sessionId) {
     charSelect.innerHTML = '<option value="">-- Select a session first --</option>';
     charSelect.disabled = true;
@@ -970,6 +991,10 @@ async function loadAutoReplyCharacters() {
     statusEl.textContent = 'Error: ' + error.message;
     statusEl.style.color = 'var(--danger)';
   }
+}
+
+function onAutoReplyCharacterChange() {
+  saveAppState();
 }
 
 async function generateAutoReply() {
