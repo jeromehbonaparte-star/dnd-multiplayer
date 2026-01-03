@@ -402,9 +402,54 @@ async function restoreSession() {
   return false;
 }
 
-// Initialize Socket.IO
+// Initialize Socket.IO with reconnection handling
 function initSocket() {
-  socket = io();
+  socket = io({
+    reconnection: true,
+    reconnectionAttempts: 10,
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 5000,
+    timeout: 20000
+  });
+
+  // Connection status handling
+  socket.on('connect', () => {
+    console.log('Connected to server');
+    hideConnectionStatus();
+    // Re-sync state after reconnection
+    if (currentSession) {
+      loadSession(currentSession.id);
+    }
+    loadCharacters();
+  });
+
+  socket.on('disconnect', (reason) => {
+    console.log('Disconnected from server:', reason);
+    showConnectionStatus('Disconnected - Reconnecting...', 'warning');
+  });
+
+  socket.on('reconnect', (attemptNumber) => {
+    console.log('Reconnected after', attemptNumber, 'attempts');
+    showConnectionStatus('Reconnected!', 'success');
+    setTimeout(hideConnectionStatus, 2000);
+  });
+
+  socket.on('reconnect_attempt', (attemptNumber) => {
+    showConnectionStatus(`Reconnecting... (attempt ${attemptNumber})`, 'warning');
+  });
+
+  socket.on('reconnect_error', (error) => {
+    console.error('Reconnection error:', error);
+  });
+
+  socket.on('reconnect_failed', () => {
+    showConnectionStatus('Connection lost. Please refresh the page.', 'error');
+  });
+
+  socket.on('connect_error', (error) => {
+    console.error('Connection error:', error);
+    showConnectionStatus('Connection error - Retrying...', 'warning');
+  });
 
   socket.on('character_created', (character) => {
     loadCharacters();
@@ -1563,7 +1608,7 @@ function renderCharactersList() {
     };
 
     return `
-    <div class="character-card" data-id="${c.id}">
+    <div class="character-card ${canLevel ? 'ready-to-level' : ''}" data-id="${c.id}">
       <button class="delete-btn" onclick="event.stopPropagation(); deleteCharacter('${c.id}')">X</button>
 
       <!-- Character Header (always visible) -->
@@ -2712,6 +2757,26 @@ async function recalculateACSpells() {
   } catch (error) {
     console.error('Failed to recalculate AC/spells:', error);
     alert('Failed to recalculate AC/spells: ' + error.message);
+  }
+}
+
+// Connection status indicator functions
+function showConnectionStatus(message, type = 'warning') {
+  let statusEl = document.getElementById('connection-status');
+  if (!statusEl) {
+    statusEl = document.createElement('div');
+    statusEl.id = 'connection-status';
+    document.body.appendChild(statusEl);
+  }
+  statusEl.textContent = message;
+  statusEl.className = `connection-status ${type}`;
+  statusEl.style.display = 'block';
+}
+
+function hideConnectionStatus() {
+  const statusEl = document.getElementById('connection-status');
+  if (statusEl) {
+    statusEl.style.display = 'none';
   }
 }
 
