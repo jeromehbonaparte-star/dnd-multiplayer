@@ -6,6 +6,7 @@ let currentSession = null;
 let characters = [];  // All characters (for character selection)
 let sessionCharacters = [];  // Characters for the current session
 let socket = null;
+let isTurnProcessing = false;  // Track if AI is currently processing a turn
 
 // Global click handler for section toggles (using capture phase to ensure it fires)
 document.addEventListener('click', function(e) {
@@ -444,21 +445,27 @@ function initSocket() {
 
   socket.on('turn_processing', ({ sessionId }) => {
     if (currentSession && currentSession.id === sessionId) {
+      isTurnProcessing = true;
       showNarratorTyping();
+      updateActionFormState();
     }
   });
 
   socket.on('reroll_started', ({ sessionId }) => {
     if (currentSession && currentSession.id === sessionId) {
+      isTurnProcessing = true;
       showNarratorTyping();
+      updateActionFormState();
       showNotification('Regenerating response...');
     }
   });
 
   socket.on('turn_processed', ({ sessionId, response, turn, tokensUsed, compacted }) => {
     if (currentSession && currentSession.id === sessionId) {
+      isTurnProcessing = false;
       hideNarratorTyping();
       loadSession(sessionId);
+      updateActionFormState();
       if (compacted) {
         showNotification('History was auto-compacted to save tokens!');
       }
@@ -2471,8 +2478,15 @@ async function submitAction() {
     return;
   }
 
+  // Block submission if turn is currently processing
+  if (isTurnProcessing) {
+    alert('Please wait - the Narrator is still processing the current turn');
+    return;
+  }
+
   const characterId = document.getElementById('action-character').value;
-  const action = document.getElementById('action-text').value;
+  const actionTextarea = document.getElementById('action-text');
+  const action = actionTextarea.value;
 
   if (!characterId) {
     alert('Please select your character');
@@ -2484,20 +2498,67 @@ async function submitAction() {
     return;
   }
 
+  // Clear textarea IMMEDIATELY before API call to prevent stale data
+  actionTextarea.value = '';
+
+  // Disable submit button while submitting
+  const submitBtn = document.querySelector('.action-form button[type="submit"], .action-form button[onclick*="submitAction"]');
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Submitting...';
+  }
+
   try {
     const result = await api(`/api/sessions/${currentSession.id}/action`, 'POST', {
       character_id: characterId,
       action: action
     });
 
-    document.getElementById('action-text').value = '';
-
     if (result.processed) {
       loadSession(currentSession.id);
     }
+
+    showNotification('Action submitted!');
   } catch (error) {
     console.error('Failed to submit action:', error);
-    alert('Failed to submit action');
+    // Restore the action text if submission failed
+    actionTextarea.value = action;
+
+    // Check if it's a "processing" error (409) - sync the local state
+    if (error.message && error.message.includes('processing')) {
+      isTurnProcessing = true;
+      showNotification('Please wait - turn is being processed');
+    } else {
+      alert('Failed to submit action: ' + error.message);
+    }
+  } finally {
+    // Re-enable submit button (unless turn is now processing)
+    updateActionFormState();
+  }
+}
+
+// Update action form state based on processing status
+function updateActionFormState() {
+  const submitBtn = document.querySelector('.action-form button[type="submit"], .action-form button[onclick*="submitAction"]');
+  const actionTextarea = document.getElementById('action-text');
+
+  if (submitBtn) {
+    if (isTurnProcessing) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Narrator is typing...';
+    } else {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Submit Action';
+    }
+  }
+
+  if (actionTextarea) {
+    actionTextarea.disabled = isTurnProcessing;
+    if (isTurnProcessing) {
+      actionTextarea.placeholder = 'Please wait for the Narrator to finish...';
+    } else {
+      actionTextarea.placeholder = 'What do you do?';
+    }
   }
 }
 

@@ -17,6 +17,9 @@ const { securityHeaders, corsMiddleware } = require('./middleware/security');
 
 const app = express();
 
+// Track sessions currently being processed by AI (prevents race conditions)
+const processingSessions = new Set();
+
 // Rate limiting for auth endpoints (prevent brute force)
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -2136,6 +2139,15 @@ app.post('/api/sessions/:id/action', checkPassword, async (req, res) => {
   const { character_id, action } = req.body;
   const sessionId = req.params.id;
 
+  // RACE CONDITION FIX: Reject submissions if AI is currently processing this session
+  if (processingSessions.has(sessionId)) {
+    logger.warn('Action rejected - session is currently processing', { sessionId, character_id });
+    return res.status(409).json({
+      error: 'Turn is currently being processed. Please wait for the Narrator to finish.',
+      processing: true
+    });
+  }
+
   // Check if character already has pending action
   const existing = db.prepare('SELECT * FROM pending_actions WHERE session_id = ? AND character_id = ?').get(sessionId, character_id);
   if (existing) {
@@ -2151,6 +2163,10 @@ app.post('/api/sessions/:id/action', checkPassword, async (req, res) => {
 
   // Check if all characters have submitted actions
   if (pendingActions.length >= characters.length && characters.length > 0) {
+    // RACE CONDITION FIX: Set processing lock BEFORE starting AI processing
+    processingSessions.add(sessionId);
+    io.emit('turn_processing', { sessionId });
+
     // Process turn with AI
     try {
       const result = await processAITurn(sessionId, pendingActions, characters);
@@ -2158,6 +2174,9 @@ app.post('/api/sessions/:id/action', checkPassword, async (req, res) => {
     } catch (error) {
       console.error('AI processing error:', error);
       res.json({ processed: false, error: error.message });
+    } finally {
+      // RACE CONDITION FIX: Always clear the lock when done
+      processingSessions.delete(sessionId);
     }
   } else {
     res.json({ processed: false, waiting: characters.length - pendingActions.length });
@@ -2180,8 +2199,21 @@ app.delete('/api/sessions/:id/action/:characterId', checkPassword, (req, res) =>
 // Force process turn (DM override)
 app.post('/api/sessions/:id/process', checkPassword, async (req, res) => {
   const sessionId = req.params.id;
+
+  // RACE CONDITION FIX: Reject if already processing
+  if (processingSessions.has(sessionId)) {
+    return res.status(409).json({
+      error: 'Turn is already being processed.',
+      processing: true
+    });
+  }
+
   const pendingActions = db.prepare('SELECT * FROM pending_actions WHERE session_id = ?').all(sessionId);
   const characters = getSessionCharacters(sessionId);
+
+  // RACE CONDITION FIX: Set processing lock
+  processingSessions.add(sessionId);
+  io.emit('turn_processing', { sessionId });
 
   try {
     const result = await processAITurn(sessionId, pendingActions, characters);
@@ -2189,6 +2221,9 @@ app.post('/api/sessions/:id/process', checkPassword, async (req, res) => {
   } catch (error) {
     console.error('AI processing error:', error);
     res.status(500).json({ error: error.message });
+  } finally {
+    // RACE CONDITION FIX: Always clear the lock
+    processingSessions.delete(sessionId);
   }
 });
 
@@ -2228,6 +2263,14 @@ app.post('/api/sessions/:id/gm-message', checkPassword, checkAdminPassword, (req
 // Reroll - Regenerate the last AI response (admin only)
 app.post('/api/sessions/:id/reroll', checkPassword, checkAdminPassword, async (req, res) => {
   const sessionId = req.params.id;
+
+  // RACE CONDITION FIX: Reject if already processing
+  if (processingSessions.has(sessionId)) {
+    return res.status(409).json({
+      error: 'Turn is already being processed.',
+      processing: true
+    });
+  }
 
   const session = db.prepare('SELECT * FROM game_sessions WHERE id = ?').get(sessionId);
   if (!session) {
@@ -2300,6 +2343,9 @@ app.post('/api/sessions/:id/reroll', checkPassword, checkAdminPassword, async (r
 
   console.log(`Reroll initiated for session ${sessionId}: removed last response, ${actionsThisTurn.length} actions restored`);
 
+  // RACE CONDITION FIX: Set processing lock
+  processingSessions.add(sessionId);
+
   // Notify clients that reroll is starting
   io.emit('reroll_started', { sessionId });
 
@@ -2309,6 +2355,9 @@ app.post('/api/sessions/:id/reroll', checkPassword, checkAdminPassword, async (r
   } catch (error) {
     console.error('Reroll AI processing error:', error);
     res.status(500).json({ error: error.message });
+  } finally {
+    // RACE CONDITION FIX: Always clear the lock
+    processingSessions.delete(sessionId);
   }
 });
 
@@ -3484,8 +3533,8 @@ app.post('/api/sessions/:sessionId/combat/roll-party-initiative', checkPassword,
 
 // AI Processing function
 async function processAITurn(sessionId, pendingActions, characters) {
-  // Notify all clients that processing has started
-  io.emit('turn_processing', { sessionId });
+  // Note: turn_processing event is now emitted by the calling endpoint (before lock is set)
+  // This ensures proper coordination with the processingSessions lock
 
   const session = db.prepare('SELECT * FROM game_sessions WHERE id = ?').get(sessionId);
   const apiConfig = getActiveApiConfig();
