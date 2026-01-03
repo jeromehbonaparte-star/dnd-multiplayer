@@ -820,9 +820,20 @@ app.post('/api/sessions/:id/reroll', checkPassword, checkAdminPassword, async (r
   // Also remove any gm_nudge messages from the remaining history
   fullHistory = fullHistory.filter(entry => entry.type !== 'gm_nudge');
 
-  // Save the modified history
-  db.prepare('UPDATE game_sessions SET full_history = ? WHERE id = ?')
-    .run(JSON.stringify(fullHistory), sessionId);
+  // Adjust compacted_count if we truncated into the compacted region
+  let compactedCount = session.compacted_count || 0;
+  const originalCompactedCount = compactedCount;
+  if (fullHistory.length < compactedCount) {
+    compactedCount = fullHistory.length;
+  }
+
+  // Save the modified history with adjusted compacted_count
+  db.prepare('UPDATE game_sessions SET full_history = ?, compacted_count = ? WHERE id = ?')
+    .run(JSON.stringify(fullHistory), compactedCount, sessionId);
+
+  if (compactedCount !== originalCompactedCount) {
+    console.log(`Reroll: Adjusted compacted_count from ${originalCompactedCount} to ${compactedCount}`);
+  }
 
   // Clear any existing pending actions and re-create from collected actions
   db.prepare('DELETE FROM pending_actions WHERE session_id = ?').run(sessionId);
@@ -1656,16 +1667,27 @@ app.post('/api/sessions/:id/delete-message', checkPassword, (req, res) => {
     // Remove the message at the specified index
     const deletedMessage = history.splice(index, 1)[0];
 
-    // Update the database
-    db.prepare('UPDATE game_sessions SET full_history = ? WHERE id = ?')
-      .run(JSON.stringify(history), sessionId);
+    // Adjust compacted_count if we deleted a message in the compacted region
+    let compactedCount = session.compacted_count || 0;
+    if (index < compactedCount) {
+      compactedCount = Math.max(0, compactedCount - 1);
+    }
+    // Safety: ensure compacted_count never exceeds history length
+    compactedCount = Math.min(compactedCount, history.length);
+
+    // Update the database with adjusted compacted_count
+    db.prepare('UPDATE game_sessions SET full_history = ?, compacted_count = ? WHERE id = ?')
+      .run(JSON.stringify(history), compactedCount, sessionId);
 
     // Notify clients
     io.emit('session_updated', { id: sessionId });
 
     console.log(`Deleted message at index ${index} from session ${sessionId}:`, deletedMessage?.type || deletedMessage?.role);
+    if (compactedCount !== (session.compacted_count || 0)) {
+      console.log(`Adjusted compacted_count from ${session.compacted_count || 0} to ${compactedCount}`);
+    }
 
-    res.json({ success: true, deletedIndex: index, remainingCount: history.length });
+    res.json({ success: true, deletedIndex: index, remainingCount: history.length, compactedCount });
   } catch (error) {
     console.error('Failed to delete message:', error);
     res.status(500).json({ error: 'Failed to delete message: ' + error.message });
@@ -1765,7 +1787,15 @@ Please narrate the outcome of these actions and describe what happens next.`;
   // Build messages array for AI - only send messages after compacted_count
   // The summary covers messages 0 to compactedCount-1
   // For AI, we combine the stored entries into proper user/assistant messages
-  const recentHistory = fullHistory.slice(compactedCount);
+  let recentHistory = fullHistory.slice(compactedCount);
+
+  // Safety net: If compacted_count is stale and we have no recent context,
+  // fall back to using the last N messages to ensure AI has context
+  if (recentHistory.length === 0 && fullHistory.length > 0) {
+    const fallbackCount = Math.min(10, fullHistory.length);
+    recentHistory = fullHistory.slice(-fallbackCount);
+    console.warn(`Safety fallback: compacted_count (${compactedCount}) exceeded history length (${fullHistory.length}). Using last ${fallbackCount} messages.`);
+  }
 
   // Convert stored history to AI-compatible format
   // Combine context + actions into single user messages for AI
