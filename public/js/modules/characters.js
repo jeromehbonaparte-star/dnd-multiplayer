@@ -303,9 +303,9 @@ export function renderCharactersList() {
         ${createSection('passives', 'Passives', c.passives, 'section-passives')}
         ${createSection('classFeatures', 'Class Features', c.class_features, 'section-classfeatures')}
         ${createSection('feats', 'Feats', feats, 'section-feats')}
-        ${createSection('inventory', \`Inventory (\${itemCount} items)\`,
+        ${createSection('inventory', `Inventory (${itemCount} items)`,
           inventory.length > 0
-            ? inventory.map(item => \`<div class="inventory-item">\${escapeHtml(item.name)}\${item.quantity > 1 ? ' x' + item.quantity : ''}</div>\`).join('')
+            ? inventory.map(item => `<div class="inventory-item">${escapeHtml(item.name)}${item.quantity > 1 ? ' x' + item.quantity : ''}</div>`).join('')
             : '<div class="inventory-empty">No items</div>',
           'section-inventory', true)}
       </div>
@@ -412,8 +412,8 @@ export function updatePartyList() {
         ${createPartySection('spells', 'Spells', c.spells, 'section-spells')}
         ${createPartySection('passives', 'Passives', c.passives, 'section-passives')}
         ${createPartySection('classFeatures', 'Class Features', c.class_features, 'section-classfeatures')}
-        ${createPartySection('inventory', \`Inventory (\${itemCount})\`,
-          itemCount > 0 ? inventory.map(i => \`\${escapeHtml(i.name)}\${i.quantity > 1 ? ' x' + i.quantity : ''}\`).join(', ') : 'None',
+        ${createPartySection('inventory', `Inventory (${itemCount})`,
+          itemCount > 0 ? inventory.map(i => `${escapeHtml(i.name)}${i.quantity > 1 ? ' x' + i.quantity : ''}`).join(', ') : 'None',
           'section-inventory', true)}
       </div>
 
