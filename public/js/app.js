@@ -3059,10 +3059,11 @@ async function addItemToInventory() {
     document.getElementById('new-item-qty').value = '1';
 
     // Update local character data and refresh modal
+    // Server returns character object directly (not nested under .character)
     const charIdx = characters.findIndex(c => c.id === inventoryModalCharId);
     if (charIdx !== -1) {
-      characters[charIdx] = result.character;
-      renderInventoryModalList(result.character);
+      characters[charIdx] = result;
+      renderInventoryModalList(result);
     }
     loadCharacters();
   } catch (error) {
@@ -3081,10 +3082,11 @@ async function removeItemFromInventory(itemName) {
     });
 
     // Update local character data and refresh modal
+    // Server returns character object directly (not nested under .character)
     const charIdx = characters.findIndex(c => c.id === inventoryModalCharId);
     if (charIdx !== -1) {
-      characters[charIdx] = result.character;
-      renderInventoryModalList(result.character);
+      characters[charIdx] = result;
+      renderInventoryModalList(result);
     }
     loadCharacters();
   } catch (error) {

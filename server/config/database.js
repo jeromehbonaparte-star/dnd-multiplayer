@@ -6,6 +6,8 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
+const bcrypt = require('bcryptjs');
+const { v4: uuidv4 } = require('uuid');
 const logger = require('../lib/logger');
 
 // Ensure data directory exists
@@ -102,13 +104,30 @@ function initializeTables() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (session_id) REFERENCES game_sessions(id)
     );
+
+    CREATE TABLE IF NOT EXISTS game_snapshots (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      turn_number INTEGER NOT NULL,
+      character_states TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (session_id) REFERENCES game_sessions(id)
+    );
   `);
 
   // Create indexes for better performance
   try {
-    db.exec('CREATE INDEX IF NOT EXISTS idx_pending_actions_session ON pending_actions(session_id)');
-    db.exec('CREATE INDEX IF NOT EXISTS idx_session_characters_session ON session_characters(session_id)');
-    db.exec('CREATE INDEX IF NOT EXISTS idx_combats_session ON combats(session_id)');
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_pending_actions_session ON pending_actions(session_id);
+      CREATE INDEX IF NOT EXISTS idx_pending_actions_character ON pending_actions(character_id);
+      CREATE INDEX IF NOT EXISTS idx_session_characters_session ON session_characters(session_id);
+      CREATE INDEX IF NOT EXISTS idx_session_characters_character ON session_characters(character_id);
+      CREATE INDEX IF NOT EXISTS idx_combats_session ON combats(session_id);
+      CREATE INDEX IF NOT EXISTS idx_api_configs_active ON api_configs(is_active);
+      CREATE INDEX IF NOT EXISTS idx_characters_created ON characters(created_at);
+      CREATE INDEX IF NOT EXISTS idx_game_sessions_created ON game_sessions(created_at);
+      CREATE INDEX IF NOT EXISTS idx_snapshots_session ON game_snapshots(session_id);
+    `);
   } catch (e) {
     // Indexes may already exist
   }
@@ -153,7 +172,7 @@ function runMigrations() {
   const sessionColumns = db.prepare("PRAGMA table_info(game_sessions)").all().map(c => c.name);
   const sessionMigrations = [
     { col: 'compacted_count', sql: 'ALTER TABLE game_sessions ADD COLUMN compacted_count INTEGER DEFAULT 0' },
-    { col: 'scenario', sql: "ALTER TABLE game_sessions ADD COLUMN scenario TEXT DEFAULT 'classic'" },
+    { col: 'scenario', sql: "ALTER TABLE game_sessions ADD COLUMN scenario TEXT DEFAULT 'classic_fantasy'" },
   ];
 
   for (const { col, sql } of sessionMigrations) {
@@ -185,10 +204,155 @@ function migrateMulticlass() {
   }
 }
 
+/**
+ * Migrate existing characters to use ac_effects format
+ */
+function migrateAcEffects() {
+  const charsToMigrateAc = db.prepare("SELECT id, ac, ac_effects FROM characters WHERE ac_effects IS NULL OR ac_effects = '{\"base_source\":\"Unarmored\",\"base_value\":10,\"effects\":[]}'").all();
+  for (const char of charsToMigrateAc) {
+    const currentAc = char.ac || 10;
+    if (currentAc !== 10 || !char.ac_effects) {
+      const acEffects = {
+        base_source: currentAc > 10 ? "Equipment" : "Unarmored",
+        base_value: currentAc,
+        effects: []
+      };
+      db.prepare("UPDATE characters SET ac_effects = ? WHERE id = ?").run(JSON.stringify(acEffects), char.id);
+    }
+  }
+  if (charsToMigrateAc.length > 0) {
+    logger.info(`Migrated ${charsToMigrateAc.length} characters to ac_effects format`);
+  }
+}
+
+/**
+ * Migrate equipment text to inventory items
+ */
+function migrateEquipmentToInventory() {
+  const charsWithEquipment = db.prepare("SELECT id, equipment, inventory FROM characters WHERE equipment IS NOT NULL AND equipment != ''").all();
+  for (const char of charsWithEquipment) {
+    try {
+      let inventory = [];
+      try {
+        inventory = JSON.parse(char.inventory || '[]');
+      } catch (e) {
+        inventory = [];
+      }
+
+      const equipmentText = char.equipment || '';
+      const equipmentItems = equipmentText
+        .split(/[,\n]/)
+        .map(item => item.trim())
+        .filter(item => item.length > 0);
+
+      for (const itemName of equipmentItems) {
+        let name = itemName;
+        let quantity = 1;
+
+        const qtyPrefixMatch = itemName.match(/^(\d+)\s+(.+)$/);
+        const qtySuffixMatch = itemName.match(/^(.+?)\s*x(\d+)$/i);
+
+        if (qtyPrefixMatch) {
+          quantity = parseInt(qtyPrefixMatch[1]);
+          name = qtyPrefixMatch[2];
+        } else if (qtySuffixMatch) {
+          name = qtySuffixMatch[1].trim();
+          quantity = parseInt(qtySuffixMatch[2]);
+        }
+
+        const existingItem = inventory.find(i => i.name.toLowerCase() === name.toLowerCase());
+        if (existingItem) {
+          existingItem.quantity = (existingItem.quantity || 1) + quantity;
+        } else {
+          inventory.push({ name, quantity });
+        }
+      }
+
+      db.prepare('UPDATE characters SET inventory = ?, equipment = NULL WHERE id = ?')
+        .run(JSON.stringify(inventory), char.id);
+    } catch (e) {
+      logger.error(`Failed to migrate equipment for character ${char.id}`, { error: e.message });
+    }
+  }
+  if (charsWithEquipment.length > 0) {
+    logger.info(`Migrated equipment to inventory for ${charsWithEquipment.length} characters`);
+  }
+}
+
+/**
+ * Seed API config from legacy settings if needed
+ */
+function seedApiConfig() {
+  const existingConfigs = db.prepare('SELECT COUNT(*) as count FROM api_configs').get();
+  if (existingConfigs.count === 0) {
+    const oldEndpoint = db.prepare("SELECT value FROM settings WHERE key = 'api_endpoint'").get();
+    const oldKey = db.prepare("SELECT value FROM settings WHERE key = 'api_key'").get();
+    const oldModel = db.prepare("SELECT value FROM settings WHERE key = 'api_model'").get();
+
+    if (oldKey && oldKey.value) {
+      db.prepare('INSERT INTO api_configs (id, name, endpoint, api_key, model, is_active) VALUES (?, ?, ?, ?, ?, 1)')
+        .run(uuidv4(), 'Default', oldEndpoint?.value || 'https://api.openai.com/v1/chat/completions', oldKey.value, oldModel?.value || 'gpt-4');
+      logger.info('Migrated legacy API settings to api_configs table');
+    }
+  }
+}
+
+/**
+ * Initialize passwords from environment or generate random ones
+ */
+function initializePasswords() {
+  const initSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
+  const upsertSetting = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');
+
+  const defaultPassword = process.env.GAME_PASSWORD;
+  const adminPassword = process.env.ADMIN_PASSWORD;
+
+  function generateSecurePassword() {
+    return require('crypto').randomBytes(16).toString('hex');
+  }
+
+  const existingGamePassword = db.prepare('SELECT value FROM settings WHERE key = ?').get('game_password');
+  const existingAdminPassword = db.prepare('SELECT value FROM settings WHERE key = ?').get('admin_password');
+
+  if (defaultPassword) {
+    upsertSetting.run('game_password', bcrypt.hashSync(defaultPassword, 10));
+  } else if (!existingGamePassword) {
+    const generatedGamePassword = generateSecurePassword();
+    upsertSetting.run('game_password', bcrypt.hashSync(generatedGamePassword, 10));
+    console.log('\n' + '='.repeat(60));
+    console.log('SECURITY: No GAME_PASSWORD env var set.');
+    console.log('Generated random game password: ' + generatedGamePassword);
+    console.log('Set GAME_PASSWORD env var to use a custom password.');
+    console.log('='.repeat(60) + '\n');
+  }
+
+  if (adminPassword) {
+    upsertSetting.run('admin_password', bcrypt.hashSync(adminPassword, 10));
+  } else if (!existingAdminPassword) {
+    const generatedAdminPassword = generateSecurePassword();
+    upsertSetting.run('admin_password', bcrypt.hashSync(generatedAdminPassword, 10));
+    console.log('\n' + '='.repeat(60));
+    console.log('SECURITY: No ADMIN_PASSWORD env var set.');
+    console.log('Generated random admin password: ' + generatedAdminPassword);
+    console.log('Set ADMIN_PASSWORD env var to use a custom password.');
+    console.log('='.repeat(60) + '\n');
+  }
+
+  // Initialize default non-password settings
+  initSetting.run('api_endpoint', 'https://api.openai.com/v1/chat/completions');
+  initSetting.run('api_key', '');
+  initSetting.run('api_model', 'gpt-4');
+  initSetting.run('max_tokens_before_compact', '8000');
+}
+
 // Initialize on module load
 initializeTables();
 runMigrations();
 migrateMulticlass();
+migrateAcEffects();
+migrateEquipmentToInventory();
+seedApiConfig();
+initializePasswords();
 
 module.exports = {
   db,

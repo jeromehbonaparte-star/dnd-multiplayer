@@ -1,9 +1,26 @@
 /**
  * AI Service
- * Handles all AI API interactions (OpenAI-compatible APIs)
+ * Handles all AI API interactions (OpenAI-compatible and Anthropic APIs)
  */
 
 const logger = require('../lib/logger');
+
+/**
+ * Response prefix for session AI - helps with immersion, stripped from final output
+ */
+const AI_RESPONSE_PREFIX = "All right! Let's get to writing!\n\n";
+
+/**
+ * Detect provider from endpoint URL
+ * @param {string} endpoint - API endpoint URL
+ * @returns {string} 'anthropic' or 'openai'
+ */
+function detectProvider(endpoint) {
+  if (endpoint && endpoint.includes('anthropic.com')) {
+    return 'anthropic';
+  }
+  return 'openai';
+}
 
 /**
  * Get the active API configuration from database
@@ -15,6 +32,62 @@ function getActiveApiConfig(db) {
 }
 
 /**
+ * Build request headers based on provider
+ * @param {Object} config - API configuration
+ * @param {string} provider - 'openai' or 'anthropic'
+ * @returns {Object} Headers object
+ */
+function buildHeaders(config, provider) {
+  if (provider === 'anthropic') {
+    return {
+      'Content-Type': 'application/json',
+      'x-api-key': config.api_key,
+      'anthropic-version': '2023-06-01'
+    };
+  }
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${config.api_key}`
+  };
+}
+
+/**
+ * Build request body based on provider
+ * @param {Object} config - API configuration
+ * @param {Array} messages - Message array
+ * @param {Object} options - Options {maxTokens, temperature, stream}
+ * @param {string} provider - 'openai' or 'anthropic'
+ * @returns {Object} Request body
+ */
+function buildRequestBody(config, messages, options, provider) {
+  const { maxTokens = 4096, temperature = 0.8, stream = false } = options;
+
+  if (provider === 'anthropic') {
+    // Extract system message from messages array
+    const systemMessages = messages.filter(m => m.role === 'system');
+    const nonSystemMessages = messages.filter(m => m.role !== 'system');
+    const systemContent = systemMessages.map(m => m.content).join('\n\n');
+
+    return {
+      model: config.model,
+      max_tokens: maxTokens,
+      messages: nonSystemMessages,
+      ...(systemContent ? { system: systemContent } : {}),
+      temperature: temperature,
+      stream: stream
+    };
+  }
+
+  return {
+    model: config.model,
+    messages: messages,
+    max_tokens: maxTokens,
+    temperature: temperature,
+    stream: stream
+  };
+}
+
+/**
  * Call AI API with messages
  * @param {Object} config - API configuration {endpoint, api_key, model}
  * @param {Array} messages - Array of message objects {role, content}
@@ -22,25 +95,27 @@ function getActiveApiConfig(db) {
  * @returns {Promise<Object>} AI response
  */
 async function callAI(config, messages, options = {}) {
-  const { maxTokens = 4096, temperature = 0.8 } = options;
+  const { maxTokens = 4096, temperature = 0.8, timeoutMs = 120000 } = options;
 
   if (!config || !config.endpoint || !config.api_key || !config.model) {
     throw new Error('Invalid API configuration');
   }
 
-  const response = await fetch(config.endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${config.api_key}`
-    },
-    body: JSON.stringify({
-      model: config.model,
-      messages: messages,
-      max_tokens: maxTokens,
-      temperature: temperature
-    })
-  });
+  const provider = detectProvider(config.endpoint);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  let response;
+  try {
+    response = await fetch(config.endpoint, {
+      method: 'POST',
+      headers: buildHeaders(config, provider),
+      body: JSON.stringify(buildRequestBody(config, messages, { maxTokens, temperature, stream: false }, provider)),
+      signal: controller.signal
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -52,18 +127,139 @@ async function callAI(config, messages, options = {}) {
 }
 
 /**
- * Extract message content from AI response
+ * Call AI API with streaming enabled - returns an async generator of text chunks
+ * @param {Object} config - API configuration {endpoint, api_key, model}
+ * @param {Array} messages - Array of message objects {role, content}
+ * @param {Object} options - Additional options {maxTokens, temperature, timeoutMs}
+ * @returns {AsyncGenerator<string>} Async generator yielding text chunks
+ */
+async function* callAIStream(config, messages, options = {}) {
+  const { maxTokens = 4096, temperature = 0.8, timeoutMs = 300000 } = options;
+
+  if (!config || !config.endpoint || !config.api_key || !config.model) {
+    throw new Error('Invalid API configuration');
+  }
+
+  const provider = detectProvider(config.endpoint);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  let response;
+  try {
+    response = await fetch(config.endpoint, {
+      method: 'POST',
+      headers: buildHeaders(config, provider),
+      body: JSON.stringify(buildRequestBody(config, messages, { maxTokens, temperature, stream: true }, provider)),
+      signal: controller.signal
+    });
+  } catch (error) {
+    clearTimeout(timeout);
+    throw error;
+  }
+
+  if (!response.ok) {
+    clearTimeout(timeout);
+    const errorText = await response.text();
+    logger.error('AI Stream API error', { status: response.status, error: errorText });
+    throw new Error(`AI API error: ${response.status}`);
+  }
+
+  try {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+
+        if (provider === 'anthropic') {
+          // Anthropic SSE format:
+          // event: content_block_delta
+          // data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Hello"}}
+          if (trimmed.startsWith('data: ')) {
+            const jsonStr = trimmed.slice(6);
+            if (jsonStr === '[DONE]') continue;
+            try {
+              const parsed = JSON.parse(jsonStr);
+              if (parsed.type === 'content_block_delta' && parsed.delta && parsed.delta.type === 'text_delta') {
+                yield parsed.delta.text;
+              }
+            } catch (e) {
+              // Skip unparseable lines
+            }
+          }
+        } else {
+          // OpenAI SSE format:
+          // data: {"choices":[{"delta":{"content":"Hello"}}]}
+          // data: [DONE]
+          if (trimmed.startsWith('data: ')) {
+            const jsonStr = trimmed.slice(6);
+            if (jsonStr === '[DONE]') continue;
+            try {
+              const parsed = JSON.parse(jsonStr);
+              const content = parsed.choices?.[0]?.delta?.content;
+              if (content) {
+                yield content;
+              }
+            } catch (e) {
+              // Skip unparseable lines
+            }
+          }
+        }
+      }
+    }
+
+    // Process any remaining buffer
+    if (buffer.trim()) {
+      const trimmed = buffer.trim();
+      if (trimmed.startsWith('data: ') && trimmed.slice(6) !== '[DONE]') {
+        try {
+          const parsed = JSON.parse(trimmed.slice(6));
+          if (provider === 'anthropic') {
+            if (parsed.type === 'content_block_delta' && parsed.delta?.type === 'text_delta') {
+              yield parsed.delta.text;
+            }
+          } else {
+            const content = parsed.choices?.[0]?.delta?.content;
+            if (content) yield content;
+          }
+        } catch (e) {
+          // Skip
+        }
+      }
+    }
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * Extract message content from AI response (non-streaming)
  * @param {Object} data - AI API response
  * @returns {string} Extracted message content
  */
 function extractAIMessage(data) {
+  // OpenAI format
   if (data.choices && data.choices[0] && data.choices[0].message) {
     return data.choices[0].message.content;
   }
+  // Anthropic format
+  if (data.content && Array.isArray(data.content) && data.content[0] && data.content[0].text) {
+    return data.content[0].text;
+  }
+  // Fallback formats
   if (data.message) {
     return data.message.content || data.message;
   }
-  if (data.content) {
+  if (data.content && typeof data.content === 'string') {
     return data.content;
   }
   return '';
@@ -259,12 +455,34 @@ When you have enough information, output a complete character sheet in this EXAC
 
 Generate appropriate stats using 4d6 drop lowest method. Be encouraging and creative!`;
 
+/**
+ * Get an OpenAI API key from active or any configured OpenAI endpoint
+ * @param {Object} db - Database instance
+ * @returns {string|null} API key or null
+ */
+function getOpenAIApiKey(db) {
+  const activeConfig = getActiveApiConfig(db);
+  if (activeConfig && activeConfig.endpoint && activeConfig.endpoint.includes('openai.com')) {
+    return activeConfig.api_key;
+  }
+  // Check all configs for an OpenAI one
+  const configs = db.prepare('SELECT * FROM api_configs WHERE endpoint LIKE ?').all('%openai.com%');
+  if (configs.length > 0) {
+    return configs[0].api_key;
+  }
+  return null;
+}
+
 module.exports = {
   getActiveApiConfig,
   callAI,
+  callAIStream,
   extractAIMessage,
   estimateTokens,
   testConnection,
+  getOpenAIApiKey,
+  detectProvider,
   DEFAULT_SYSTEM_PROMPT,
-  CHARACTER_CREATION_PROMPT
+  CHARACTER_CREATION_PROMPT,
+  AI_RESPONSE_PREFIX
 };

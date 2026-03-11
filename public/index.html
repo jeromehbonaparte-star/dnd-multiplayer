@@ -26,20 +26,20 @@
   <div id="app-screen" class="screen">
     <nav>
       <div class="nav-brand">D&D Multiplayer</div>
-      <button class="theme-toggle" onclick="toggleTheme()" id="theme-toggle">
+      <button class="theme-toggle" onclick="toggleTheme()" id="theme-toggle" aria-label="Toggle light/dark theme">
         <span class="theme-icon" id="theme-icon">🌙</span>
         <span id="theme-label">Dark</span>
       </button>
-      <button class="mobile-menu-btn" onclick="toggleMobileMenu()">Menu</button>
-      <div class="nav-tabs" id="nav-tabs">
-        <button class="tab-btn active" data-tab="game">Game</button>
-        <button class="tab-btn" data-tab="characters">Characters</button>
-        <button class="tab-btn" data-tab="settings">Settings</button>
+      <button class="mobile-menu-btn" onclick="toggleMobileMenu()" aria-label="Toggle navigation menu">Menu</button>
+      <div class="nav-tabs" id="nav-tabs" role="tablist" aria-label="Main navigation">
+        <button class="tab-btn active" data-tab="game" role="tab" aria-selected="true" aria-controls="game-tab">Game</button>
+        <button class="tab-btn" data-tab="characters" role="tab" aria-selected="false" aria-controls="characters-tab">Characters</button>
+        <button class="tab-btn" data-tab="settings" role="tab" aria-selected="false" aria-controls="settings-tab">Settings</button>
       </div>
     </nav>
 
     <!-- Game Tab -->
-    <div id="game-tab" class="tab-content active">
+    <div id="game-tab" class="tab-content active" role="tabpanel" aria-labelledby="game-tab-btn">
       <div class="game-container">
         <div class="sidebar">
           <h3>Sessions</h3>
@@ -72,7 +72,8 @@
         </div>
 
         <div class="main-content">
-          <div id="story-container">
+          <div id="story-container" aria-live="polite" aria-label="Story narration">
+            <canvas id="weather-canvas" aria-hidden="true"></canvas>
             <div id="story-summary"></div>
             <div id="story-history"></div>
             <div id="narrator-typing" class="typing-indicator hidden">
@@ -85,7 +86,7 @@
             <select id="action-character">
               <option value="">Select your character</option>
             </select>
-            <textarea id="action-text" placeholder="Describe your action..."></textarea>
+            <textarea id="action-text" placeholder="Describe your action..." aria-label="Describe your character's action"></textarea>
             <button onclick="submitAction()">Submit Action</button>
           </div>
 
@@ -93,13 +94,14 @@
             <span id="turn-counter">Turn: 0</span>
             <span id="token-counter">Tokens: 0</span>
             <span id="waiting-counter">Waiting for: 0 players</span>
+            <button id="weather-toggle-btn" class="btn-weather" onclick="cycleWeather()" aria-label="Toggle weather effect" title="Weather: None">&#9748;</button>
           </div>
         </div>
       </div>
     </div>
 
     <!-- Characters Tab -->
-    <div id="characters-tab" class="tab-content">
+    <div id="characters-tab" class="tab-content" role="tabpanel" aria-labelledby="characters-tab-btn">
       <div class="characters-container">
         <div class="character-creator">
           <h2>Create Character (AI Guided)</h2>
@@ -128,7 +130,7 @@
     </div>
 
     <!-- Settings Tab -->
-    <div id="settings-tab" class="tab-content">
+    <div id="settings-tab" class="tab-content" role="tabpanel" aria-labelledby="settings-tab-btn">
       <div class="settings-container">
         <h2>API Configurations</h2>
         <p class="settings-note">Manage multiple API providers (OpenAI, DeepSeek, Local LLMs, etc.)</p>
@@ -278,9 +280,9 @@
   </div>
 
   <!-- Character Edit/Level Up Modal -->
-  <div id="char-modal" class="modal">
+  <div id="char-modal" class="modal" role="dialog" aria-modal="true" aria-label="Character edit">
     <div class="modal-content">
-      <span class="modal-close" onclick="closeModal()">&times;</span>
+      <span class="modal-close" onclick="closeModal()" role="button" aria-label="Close dialog">&times;</span>
       <h2 id="modal-title">Edit Character</h2>
       <div class="modal-chat" id="modal-chat-messages"></div>
       <div class="modal-input">
@@ -300,9 +302,9 @@
   </div>
 
   <!-- Inventory Modal -->
-  <div id="inventory-modal" class="modal">
+  <div id="inventory-modal" class="modal" role="dialog" aria-modal="true" aria-label="Character inventory">
     <div class="modal-content inventory-modal-content">
-      <span class="modal-close" onclick="closeInventoryModal()">&times;</span>
+      <span class="modal-close" onclick="closeInventoryModal()" role="button" aria-label="Close dialog">&times;</span>
       <h2 id="inventory-modal-title">Inventory</h2>
       <div class="inventory-modal-gold">
         <label>Money:</label>
@@ -325,9 +327,9 @@
   </div>
 
   <!-- Spell Slots Modal -->
-  <div id="spell-slots-modal" class="modal">
+  <div id="spell-slots-modal" class="modal" role="dialog" aria-modal="true" aria-label="Spell slots and armor class">
     <div class="modal-content spell-slots-modal-content">
-      <span class="modal-close" onclick="closeSpellSlotsModal()">&times;</span>
+      <span class="modal-close" onclick="closeSpellSlotsModal()" role="button" aria-label="Close dialog">&times;</span>
       <h2 id="spell-slots-modal-title">Spell Slots & AC</h2>
 
       <div class="ac-section">
@@ -388,7 +390,7 @@
   </div>
 
   <!-- Admin Login Modal -->
-  <div id="admin-modal" class="modal">
+  <div id="admin-modal" class="modal" role="dialog" aria-modal="true" aria-label="Admin login">
     <div class="modal-content admin-login-modal">
       <h2>Admin Access Required</h2>
       <p>Enter admin password to access settings</p>
@@ -404,9 +406,9 @@
   </div>
 
   <!-- API Config Edit Modal -->
-  <div id="api-edit-modal" class="modal">
+  <div id="api-edit-modal" class="modal" role="dialog" aria-modal="true" aria-label="Edit API configuration">
     <div class="modal-content api-edit-modal-content">
-      <span class="modal-close" onclick="closeApiEditModal()">&times;</span>
+      <span class="modal-close" onclick="closeApiEditModal()" role="button" aria-label="Close dialog">&times;</span>
       <h2>Edit API Configuration</h2>
       <div class="form-group">
         <label>Name</label>
@@ -433,22 +435,22 @@
   </div>
 
   <!-- Quick Edit Modal (direct field editing) -->
-  <div id="quick-edit-modal" class="modal">
+  <div id="quick-edit-modal" class="modal" role="dialog" aria-modal="true" aria-label="Quick edit character">
     <div class="modal-content quick-edit-modal-content">
-      <span class="modal-close" onclick="closeQuickEditModal()">&times;</span>
+      <span class="modal-close" onclick="closeQuickEditModal()" role="button" aria-label="Close dialog">&times;</span>
       <h2 id="quick-edit-title">Edit Character</h2>
 
       <!-- Tabs for sections -->
-      <div class="quick-edit-tabs">
-        <button class="quick-edit-tab active" onclick="showQuickEditSection('basic')">Basic Info</button>
-        <button class="quick-edit-tab" onclick="showQuickEditSection('stats')">Stats</button>
-        <button class="quick-edit-tab" onclick="showQuickEditSection('combat')">Combat</button>
-        <button class="quick-edit-tab" onclick="showQuickEditSection('abilities')">Abilities</button>
-        <button class="quick-edit-tab" onclick="showQuickEditSection('story')">Story</button>
+      <div class="quick-edit-tabs" role="tablist" aria-label="Character edit sections">
+        <button class="quick-edit-tab active" onclick="showQuickEditSection('basic')" role="tab" aria-selected="true" aria-controls="quick-edit-basic">Basic Info</button>
+        <button class="quick-edit-tab" onclick="showQuickEditSection('stats')" role="tab" aria-selected="false" aria-controls="quick-edit-stats">Stats</button>
+        <button class="quick-edit-tab" onclick="showQuickEditSection('combat')" role="tab" aria-selected="false" aria-controls="quick-edit-combat">Combat</button>
+        <button class="quick-edit-tab" onclick="showQuickEditSection('abilities')" role="tab" aria-selected="false" aria-controls="quick-edit-abilities">Abilities</button>
+        <button class="quick-edit-tab" onclick="showQuickEditSection('story')" role="tab" aria-selected="false" aria-controls="quick-edit-story">Story</button>
       </div>
 
       <!-- Basic Info Section -->
-      <div id="quick-edit-basic" class="quick-edit-section active">
+      <div id="quick-edit-basic" class="quick-edit-section active" role="tabpanel">
         <div class="form-row">
           <div class="form-group">
             <label>Player Name</label>
@@ -490,7 +492,7 @@
       </div>
 
       <!-- Stats Section -->
-      <div id="quick-edit-stats" class="quick-edit-section">
+      <div id="quick-edit-stats" class="quick-edit-section" role="tabpanel">
         <div class="stats-grid">
           <div class="form-group stat-input">
             <label>STR</label>
@@ -520,7 +522,7 @@
       </div>
 
       <!-- Combat Section -->
-      <div id="quick-edit-combat" class="quick-edit-section">
+      <div id="quick-edit-combat" class="quick-edit-section" role="tabpanel">
         <div class="form-row">
           <div class="form-group">
             <label>Current HP</label>
@@ -543,7 +545,7 @@
       </div>
 
       <!-- Abilities Section -->
-      <div id="quick-edit-abilities" class="quick-edit-section">
+      <div id="quick-edit-abilities" class="quick-edit-section" role="tabpanel">
         <div class="form-group">
           <label>Spells</label>
           <textarea id="quick-edit-spells" rows="2" placeholder="Fire Bolt, Shield, Magic Missile..."></textarea>
@@ -567,7 +569,7 @@
       </div>
 
       <!-- Story Section -->
-      <div id="quick-edit-story" class="quick-edit-section">
+      <div id="quick-edit-story" class="quick-edit-section" role="tabpanel">
         <div class="form-group">
           <label>Appearance</label>
           <textarea id="quick-edit-appearance" rows="3" placeholder="Physical description: hair, eyes, height, build, distinguishing features..."></textarea>
@@ -586,9 +588,9 @@
   </div>
 
   <!-- New Session Modal -->
-  <div id="new-session-modal" class="modal">
+  <div id="new-session-modal" class="modal" role="dialog" aria-modal="true" aria-label="Create new session">
     <div class="modal-content new-session-modal-content">
-      <span class="modal-close" onclick="closeNewSessionModal()">&times;</span>
+      <span class="modal-close" onclick="closeNewSessionModal()" role="button" aria-label="Close dialog">&times;</span>
       <h2>Create New Session</h2>
 
       <div class="form-group">
@@ -625,6 +627,6 @@
 
 
   <script src="/socket.io/socket.io.js"></script>
-  <script src="/js/app.js"></script>
+  <script type="module" src="/js/main.js"></script>
 </body>
 </html>

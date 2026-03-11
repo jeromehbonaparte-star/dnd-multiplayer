@@ -16,7 +16,13 @@ const { createTTSRoutes } = require('./tts');
  * @returns {Object} Object containing all route handlers
  */
 function initializeRoutes(deps) {
-  const { db, io, auth, authLimiter, aiService, processingSessions, getActiveApiConfig, processAITurn, DEFAULT_SYSTEM_PROMPT, getOpenAIApiKey } = deps;
+  const {
+    db, io, auth, authLimiter, aiService,
+    processingSessions, getActiveApiConfig, processAITurn,
+    DEFAULT_SYSTEM_PROMPT, getOpenAIApiKey,
+    parseAcEffects, calculateTotalAC, updateCharacterAC,
+    compactHistory, AI_RESPONSE_PREFIX, getSessionCharacters
+  } = deps;
 
   return {
     auth: createAuthRoutes(db, auth, authLimiter),
@@ -28,7 +34,13 @@ function initializeRoutes(deps) {
       processingSessions,
       getActiveApiConfig,
       processAITurn,
-      DEFAULT_SYSTEM_PROMPT
+      DEFAULT_SYSTEM_PROMPT,
+      parseAcEffects,
+      calculateTotalAC,
+      updateCharacterAC,
+      compactHistory,
+      AI_RESPONSE_PREFIX,
+      getSessionCharacters
     }),
     tts: createTTSRoutes({ db, auth, getOpenAIApiKey })
   };

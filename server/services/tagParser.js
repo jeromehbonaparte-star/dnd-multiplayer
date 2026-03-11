@@ -239,12 +239,33 @@ function parseSpellSlotChanges(text, characters) {
       continue;
     }
 
-    // Check for slot usage/restore
+    // Check for slot usage/restore (numeric: "Name -1st", "Name +3rd")
     const slotMatch = content.match(/^(.+?)\s*([+-])\s*(\d+)(?:st|nd|rd|th)$/i);
     if (slotMatch) {
       const charName = slotMatch[1].trim();
       const isUsing = slotMatch[2] === '-';
       const level = slotMatch[3];
+      const char = findCharacterByName(characters, charName);
+
+      if (char) {
+        changes.push({
+          characterId: char.id,
+          characterName: char.character_name,
+          action: isUsing ? 'use' : 'restore',
+          level: level
+        });
+      }
+      continue;
+    }
+
+    // Check for written ordinal support (e.g., "Name -first", "Name +third")
+    const ordinalMap = { 'first': '1', 'second': '2', 'third': '3', 'fourth': '4',
+      'fifth': '5', 'sixth': '6', 'seventh': '7', 'eighth': '8', 'ninth': '9' };
+    const ordinalMatch = content.match(/^(.+?)\s*([+-])\s*(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth)$/i);
+    if (ordinalMatch) {
+      const charName = ordinalMatch[1].trim();
+      const isUsing = ordinalMatch[2] === '-';
+      const level = ordinalMap[ordinalMatch[3].toLowerCase()];
       const char = findCharacterByName(characters, charName);
 
       if (char) {
@@ -364,8 +385,32 @@ function parseCombatCommands(text) {
     } else if (content.toLowerCase() === 'next') {
       commands.push({ action: 'next' });
     } else if (content.toLowerCase().startsWith('start')) {
-      const name = content.replace(/^start\s*/i, '').trim() || 'Combat';
-      commands.push({ action: 'start', name: name });
+      const startContent = content.replace(/^start\s*/i, '').trim() || 'Combat';
+
+      // Check for extended format: "CombatName | Enemy1 15hp 13ac, Enemy2 30hp 16ac"
+      const pipeIdx = startContent.indexOf('|');
+      if (pipeIdx !== -1) {
+        const name = startContent.substring(0, pipeIdx).trim() || 'Combat';
+        const enemyDefs = startContent.substring(pipeIdx + 1).trim();
+        const enemies = [];
+
+        for (const enemyStr of enemyDefs.split(',')) {
+          const trimmed = enemyStr.trim();
+          // Match: "Name HPvalue ACvalue" e.g. "Goblin 15hp 13ac" or "Orc Chief 45hp 16ac"
+          const enemyMatch = trimmed.match(/^(.+?)\s+(\d+)\s*hp\s+(\d+)\s*ac$/i);
+          if (enemyMatch) {
+            enemies.push({
+              name: enemyMatch[1].trim(),
+              hp: parseInt(enemyMatch[2]),
+              ac: parseInt(enemyMatch[3])
+            });
+          }
+        }
+
+        commands.push({ action: 'start', name: name, enemies: enemies.length > 0 ? enemies : undefined });
+      } else {
+        commands.push({ action: 'start', name: startContent });
+      }
     }
   }
 

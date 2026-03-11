@@ -38,17 +38,50 @@ function createCharacterRoutes(deps) {
   /**
    * GET /api/characters
    * List all characters
+   * Supports optional pagination: ?page=1&limit=20
+   * - If no page param: returns flat array (backward compatible)
+   * - If page param present: returns { characters, total, page, limit, totalPages }
    */
   router.get('/', checkPassword, (req, res) => {
-    const cacheKey = 'characters:list';
+    const { page, limit } = req.query;
+
+    // If no page param, return all as flat array (backward compatible)
+    if (!page) {
+      const cacheKey = 'characters:list';
+      const cached = getCached(cacheKey);
+      if (cached) {
+        return res.json(cached);
+      }
+
+      const characters = db.prepare('SELECT * FROM characters ORDER BY created_at DESC').all();
+      setCache(cacheKey, characters);
+      return res.json(characters);
+    }
+
+    // Paginated response
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 20));
+    const offset = (pageNum - 1) * limitNum;
+
+    const cacheKey = `characters:page:${pageNum}:${limitNum}`;
     const cached = getCached(cacheKey);
     if (cached) {
       return res.json(cached);
     }
 
-    const characters = db.prepare('SELECT * FROM characters ORDER BY created_at DESC').all();
-    setCache(cacheKey, characters);
-    res.json(characters);
+    const total = db.prepare('SELECT COUNT(*) as count FROM characters').get().count;
+    const totalPages = Math.ceil(total / limitNum);
+    const characters = db.prepare('SELECT * FROM characters ORDER BY created_at DESC LIMIT ? OFFSET ?').all(limitNum, offset);
+
+    const result = {
+      characters,
+      total,
+      page: pageNum,
+      limit: limitNum,
+      totalPages
+    };
+    setCache(cacheKey, result);
+    res.json(result);
   });
 
   /**

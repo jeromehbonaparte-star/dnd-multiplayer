@@ -2807,3 +2807,149 @@ nav {
   margin-top: 10px;
   font-weight: 500;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   RESPONSIVE ENHANCEMENTS (2024)
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Sidebar drawer on tablets */
+@media (max-width: 1024px) {
+  .game-container {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+
+  .sidebar {
+    order: 2;
+    max-height: 400px;
+    overflow-y: auto;
+  }
+
+  .main-content {
+    order: 1;
+  }
+}
+
+/* Story container scroll constraint */
+#story-container {
+  max-height: calc(100vh - 200px);
+}
+
+/* Modal content scroll & max height */
+.modal-content {
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+/* Characters grid responsive */
+#characters-grid {
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+}
+
+/* Action input min touch targets */
+.action-input button,
+.action-input select,
+.action-input textarea {
+  min-height: 44px;
+}
+
+/* Mobile: close sidebar on tab click */
+@media (max-width: 768px) {
+  .nav-tabs .tab-btn {
+    min-height: 44px;
+  }
+
+  #story-container {
+    max-height: calc(100vh - 240px);
+  }
+
+  #characters-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   WEATHER CANVAS OVERLAY
+   ═══════════════════════════════════════════════════════════════ */
+
+#weather-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 2;
+  display: none;
+}
+
+#story-container {
+  position: relative;
+}
+
+.btn-weather {
+  background: transparent;
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  transition: all 0.2s ease;
+  min-width: 32px;
+  text-align: center;
+}
+
+.btn-weather:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.btn-weather.weather-active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-glow);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   VIRTUAL SCROLL SENTINEL
+   ═══════════════════════════════════════════════════════════════ */
+
+.scroll-sentinel {
+  height: 1px;
+  width: 100%;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   FOCUS STYLES (Keyboard Navigation)
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Visible focus ring for keyboard navigation */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Remove default outline for mouse users */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Tab buttons focus styling */
+.tab-btn:focus-visible,
+.quick-edit-tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+/* Modal close button as role=button */
+.modal-close[role="button"] {
+  cursor: pointer;
+}
+
+.modal-close[role="button"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 50%;
+}
