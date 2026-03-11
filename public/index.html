@@ -627,6 +627,63 @@
 
 
   <script src="/socket.io/socket.io.js"></script>
+  <script>
+    // Error diagnostics for module loading
+    window.addEventListener('error', function(e) {
+      console.error('[DnD] Global error:', e.message, e.filename, e.lineno);
+      var el = document.getElementById('login-error');
+      if (el) {
+        if (e.filename && e.filename.includes('/js/')) {
+          el.textContent = 'Module error: ' + e.message + ' (' + e.filename.split('/').pop() + ':' + e.lineno + ')';
+        } else if (e.message && e.message.indexOf('login') !== -1) {
+          el.textContent = 'App modules still loading... please wait and try again.';
+        }
+      }
+    });
+    window.addEventListener('unhandledrejection', function(e) {
+      console.error('[DnD] Unhandled rejection:', e.reason);
+    });
+
+    // Enter key on password input (works regardless of module loading)
+    document.addEventListener('DOMContentLoaded', function() {
+      var pwInput = document.getElementById('password-input');
+      if (pwInput) {
+        pwInput.addEventListener('keypress', function(e) {
+          if (e.key === 'Enter' && window.login) window.login();
+        });
+      }
+    });
+
+    // Fallback: if modules fail to load after 3s, provide a basic login
+    window._moduleLoaded = false;
+    setTimeout(function() {
+      if (!window._moduleLoaded && !window.login) {
+        console.warn('[DnD] ES modules did not load. Providing fallback login.');
+        var el = document.getElementById('login-error');
+        if (el) el.textContent = 'Module loading failed. Check console (F12) for details.';
+        window.login = function() {
+          var input = document.getElementById('password-input');
+          var errEl = document.getElementById('login-error');
+          if (!input || !input.value) { if (errEl) errEl.textContent = 'Please enter a password'; return; }
+          if (errEl) errEl.textContent = 'Logging in...';
+          fetch('/api/auth', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password: input.value })
+          }).then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+            .then(function(result) {
+              if (result.ok) {
+                sessionStorage.setItem('dnd-app-state', JSON.stringify({ password: input.value }));
+                location.reload();
+              } else {
+                if (errEl) errEl.textContent = result.data.error || 'Invalid password';
+              }
+            }).catch(function(err) { if (errEl) errEl.textContent = 'Connection error: ' + err.message; });
+        };
+      }
+    }, 3000);
+  </script>
   <script type="module" src="/js/main.js"></script>
+  <script type="module">window._moduleLoaded = true;</script>
 </body>
 </html>
