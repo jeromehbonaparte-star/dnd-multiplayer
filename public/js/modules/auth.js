@@ -49,13 +49,21 @@ export async function restoreSession() {
   if (savedState && savedState.password) {
     setState({ password: savedState.password });
 
+    // Step 1: Verify the saved password is still valid
     try {
       await api('/api/auth', 'POST', { password: savedState.password });
+    } catch (e) {
+      console.log('[DnD] Saved session expired, showing login');
+      sessionStorage.removeItem('dnd-app-state');
+      return false;
+    }
 
-      document.getElementById('login-screen').classList.remove('active');
-      document.getElementById('app-screen').classList.add('active');
+    // Step 2: Auth succeeded — transition to app screen
+    document.getElementById('login-screen').classList.remove('active');
+    document.getElementById('app-screen').classList.add('active');
 
-      // Dynamic imports to avoid circular dependencies at module load time
+    // Step 3: Initialize app (errors here shouldn't send user back to login)
+    try {
       const { initSocket } = await import('../socket.js');
       const { loadInitialData, setupTabNavigation } = await import('../main.js');
       const { loadSession } = await import('./sessions.js');
@@ -74,7 +82,9 @@ export async function restoreSession() {
 
       // Restore current session
       if (savedState.currentSessionId) {
-        await loadSession(savedState.currentSessionId);
+        await loadSession(savedState.currentSessionId).catch(e => {
+          console.warn('[DnD] Could not restore session:', e.message);
+        });
       }
 
       // Restore auto-reply selections
@@ -82,7 +92,7 @@ export async function restoreSession() {
         const autoReplySelect = document.getElementById('autoreply-session-select');
         if (autoReplySelect) {
           autoReplySelect.value = savedState.autoReplySessionId;
-          await loadAutoReplyCharacters();
+          await loadAutoReplyCharacters().catch(() => {});
           if (savedState.autoReplyCharacterId) {
             const charSelect = document.getElementById('autoreply-character-select');
             if (charSelect) charSelect.value = savedState.autoReplyCharacterId;
@@ -108,12 +118,12 @@ export async function restoreSession() {
           .join('');
         scrollChatToBottom();
       }
-
-      return true;
     } catch (e) {
-      sessionStorage.removeItem('dnd-app-state');
-      return false;
+      console.error('[DnD] Restore session data loading error:', e);
+      // Auth worked, so stay on app screen — don't send back to login
     }
+
+    return true;
   }
   return false;
 }
@@ -124,13 +134,22 @@ export async function restoreSession() {
 
 export async function login() {
   const input = document.getElementById('password-input');
+  const errorEl = document.getElementById('login-error');
   setState({ password: input.value });
 
   try {
     await api('/api/auth', 'POST', { password: input.value });
-    document.getElementById('login-screen').classList.remove('active');
-    document.getElementById('app-screen').classList.add('active');
+  } catch (error) {
+    console.error('[DnD] Auth failed:', error);
+    if (errorEl) errorEl.textContent = 'Invalid password';
+    return;
+  }
 
+  // Auth succeeded — transition to app
+  document.getElementById('login-screen').classList.remove('active');
+  document.getElementById('app-screen').classList.add('active');
+
+  try {
     const { initSocket } = await import('../socket.js');
     const { loadInitialData } = await import('../main.js');
 
@@ -138,7 +157,8 @@ export async function login() {
     await loadInitialData();
     saveAppState();
   } catch (error) {
-    document.getElementById('login-error').textContent = 'Invalid password';
+    console.error('[DnD] Post-login init failed:', error);
+    // Don't send user back to login — auth worked, just data loading had an issue
   }
 }
 
