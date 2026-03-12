@@ -21,7 +21,8 @@ import {
   selectScenario, toggleCharacterSelection,
   submitAction, forceProcessTurn, rerollLastResponse, deleteStoryMessage,
   cancelAction, updateActionFormState,
-  recalculateXP, recalculateLoot, recalculateInventory, recalculateACSpells
+  recalculateXP, recalculateLoot, recalculateInventory, recalculateACSpells,
+  rollActionDice, getCurrentDiceRoll
 } from './modules/sessions.js';
 import { loadCombat, renderCombatTracker } from './modules/combat.js';
 import {
@@ -93,6 +94,7 @@ window.recalculateXP = recalculateXP;
 window.recalculateLoot = recalculateLoot;
 window.recalculateInventory = recalculateInventory;
 window.recalculateACSpells = recalculateACSpells;
+window.rollActionDice = rollActionDice;
 
 // Settings
 window.saveSettings = saveSettings;

@@ -7,17 +7,29 @@
   <!-- Google Fonts: Medieval/RPG Typography -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=Crimson+Pro:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400;1,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700;900&family=Cinzel+Decorative:wght@400;700;900&family=Crimson+Pro:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400;1,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
   <!-- Login Screen -->
   <div id="login-screen" class="screen active">
+    <!-- Floating embers -->
+    <div class="embers-container" aria-hidden="true">
+      <div class="ember"></div><div class="ember"></div><div class="ember"></div>
+      <div class="ember"></div><div class="ember"></div><div class="ember"></div>
+      <div class="ember"></div><div class="ember"></div>
+    </div>
     <div class="login-box">
+      <div class="login-sigil" aria-hidden="true">
+        <svg viewBox="0 0 100 100" width="60" height="60">
+          <polygon points="50,5 61,35 95,35 68,57 79,90 50,70 21,90 32,57 5,35 39,35" fill="none" stroke="currentColor" stroke-width="2"/>
+          <circle cx="50" cy="50" r="20" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.6"/>
+        </svg>
+      </div>
       <h1>D&D Multiplayer</h1>
       <p>Enter the game password to continue</p>
       <input type="password" id="password-input" placeholder="Password">
-      <button onclick="login()">Enter</button>
+      <button onclick="login()">Enter the Realm</button>
       <p id="login-error" class="error"></p>
     </div>
   </div>
@@ -87,7 +99,32 @@
               <option value="">Select your character</option>
             </select>
             <textarea id="action-text" placeholder="Describe your action..." aria-label="Describe your character's action"></textarea>
-            <button onclick="submitAction()">Submit Action</button>
+            <div class="dice-roller" id="dice-roller">
+              <select id="dice-stat-select" class="dice-stat-select" title="Stat modifier for this roll">
+                <option value="none">No mod</option>
+                <option value="strength">STR</option>
+                <option value="dexterity">DEX</option>
+                <option value="constitution">CON</option>
+                <option value="intelligence">INT</option>
+                <option value="wisdom">WIS</option>
+                <option value="charisma">CHA</option>
+              </select>
+              <button class="dice-roll-btn" id="dice-roll-btn" onclick="rollActionDice()" title="Roll d20 before submitting">
+                <div class="dice-face" id="dice-face">
+                  <svg viewBox="0 0 100 100" width="28" height="28" class="d20-icon">
+                    <polygon points="50,2 93,27 93,73 50,98 7,73 7,27" fill="none" stroke="currentColor" stroke-width="4"/>
+                    <text x="50" y="58" text-anchor="middle" font-size="28" font-weight="bold" fill="currentColor" font-family="Cinzel, serif">?</text>
+                  </svg>
+                </div>
+              </button>
+              <div class="dice-result-display" id="dice-result-display">
+                <span class="dice-label">d20</span>
+                <span class="dice-value" id="dice-value">--</span>
+                <span class="dice-mod" id="dice-mod"></span>
+                <span class="dice-total" id="dice-total"></span>
+              </div>
+            </div>
+            <button onclick="submitAction()" id="submit-action-btn">Submit Action</button>
           </div>
 
           <div class="game-info">

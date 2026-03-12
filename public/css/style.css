@@ -14,6 +14,7 @@
    ═══════════════════════════════════════════════════════════════ */
 
 :root {
+  --font-display-decorative: 'Cinzel Decorative', 'Cinzel', Georgia, serif;
   --font-display: 'Cinzel', Georgia, serif;
   --font-body: 'Crimson Pro', Georgia, serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
@@ -513,6 +514,7 @@ nav {
   border: 1px solid var(--border-color);
   border-radius: 8px;
   animation: fadeSlideUp 0.4s ease;
+  position: relative;
   /* Multi-layer dramatic shadow */
   box-shadow:
     0 2px 4px rgba(0, 0, 0, 0.1),
@@ -2952,4 +2954,509 @@ nav {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-radius: 50%;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ATMOSPHERIC ENHANCEMENTS
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Ambient background animation */
+@keyframes ambient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+body {
+  background: linear-gradient(270deg, #0d0d14, #1a1a2e, #14101e, #0d0d14);
+  background-size: 400% 400%;
+  animation: ambient-shift 45s ease infinite;
+}
+
+[data-theme="light"] body,
+body[data-theme="light"] {
+  animation: none;
+}
+
+/* Login screen atmospheric overlay */
+#login-screen {
+  position: relative;
+  overflow: hidden;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(ellipse at 20% 50%, rgba(201, 162, 39, 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 50%, rgba(139, 41, 66, 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 100%, rgba(123, 104, 201, 0.06) 0%, transparent 40%);
+}
+
+#login-screen.active {
+  display: flex;
+}
+
+/* Login sigil decoration */
+.login-sigil {
+  color: var(--accent);
+  margin-bottom: 16px;
+  opacity: 0.7;
+  animation: sigil-pulse 4s ease-in-out infinite;
+}
+
+@keyframes sigil-pulse {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50% { opacity: 0.9; transform: scale(1.05); }
+}
+
+/* Enhanced login box */
+.login-box h1 {
+  font-family: var(--font-display-decorative);
+  font-size: var(--step-3);
+  letter-spacing: 0.06em;
+}
+
+/* Floating embers */
+.embers-container {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.ember {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  background: var(--accent);
+  border-radius: 50%;
+  opacity: 0;
+  animation: ember-float linear infinite;
+  box-shadow: 0 0 6px 2px rgba(201, 162, 39, 0.4);
+}
+
+.ember:nth-child(1) { left: 10%; animation-duration: 8s; animation-delay: 0s; }
+.ember:nth-child(2) { left: 25%; animation-duration: 10s; animation-delay: 1.5s; }
+.ember:nth-child(3) { left: 40%; animation-duration: 7s; animation-delay: 3s; }
+.ember:nth-child(4) { left: 55%; animation-duration: 9s; animation-delay: 0.5s; }
+.ember:nth-child(5) { left: 70%; animation-duration: 11s; animation-delay: 2s; }
+.ember:nth-child(6) { left: 85%; animation-duration: 8.5s; animation-delay: 4s; }
+.ember:nth-child(7) { left: 15%; animation-duration: 12s; animation-delay: 1s; }
+.ember:nth-child(8) { left: 60%; animation-duration: 9.5s; animation-delay: 3.5s; }
+
+@keyframes ember-float {
+  0% {
+    transform: translateY(100vh) scale(0);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.8;
+    transform: translateY(90vh) scale(1);
+  }
+  50% {
+    opacity: 0.6;
+  }
+  90% {
+    opacity: 0.2;
+  }
+  100% {
+    transform: translateY(-10vh) translateX(30px) scale(0.3);
+    opacity: 0;
+  }
+}
+
+/* Enhanced nav brand */
+.nav-brand {
+  font-family: var(--font-display-decorative);
+  background: linear-gradient(135deg, var(--accent) 0%, #e4bc3d 50%, var(--accent) 100%);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: shimmer-text 4s linear infinite;
+}
+
+@keyframes shimmer-text {
+  0% { background-position: 0% center; }
+  100% { background-position: 200% center; }
+}
+
+/* Nav ornate border */
+nav {
+  border-bottom: 2px solid var(--border-color);
+  border-image: linear-gradient(
+    to right,
+    transparent 0%,
+    var(--accent) 20%,
+    var(--accent) 50%,
+    var(--accent) 80%,
+    transparent 100%
+  ) 1;
+}
+
+/* Story container vignette effect */
+#story-container::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background:
+    radial-gradient(ellipse at center, transparent 60%, rgba(13, 13, 20, 0.4) 100%);
+}
+
+/* Enhanced DM narration */
+.story-entry.assistant,
+.story-entry.narration {
+  position: relative;
+}
+
+.story-entry.assistant::before,
+.story-entry.narration::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent,
+    var(--accent) 20%,
+    var(--accent) 80%,
+    transparent
+  );
+  opacity: 0.4;
+}
+
+/* Sidebar ornate section headers */
+.sidebar h3 {
+  position: relative;
+}
+
+.sidebar h3::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    var(--accent),
+    var(--accent) 30%,
+    transparent
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DICE ROLLER
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Stat selector dropdown */
+.dice-stat-select {
+  padding: 4px 6px;
+  font-size: 11px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  background: var(--bg-dark);
+  color: var(--text-muted);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: center;
+  width: 72px;
+  transition: all 0.2s;
+}
+
+.dice-stat-select:hover,
+.dice-stat-select:focus {
+  border-color: var(--accent);
+  color: var(--accent);
+  outline: none;
+}
+
+.dice-roller {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.dice-roll-btn {
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
+  border: 2px solid var(--border-color);
+  background: var(--bg-dark);
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.dice-roll-btn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at center, var(--accent-glow), transparent 70%);
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.dice-roll-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: 0 4px 16px var(--accent-glow);
+}
+
+.dice-roll-btn:hover::before {
+  opacity: 1;
+}
+
+.dice-roll-btn:active {
+  transform: translateY(0) scale(0.95);
+}
+
+.dice-face {
+  position: relative;
+  z-index: 1;
+  transition: transform 0.1s;
+}
+
+/* Rolling animation */
+@keyframes dice-tumble {
+  0% { transform: rotateZ(0deg) scale(1); }
+  20% { transform: rotateZ(72deg) scale(1.2); }
+  40% { transform: rotateZ(144deg) scale(0.9); }
+  60% { transform: rotateZ(216deg) scale(1.1); }
+  80% { transform: rotateZ(288deg) scale(0.95); }
+  100% { transform: rotateZ(360deg) scale(1); }
+}
+
+.dice-roll-btn.rolling .dice-face {
+  animation: dice-tumble 0.6s cubic-bezier(0.25, 0.1, 0.25, 1);
+}
+
+/* Result display */
+.dice-result-display {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  min-width: 52px;
+  justify-content: center;
+}
+
+.dice-label {
+  opacity: 0.6;
+}
+
+.dice-value {
+  font-weight: 700;
+  color: var(--text-muted);
+  transition: all 0.3s;
+}
+
+.dice-mod {
+  font-size: 10px;
+  color: var(--text-muted);
+  opacity: 0.8;
+}
+
+.dice-total {
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--accent);
+}
+
+/* Dice rolled states */
+.dice-roller.rolled .dice-roll-btn {
+  border-color: var(--accent);
+  background: linear-gradient(135deg, var(--bg-dark), var(--bg-light));
+}
+
+.dice-roller.rolled .dice-value {
+  color: var(--accent);
+  font-size: 13px;
+}
+
+/* Natural 20 */
+.dice-roller.nat20 .dice-roll-btn {
+  border-color: #ffd700;
+  box-shadow: 0 0 20px rgba(255, 215, 0, 0.5), 0 0 40px rgba(255, 215, 0, 0.2);
+  animation: nat20-glow 1.5s ease-in-out infinite;
+}
+
+.dice-roller.nat20 .dice-value {
+  color: #ffd700;
+  text-shadow: 0 0 8px rgba(255, 215, 0, 0.6);
+}
+
+@keyframes nat20-glow {
+  0%, 100% { box-shadow: 0 0 10px rgba(255, 215, 0, 0.3), 0 0 20px rgba(255, 215, 0, 0.1); }
+  50% { box-shadow: 0 0 20px rgba(255, 215, 0, 0.6), 0 0 40px rgba(255, 215, 0, 0.3); }
+}
+
+/* Natural 1 */
+.dice-roller.nat1 .dice-roll-btn {
+  border-color: var(--danger);
+  box-shadow: 0 0 15px rgba(139, 41, 66, 0.5);
+  animation: nat1-pulse 1s ease-in-out infinite;
+}
+
+.dice-roller.nat1 .dice-value {
+  color: var(--danger);
+}
+
+@keyframes nat1-pulse {
+  0%, 100% { box-shadow: 0 0 10px rgba(139, 41, 66, 0.3); }
+  50% { box-shadow: 0 0 20px rgba(139, 41, 66, 0.6); }
+}
+
+/* Must-roll indicator */
+.dice-roller.must-roll .dice-roll-btn {
+  animation: must-roll-bounce 2s ease-in-out infinite;
+  border-color: var(--warning);
+}
+
+@keyframes must-roll-bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+/* Result pop animation */
+@keyframes result-pop {
+  0% { transform: scale(1.8); opacity: 0.5; }
+  50% { transform: scale(0.9); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.dice-value.pop {
+  animation: result-pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Submit button states */
+#submit-action-btn {
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+#submit-action-btn.needs-roll {
+  opacity: 0.5;
+  cursor: not-allowed;
+  position: relative;
+}
+
+/* Mobile dice roller */
+@media (max-width: 768px) {
+  .dice-roller {
+    flex-direction: row;
+    gap: 8px;
+  }
+
+  .dice-roll-btn {
+    width: 44px;
+    height: 44px;
+  }
+
+  .action-input {
+    flex-wrap: wrap;
+  }
+
+  .dice-roller {
+    order: 3;
+    width: auto;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ENHANCED SECTION DIVIDERS
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Ornate divider between story entries */
+.story-entry + .story-entry::after {
+  content: '';
+  display: block;
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 40%;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent,
+    var(--border-color) 30%,
+    var(--accent) 50%,
+    var(--border-color) 70%,
+    transparent
+  );
+  opacity: 0.5;
+}
+
+/* Settings section ornate headers */
+.settings-container h2 {
+  position: relative;
+}
+
+.settings-container h2::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: linear-gradient(
+    to right,
+    var(--accent),
+    var(--accent) 20%,
+    var(--border-color) 50%,
+    transparent
+  );
+}
+
+/* Character card hover glow enhancement */
+.character-card:hover {
+  box-shadow:
+    0 4px 8px rgba(0, 0, 0, 0.1),
+    0 8px 16px rgba(0, 0, 0, 0.15),
+    0 16px 32px rgba(0, 0, 0, 0.15),
+    0 0 30px var(--shadow-glow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+/* Enhanced modal backdrop */
+.modal {
+  background: rgba(0, 0, 0, 0.8);
+}
+
+.modal.active::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 30% 20%, rgba(201, 162, 39, 0.05) 0%, transparent 50%),
+    radial-gradient(ellipse at 70% 80%, rgba(123, 104, 201, 0.05) 0%, transparent 50%);
+  pointer-events: none;
+}
+
+/* Game info bar enhancement */
+.game-info {
+  border-top: 1px solid var(--border-color);
+  border-image: linear-gradient(
+    to right,
+    transparent,
+    var(--border-color) 20%,
+    var(--accent) 50%,
+    var(--border-color) 80%,
+    transparent
+  ) 1;
 }

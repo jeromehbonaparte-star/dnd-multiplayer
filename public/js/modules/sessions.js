@@ -578,6 +578,171 @@ export async function cancelAction(characterId) {
 }
 
 // ============================================
+// Dice Roller for Actions
+// ============================================
+
+let _currentDiceRoll = null; // { value, modifier, modValue, stat, total, timestamp }
+
+const STAT_LABELS = {
+  strength: 'STR', dexterity: 'DEX', constitution: 'CON',
+  intelligence: 'INT', wisdom: 'WIS', charisma: 'CHA'
+};
+
+/**
+ * Calculate D&D ability modifier from a stat score.
+ * @param {number} score - Ability score (e.g. 16)
+ * @returns {number} Modifier (e.g. +3)
+ */
+function calcModifier(score) {
+  return Math.floor((score - 10) / 2);
+}
+
+/**
+ * Get the selected character's stat value for the chosen stat.
+ * Returns { modifier, statName, score } or null.
+ */
+function getSelectedStatInfo() {
+  const statSelect = document.getElementById('dice-stat-select');
+  const charSelect = document.getElementById('action-character');
+  if (!statSelect || !charSelect) return null;
+
+  const stat = statSelect.value;
+  if (stat === 'none') return null;
+
+  const characterId = charSelect.value;
+  if (!characterId) return null;
+
+  // Look up the character from session characters or all characters
+  const sessionChars = getState('sessionCharacters');
+  const allChars = getState('characters');
+  const char = sessionChars.find(c => c.id === characterId) || allChars.find(c => c.id === characterId);
+  if (!char) return null;
+
+  const score = char[stat];
+  if (score === undefined || score === null) return null;
+
+  return {
+    modifier: calcModifier(score),
+    statName: STAT_LABELS[stat] || stat.toUpperCase(),
+    stat,
+    score
+  };
+}
+
+/**
+ * Roll a d20 for action submission.
+ * Must be called before submitting an action.
+ */
+export function rollActionDice() {
+  const roller = document.getElementById('dice-roller');
+  const btn = document.getElementById('dice-roll-btn');
+  const valueEl = document.getElementById('dice-value');
+  const modEl = document.getElementById('dice-mod');
+  const totalEl = document.getElementById('dice-total');
+  const diceText = btn?.querySelector('.d20-icon text');
+  const submitBtn = document.getElementById('submit-action-btn');
+
+  if (!roller || !btn || !valueEl) return;
+
+  // Trigger rolling animation
+  btn.classList.add('rolling');
+  roller.classList.remove('rolled', 'nat20', 'nat1', 'must-roll');
+
+  // Quick visual number cycling during animation
+  const cycleInterval = setInterval(() => {
+    const fakeNum = Math.floor(Math.random() * 20) + 1;
+    valueEl.textContent = fakeNum;
+    if (diceText) diceText.textContent = fakeNum;
+  }, 60);
+
+  // Resolve after animation
+  setTimeout(() => {
+    clearInterval(cycleInterval);
+    btn.classList.remove('rolling');
+
+    const rawRoll = Math.floor(Math.random() * 20) + 1;
+    const statInfo = getSelectedStatInfo();
+
+    const mod = statInfo ? statInfo.modifier : 0;
+    const total = rawRoll + mod;
+
+    _currentDiceRoll = {
+      value: rawRoll,
+      modifier: mod,
+      modValue: mod,
+      stat: statInfo ? statInfo.statName : null,
+      score: statInfo ? statInfo.score : null,
+      total,
+      timestamp: Date.now()
+    };
+
+    // Update display
+    valueEl.textContent = rawRoll;
+    valueEl.classList.add('pop');
+    if (diceText) diceText.textContent = rawRoll;
+
+    if (modEl) {
+      if (statInfo) {
+        const sign = mod >= 0 ? '+' : '';
+        modEl.textContent = `${sign}${mod} ${statInfo.statName}`;
+      } else {
+        modEl.textContent = '';
+      }
+    }
+    if (totalEl) {
+      if (statInfo) {
+        totalEl.textContent = `= ${total}`;
+      } else {
+        totalEl.textContent = '';
+      }
+    }
+
+    roller.classList.add('rolled');
+
+    // Special states (based on raw d20, not total)
+    if (rawRoll === 20) {
+      roller.classList.add('nat20');
+      const msg = statInfo ? `Natural 20! (${total} with ${statInfo.statName})` : 'Natural 20! Critical success!';
+      showNotification(msg);
+    } else if (rawRoll === 1) {
+      roller.classList.add('nat1');
+      showNotification('Natural 1... Critical failure!');
+    } else if (statInfo) {
+      showNotification(`Rolled ${rawRoll} ${mod >= 0 ? '+' : ''}${mod} (${statInfo.statName}) = ${total}`);
+    }
+
+    if (submitBtn) submitBtn.classList.remove('needs-roll');
+
+    setTimeout(() => valueEl.classList.remove('pop'), 400);
+  }, 600);
+}
+
+/**
+ * Reset the dice roller state (after action submission).
+ */
+function resetDiceRoll() {
+  _currentDiceRoll = null;
+  const roller = document.getElementById('dice-roller');
+  const valueEl = document.getElementById('dice-value');
+  const modEl = document.getElementById('dice-mod');
+  const totalEl = document.getElementById('dice-total');
+  const diceText = document.querySelector('#dice-roll-btn .d20-icon text');
+
+  if (roller) roller.classList.remove('rolled', 'nat20', 'nat1');
+  if (valueEl) valueEl.textContent = '--';
+  if (modEl) modEl.textContent = '';
+  if (totalEl) totalEl.textContent = '';
+  if (diceText) diceText.textContent = '?';
+}
+
+/**
+ * Get the current dice roll result, or null if not rolled.
+ */
+export function getCurrentDiceRoll() {
+  return _currentDiceRoll;
+}
+
+// ============================================
 // Slash Commands
 // ============================================
 
@@ -690,9 +855,31 @@ export async function submitAction() {
     return;
   }
 
-  actionTextarea.value = '';
+  // Enforce dice roll before submission
+  if (!_currentDiceRoll) {
+    showNotification('Roll the d20 before submitting your action!');
+    const roller = document.getElementById('dice-roller');
+    const submitBtn = document.getElementById('submit-action-btn');
+    if (roller) roller.classList.add('must-roll');
+    if (submitBtn) submitBtn.classList.add('needs-roll');
+    return;
+  }
 
-  const submitBtn = document.querySelector('.action-input button[onclick*="submitAction"]');
+  // Build action text with dice roll + stat modifier included
+  const roll = _currentDiceRoll;
+  let rollTag;
+  if (roll.stat) {
+    const sign = roll.modifier >= 0 ? '+' : '';
+    rollTag = `[DICE ROLL: d20 = ${roll.value} ${sign}${roll.modifier} ${roll.stat} (score ${roll.score}) = ${roll.total}]`;
+  } else {
+    rollTag = `[DICE ROLL: d20 = ${roll.value}]`;
+  }
+  const actionWithRoll = `${action}\n${rollTag}`;
+
+  actionTextarea.value = '';
+  resetDiceRoll();
+
+  const submitBtn = document.getElementById('submit-action-btn');
   if (submitBtn) {
     submitBtn.disabled = true;
     submitBtn.textContent = 'Submitting...';
@@ -701,14 +888,17 @@ export async function submitAction() {
   try {
     const result = await api(`/api/sessions/${currentSession.id}/action`, 'POST', {
       character_id: characterId,
-      action: action
+      action: actionWithRoll
     });
 
     if (result.processed) {
       loadSession(currentSession.id);
     }
 
-    showNotification('Action submitted!');
+    const notifText = roll.stat
+      ? `Action submitted! (d20: ${roll.value} ${roll.modifier >= 0 ? '+' : ''}${roll.modifier} ${roll.stat} = ${roll.total})`
+      : `Action submitted! (rolled ${roll.value})`;
+    showNotification(notifText);
   } catch (error) {
     console.error('Failed to submit action:', error);
     actionTextarea.value = action;
@@ -726,7 +916,7 @@ export async function submitAction() {
 
 export function updateActionFormState() {
   const isTurnProcessing = getState('isTurnProcessing');
-  const submitBtn = document.querySelector('.action-input button[onclick*="submitAction"]');
+  const submitBtn = document.getElementById('submit-action-btn') || document.querySelector('.action-input button[onclick*="submitAction"]');
   const actionTextarea = document.getElementById('action-text');
 
   if (submitBtn) {
