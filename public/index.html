@@ -666,8 +666,10 @@
   <script src="/socket.io/socket.io.js"></script>
   <script>
     // Error diagnostics for module loading
+    window._moduleErrors = [];
     window.addEventListener('error', function(e) {
       console.error('[DnD] Global error:', e.message, e.filename, e.lineno);
+      window._moduleErrors.push(e.message + (e.filename ? ' (' + e.filename.split('/').pop() + ':' + e.lineno + ')' : ''));
       var el = document.getElementById('login-error');
       if (el) {
         if (e.filename && e.filename.includes('/js/')) {
@@ -679,6 +681,7 @@
     });
     window.addEventListener('unhandledrejection', function(e) {
       console.error('[DnD] Unhandled rejection:', e.reason);
+      window._moduleErrors.push('Rejection: ' + (e.reason && e.reason.message || e.reason));
     });
 
     // Enter key on password input (works regardless of module loading)
@@ -691,13 +694,20 @@
       }
     });
 
-    // Fallback: if modules fail to load after 3s, provide a basic login
+    // Fallback: if modules fail to load after 8s, provide a basic login
     window._moduleLoaded = false;
     setTimeout(function() {
       if (!window._moduleLoaded && !window.login) {
-        console.warn('[DnD] ES modules did not load. Providing fallback login.');
+        console.warn('[DnD] ES modules did not load after 8s. Providing fallback login.');
+        console.warn('[DnD] Captured errors:', window._moduleErrors);
         var el = document.getElementById('login-error');
-        if (el) el.textContent = 'Module loading failed. Check console (F12) for details.';
+        if (el) {
+          if (window._moduleErrors.length > 0) {
+            el.textContent = 'Module error: ' + window._moduleErrors[0];
+          } else {
+            el.textContent = 'Modules loading slowly... using fallback login. Try hard-refreshing (Ctrl+Shift+R).';
+          }
+        }
         window.login = function() {
           var input = document.getElementById('password-input');
           var errEl = document.getElementById('login-error');
