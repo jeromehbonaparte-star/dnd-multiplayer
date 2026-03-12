@@ -37,11 +37,33 @@ const io = new Server(server);
 // Track sessions currently being processed by AI (prevents race conditions)
 const processingSessions = new Set();
 
-// Rate limiting removed — EasyPanel basic auth handles access control
-
 // ============================================
 // Middleware
 // ============================================
+
+// HTTP Basic Auth — credentials from BASIC_AUTH_USER / BASIC_AUTH_PASS env vars
+const basicUser = process.env.BASIC_AUTH_USER;
+const basicPass = process.env.BASIC_AUTH_PASS;
+if (basicUser && basicPass) {
+  app.use((req, res, next) => {
+    // Skip auth for socket.io polling
+    if (req.path.startsWith('/socket.io')) return next();
+
+    const header = req.headers.authorization;
+    if (header) {
+      const [scheme, encoded] = header.split(' ');
+      if (scheme === 'Basic' && encoded) {
+        const [user, pass] = Buffer.from(encoded, 'base64').toString().split(':');
+        if (user === basicUser && pass === basicPass) return next();
+      }
+    }
+    res.setHeader('WWW-Authenticate', 'Basic realm="D&D Multiplayer"');
+    res.status(401).send('Authentication required');
+  });
+} else {
+  logger.warn('BASIC_AUTH_USER / BASIC_AUTH_PASS not set — no login required!');
+}
+
 app.use(express.json({ limit: '1mb' }));
 app.use(securityHeaders);
 const allowedOrigins = process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',') : [];
