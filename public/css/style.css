@@ -3182,6 +3182,10 @@ nav {
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
+  padding: 6px 10px;
+  border: 1px dashed var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-dark);
 }
 
 .dice-roll-btn {

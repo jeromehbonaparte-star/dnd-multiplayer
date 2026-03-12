@@ -804,12 +804,26 @@ function handleSlashCommand(text, characterId) {
     }
 
     case '/rest': {
-      // Submit a standard rest action through the normal flow
-      const actionTextarea = document.getElementById('action-text');
-      if (actionTextarea) {
-        actionTextarea.value = 'I take a long rest, settling down to recover my strength and tend to any wounds.';
+      // Submit rest action directly — no dice roll needed for resting
+      if (!characterId) {
+        showNotification('Select a character first');
+        return true;
       }
-      return false; // Let it continue to submit as a normal action
+      const currentSession = getState('currentSession');
+      if (!currentSession) { alert('Please select a session first'); return true; }
+      const restAction = 'I take a long rest, settling down to recover my strength and tend to any wounds.';
+      api(`/api/sessions/${currentSession.id}/action`, 'POST', {
+        character_id: characterId,
+        action: restAction
+      }).then(result => {
+        if (result.processed) loadSession(currentSession.id);
+        showNotification('Rest action submitted!');
+      }).catch(err => {
+        alert('Failed to submit rest: ' + err.message);
+      });
+      const actionTextarea = document.getElementById('action-text');
+      if (actionTextarea) actionTextarea.value = '';
+      return true;
     }
 
     case '/inventory':

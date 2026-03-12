@@ -85,12 +85,12 @@ function parseXPAwards(text, characters) {
  */
 function parseMoneyChanges(text, characters) {
   const changes = [];
-  const moneyMatches = text.match(/\[MONEY:\s*([^\]]+)\]/gi);
+  const moneyMatches = text.match(/\[(MONEY|GOLD):\s*([^\]]+)\]/gi);
 
   if (!moneyMatches) return changes;
 
   for (const match of moneyMatches) {
-    const moneyAwards = match.replace(/\[MONEY:\s*/i, '').replace(']', '').split(',');
+    const moneyAwards = match.replace(/\[(MONEY|GOLD):\s*/i, '').replace(']', '').split(',');
     for (const award of moneyAwards) {
       const moneyMatch = award.trim().match(/^(.+?)\s*([+-])\s*(\d+)$/);
       if (moneyMatch) {

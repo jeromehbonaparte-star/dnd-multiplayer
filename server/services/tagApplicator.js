@@ -183,6 +183,27 @@ function applyAllTags(deps, aiResponse, characters, sessionId) {
           const isAdding = spellMatch[2] === '+';
           const slotLevel = spellMatch[3].trim().toLowerCase();
 
+          // Handle "Party" as a special case — restore all characters' spell slots
+          if (charName.toLowerCase() === 'party' && slotLevel === 'rest') {
+            for (const partyChar of characters) {
+              let spellSlots = {};
+              try {
+                spellSlots = JSON.parse(partyChar.spell_slots || '{}');
+              } catch (e) {
+                spellSlots = {};
+              }
+              for (const level in spellSlots) {
+                if (spellSlots[level].max) {
+                  spellSlots[level].current = spellSlots[level].max;
+                }
+              }
+              db.prepare('UPDATE characters SET spell_slots = ? WHERE id = ?').run(JSON.stringify(spellSlots), partyChar.id);
+              io.emit('character_updated', { ...partyChar, spell_slots: JSON.stringify(spellSlots) });
+            }
+            summary.spellSlots.push({ character: 'Party', action: 'rest' });
+            continue;
+          }
+
           const char = findCharacterByName(characters, charName);
           if (char) {
             let spellSlots = {};
