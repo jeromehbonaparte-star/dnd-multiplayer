@@ -3,7 +3,6 @@
 // ============================================
 
 const state = {
-  password: '',
   adminPassword: '',
   isAdminAuthenticated: false,
   currentSession: null,

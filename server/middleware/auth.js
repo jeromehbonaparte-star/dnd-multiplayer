@@ -12,15 +12,10 @@ const bcrypt = require('bcryptjs');
  */
 function createAuthMiddleware(db) {
   /**
-   * Check game password
+   * Game password check — now a passthrough since EasyPanel basic auth
+   * protects the entire service at the Traefik level.
    */
   const checkPassword = (req, res, next) => {
-    const password = req.headers['x-game-password'];
-    const storedHash = db.prepare('SELECT value FROM settings WHERE key = ?').get('game_password');
-
-    if (!storedHash || !bcrypt.compareSync(password || '', storedHash.value)) {
-      return res.status(401).json({ error: 'Invalid password' });
-    }
     next();
   };
 

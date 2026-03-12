@@ -3,7 +3,7 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
-const rateLimit = require('express-rate-limit');
+// Rate limiting removed — EasyPanel basic auth handles access control
 
 // Import modular utilities
 const logger = require('./lib/logger');
@@ -37,26 +37,7 @@ const io = new Server(server);
 // Track sessions currently being processed by AI (prevents race conditions)
 const processingSessions = new Set();
 
-// ============================================
-// Rate Limiting
-// ============================================
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  message: { error: 'Too many login attempts, please try again after 15 minutes' },
-  standardHeaders: true,
-  legacyHeaders: false,
-  validate: false,
-});
-
-const apiLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000,
-  max: 100,
-  message: { error: 'Too many requests, please slow down' },
-  standardHeaders: true,
-  legacyHeaders: false,
-  validate: false,
-});
+// Rate limiting removed — EasyPanel basic auth handles access control
 
 // ============================================
 // Middleware
@@ -120,10 +101,8 @@ function getOpenAIApiKey() {
 // ============================================
 // Routes
 // ============================================
-app.use('/api/', apiLimiter);
-
 const routes = initializeRoutes({
-  db, io, auth, authLimiter, aiService,
+  db, io, auth, authLimiter: null, aiService,
   processingSessions,
   getActiveApiConfig,
   processAITurn,

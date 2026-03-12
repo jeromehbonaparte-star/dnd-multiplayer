@@ -6,7 +6,7 @@ import { getState, setState } from './state.js';
 import { initSocket } from './socket.js';
 
 // Modules
-import { login, showLogin, restoreSession, saveAppState, submitAdminLogin, closeAdminModal, promptAdminLogin } from './modules/auth.js';
+import { restoreSession, saveAppState, submitAdminLogin, closeAdminModal, promptAdminLogin } from './modules/auth.js';
 import {
   loadCharacters, renderCharactersList, updateCharacterSelect, updatePartyList,
   deleteCharacter, resetXP, resetLevel,
@@ -54,8 +54,7 @@ import { initWeather, cycleWeather, setWeather } from './modules/weather.js';
 // Expose functions to window for onclick handlers in HTML
 // ============================================
 
-// Auth
-window.login = login;
+// Auth (admin only — game auth handled by EasyPanel basic auth)
 window.submitAdminLogin = submitAdminLogin;
 window.closeAdminModal = closeAdminModal;
 
@@ -259,14 +258,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // Enter key on password input
-  const passwordInput = document.getElementById('password-input');
-  if (passwordInput) {
-    passwordInput.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') login();
-    });
-  }
-
   // Enter key on admin password input
   const adminInput = document.getElementById('admin-password-input');
   if (adminInput) {
@@ -310,26 +301,29 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Save state before page unloads or becomes hidden
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden' && getState('password')) {
+    if (document.visibilityState === 'hidden') {
       saveAppState();
     }
   });
 
   window.addEventListener('beforeunload', () => {
-    if (getState('password')) {
-      saveAppState();
-    }
+    saveAppState();
   });
 });
 
 // ============================================
-// Auto-restore session
+// Initialize app
 // ============================================
 
 (async function init() {
+  // Show app screen immediately (auth handled by EasyPanel basic auth)
+  document.getElementById('app-screen').classList.add('active');
+
   const restored = await restoreSession();
   if (!restored) {
-    document.getElementById('login-screen').classList.add('active');
+    // First visit — initialize socket and load data
+    initSocket();
+    await loadInitialData();
   }
 })();
 

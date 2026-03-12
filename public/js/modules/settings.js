@@ -40,16 +40,12 @@ export async function loadSettings() {
 
 export async function saveSettings() {
   const settings = {
-    max_tokens_before_compact: document.getElementById('max-tokens').value,
-    new_password: document.getElementById('new-password').value || undefined
+    max_tokens_before_compact: document.getElementById('max-tokens').value
   };
 
   try {
     await api('/api/settings', 'POST', settings);
     document.getElementById('settings-status').textContent = 'Settings saved successfully!';
-    if (settings.new_password) {
-      setState({ password: settings.new_password });
-    }
     setTimeout(() => { document.getElementById('settings-status').textContent = ''; }, 3000);
   } catch (error) {
     document.getElementById('settings-status').textContent = 'Failed to save settings';

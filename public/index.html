@@ -11,30 +11,7 @@
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
-  <!-- Login Screen -->
-  <div id="login-screen" class="screen active">
-    <!-- Floating embers -->
-    <div class="embers-container" aria-hidden="true">
-      <div class="ember"></div><div class="ember"></div><div class="ember"></div>
-      <div class="ember"></div><div class="ember"></div><div class="ember"></div>
-      <div class="ember"></div><div class="ember"></div>
-    </div>
-    <div class="login-box">
-      <div class="login-sigil" aria-hidden="true">
-        <svg viewBox="0 0 100 100" width="60" height="60">
-          <polygon points="50,5 61,35 95,35 68,57 79,90 50,70 21,90 32,57 5,35 39,35" fill="none" stroke="currentColor" stroke-width="2"/>
-          <circle cx="50" cy="50" r="20" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.6"/>
-        </svg>
-      </div>
-      <h1>D&D Multiplayer</h1>
-      <p>Enter the game password to continue</p>
-      <input type="password" id="password-input" placeholder="Password">
-      <button onclick="login()">Enter the Realm</button>
-      <p id="login-error" class="error"></p>
-    </div>
-  </div>
-
-  <!-- Main App -->
+  <!-- Main App (auth handled by EasyPanel basic auth) -->
   <div id="app-screen" class="screen">
     <nav>
       <div class="nav-brand">D&D Multiplayer</div>
@@ -303,12 +280,6 @@
           <button onclick="generateAutoReply()" class="btn-primary" id="autoreply-btn">Generate & Send Action</button>
         </div>
         <p id="autoreply-status" class="settings-note"></p>
-
-        <h2>Security</h2>
-        <div class="form-group">
-          <label>Change Game Password</label>
-          <input type="password" id="new-password" placeholder="Leave blank to keep current">
-        </div>
 
         <button onclick="saveSettings()">Save Settings</button>
         <p id="settings-status"></p>
@@ -665,72 +636,14 @@
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
-    // Error diagnostics for module loading
-    window._moduleErrors = [];
+    // Error diagnostics
     window.addEventListener('error', function(e) {
       console.error('[DnD] Global error:', e.message, e.filename, e.lineno);
-      window._moduleErrors.push(e.message + (e.filename ? ' (' + e.filename.split('/').pop() + ':' + e.lineno + ')' : ''));
-      var el = document.getElementById('login-error');
-      if (el) {
-        if (e.filename && e.filename.includes('/js/')) {
-          el.textContent = 'Module error: ' + e.message + ' (' + e.filename.split('/').pop() + ':' + e.lineno + ')';
-        } else if (e.message && e.message.indexOf('login') !== -1) {
-          el.textContent = 'App modules still loading... please wait and try again.';
-        }
-      }
     });
     window.addEventListener('unhandledrejection', function(e) {
       console.error('[DnD] Unhandled rejection:', e.reason);
-      window._moduleErrors.push('Rejection: ' + (e.reason && e.reason.message || e.reason));
     });
-
-    // Enter key on password input (works regardless of module loading)
-    document.addEventListener('DOMContentLoaded', function() {
-      var pwInput = document.getElementById('password-input');
-      if (pwInput) {
-        pwInput.addEventListener('keypress', function(e) {
-          if (e.key === 'Enter' && window.login) window.login();
-        });
-      }
-    });
-
-    // Fallback: if modules fail to load after 8s, provide a basic login
-    window._moduleLoaded = false;
-    setTimeout(function() {
-      if (!window._moduleLoaded && !window.login) {
-        console.warn('[DnD] ES modules did not load after 8s. Providing fallback login.');
-        console.warn('[DnD] Captured errors:', window._moduleErrors);
-        var el = document.getElementById('login-error');
-        if (el) {
-          if (window._moduleErrors.length > 0) {
-            el.textContent = 'Module error: ' + window._moduleErrors[0];
-          } else {
-            el.textContent = 'Modules loading slowly... using fallback login. Try hard-refreshing (Ctrl+Shift+R).';
-          }
-        }
-        window.login = function() {
-          var input = document.getElementById('password-input');
-          var errEl = document.getElementById('login-error');
-          if (!input || !input.value) { if (errEl) errEl.textContent = 'Please enter a password'; return; }
-          if (errEl) errEl.textContent = 'Logging in...';
-          fetch('/api/auth', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ password: input.value })
-          }).then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
-            .then(function(result) {
-              if (result.ok) {
-                sessionStorage.setItem('dnd-app-state', JSON.stringify({ password: input.value }));
-                location.reload();
-              } else {
-                if (errEl) errEl.textContent = result.data.error || 'Invalid password';
-              }
-            }).catch(function(err) { if (errEl) errEl.textContent = 'Connection error: ' + err.message; });
-        };
-      }
-    }, 8000);
   </script>
   <script type="module" src="/js/main.js"></script>
-  <script type="module">window._moduleLoaded = true;</script>
 </body>
 </html>

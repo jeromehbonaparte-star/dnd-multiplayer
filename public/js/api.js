@@ -1,17 +1,16 @@
 // ============================================
-// API Fetch Wrapper with Auth
+// API Fetch Wrapper
 // ============================================
 
 import { getState, setState } from './state.js';
 
 export async function api(endpoint, method = 'GET', body = null) {
-  const { password, adminPassword } = getState();
+  const { adminPassword } = getState();
 
   const options = {
     method,
     headers: {
-      'Content-Type': 'application/json',
-      'X-Game-Password': password
+      'Content-Type': 'application/json'
     }
   };
 
@@ -25,13 +24,6 @@ export async function api(endpoint, method = 'GET', body = null) {
   }
 
   const response = await fetch(endpoint, options);
-
-  if (response.status === 401) {
-    // Import dynamically to avoid circular dependency
-    const { showLogin } = await import('./modules/auth.js');
-    showLogin();
-    throw new Error('Unauthorized');
-  }
 
   if (response.status === 403) {
     setState({ isAdminAuthenticated: false, adminPassword: '' });
