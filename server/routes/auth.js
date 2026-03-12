@@ -27,9 +27,13 @@ function createAuthRoutes(db, auth, rateLimiter) {
     const sanitizedPassword = validate.sanitizeString(password, 200);
     const storedHash = db.prepare('SELECT value FROM settings WHERE key = ?').get('game_password');
 
+    console.log('[AUTH] Login attempt - password provided:', !!password, 'hash exists:', !!storedHash);
+
     if (storedHash && bcrypt.compareSync(sanitizedPassword, storedHash.value)) {
+      console.log('[AUTH] Login SUCCESS');
       res.json({ success: true });
     } else {
+      console.log('[AUTH] Login FAILED - password mismatch');
       res.status(401).json({ error: 'Invalid password' });
     }
   });

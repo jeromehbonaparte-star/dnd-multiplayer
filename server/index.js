@@ -46,6 +46,7 @@ const authLimiter = rateLimit({
   message: { error: 'Too many login attempts, please try again after 15 minutes' },
   standardHeaders: true,
   legacyHeaders: false,
+  validate: false,
 });
 
 const apiLimiter = rateLimit({
@@ -54,6 +55,7 @@ const apiLimiter = rateLimit({
   message: { error: 'Too many requests, please slow down' },
   standardHeaders: true,
   legacyHeaders: false,
+  validate: false,
 });
 
 // ============================================
