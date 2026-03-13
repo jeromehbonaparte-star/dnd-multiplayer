@@ -1,0 +1,20 @@
+[
+  {"index": "acrobatics", "name": "Acrobatics", "ability_score": "DEX"},
+  {"index": "animal-handling", "name": "Animal Handling", "ability_score": "WIS"},
+  {"index": "arcana", "name": "Arcana", "ability_score": "INT"},
+  {"index": "athletics", "name": "Athletics", "ability_score": "STR"},
+  {"index": "deception", "name": "Deception", "ability_score": "CHA"},
+  {"index": "history", "name": "History", "ability_score": "INT"},
+  {"index": "insight", "name": "Insight", "ability_score": "WIS"},
+  {"index": "intimidation", "name": "Intimidation", "ability_score": "CHA"},
+  {"index": "investigation", "name": "Investigation", "ability_score": "INT"},
+  {"index": "medicine", "name": "Medicine", "ability_score": "WIS"},
+  {"index": "nature", "name": "Nature", "ability_score": "INT"},
+  {"index": "perception", "name": "Perception", "ability_score": "WIS"},
+  {"index": "performance", "name": "Performance", "ability_score": "CHA"},
+  {"index": "persuasion", "name": "Persuasion", "ability_score": "CHA"},
+  {"index": "religion", "name": "Religion", "ability_score": "INT"},
+  {"index": "sleight-of-hand", "name": "Sleight of Hand", "ability_score": "DEX"},
+  {"index": "stealth", "name": "Stealth", "ability_score": "DEX"},
+  {"index": "survival", "name": "Survival", "ability_score": "WIS"}
+]

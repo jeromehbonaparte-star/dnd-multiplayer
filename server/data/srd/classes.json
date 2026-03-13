@@ -1,0 +1,289 @@
+[
+  {
+    "index": "barbarian",
+    "name": "Barbarian",
+    "hit_die": 12,
+    "saving_throws": ["STR", "CON"],
+    "proficiencies": ["Light armor", "Medium armor", "Shields", "Simple weapons", "Martial weapons"],
+    "proficiency_choices": [{
+      "choose": 2,
+      "from": {
+        "options": [
+          {"item": {"name": "Skill: Animal Handling"}},
+          {"item": {"name": "Skill: Athletics"}},
+          {"item": {"name": "Skill: Intimidation"}},
+          {"item": {"name": "Skill: Nature"}},
+          {"item": {"name": "Skill: Perception"}},
+          {"item": {"name": "Skill: Survival"}}
+        ]
+      }
+    }],
+    "is_caster": false,
+    "spellcasting_ability": null
+  },
+  {
+    "index": "bard",
+    "name": "Bard",
+    "hit_die": 8,
+    "saving_throws": ["DEX", "CHA"],
+    "proficiencies": ["Light armor", "Simple weapons", "Hand crossbows", "Longswords", "Rapiers", "Shortswords"],
+    "proficiency_choices": [{
+      "choose": 3,
+      "from": {
+        "options": [
+          {"item": {"name": "Skill: Acrobatics"}},
+          {"item": {"name": "Skill: Animal Handling"}},
+          {"item": {"name": "Skill: Arcana"}},
+          {"item": {"name": "Skill: Athletics"}},
+          {"item": {"name": "Skill: Deception"}},
+          {"item": {"name": "Skill: History"}},
+          {"item": {"name": "Skill: Insight"}},
+          {"item": {"name": "Skill: Intimidation"}},
+          {"item": {"name": "Skill: Investigation"}},
+          {"item": {"name": "Skill: Medicine"}},
+          {"item": {"name": "Skill: Nature"}},
+          {"item": {"name": "Skill: Perception"}},
+          {"item": {"name": "Skill: Performance"}},
+          {"item": {"name": "Skill: Persuasion"}},
+          {"item": {"name": "Skill: Religion"}},
+          {"item": {"name": "Skill: Sleight of Hand"}},
+          {"item": {"name": "Skill: Stealth"}},
+          {"item": {"name": "Skill: Survival"}}
+        ]
+      }
+    }],
+    "is_caster": true,
+    "spellcasting_ability": "CHA"
+  },
+  {
+    "index": "cleric",
+    "name": "Cleric",
+    "hit_die": 8,
+    "saving_throws": ["WIS", "CHA"],
+    "proficiencies": ["Light armor", "Medium armor", "Shields", "Simple weapons"],
+    "proficiency_choices": [{
+      "choose": 2,
+      "from": {
+        "options": [
+          {"item": {"name": "Skill: History"}},
+          {"item": {"name": "Skill: Insight"}},
+          {"item": {"name": "Skill: Medicine"}},
+          {"item": {"name": "Skill: Persuasion"}},
+          {"item": {"name": "Skill: Religion"}}
+        ]
+      }
+    }],
+    "is_caster": true,
+    "spellcasting_ability": "WIS"
+  },
+  {
+    "index": "druid",
+    "name": "Druid",
+    "hit_die": 8,
+    "saving_throws": ["INT", "WIS"],
+    "proficiencies": ["Light armor", "Medium armor", "Shields", "Clubs", "Daggers", "Darts", "Javelins", "Maces", "Quarterstaffs", "Scimitars", "Sickles", "Slings", "Spears"],
+    "proficiency_choices": [{
+      "choose": 2,
+      "from": {
+        "options": [
+          {"item": {"name": "Skill: Arcana"}},
+          {"item": {"name": "Skill: Animal Handling"}},
+          {"item": {"name": "Skill: Insight"}},
+          {"item": {"name": "Skill: Medicine"}},
+          {"item": {"name": "Skill: Nature"}},
+          {"item": {"name": "Skill: Perception"}},
+          {"item": {"name": "Skill: Religion"}},
+          {"item": {"name": "Skill: Survival"}}
+        ]
+      }
+    }],
+    "is_caster": true,
+    "spellcasting_ability": "WIS"
+  },
+  {
+    "index": "fighter",
+    "name": "Fighter",
+    "hit_die": 10,
+    "saving_throws": ["STR", "CON"],
+    "proficiencies": ["All armor", "Shields", "Simple weapons", "Martial weapons"],
+    "proficiency_choices": [{
+      "choose": 2,
+      "from": {
+        "options": [
+          {"item": {"name": "Skill: Acrobatics"}},
+          {"item": {"name": "Skill: Animal Handling"}},
+          {"item": {"name": "Skill: Athletics"}},
+          {"item": {"name": "Skill: History"}},
+          {"item": {"name": "Skill: Insight"}},
+          {"item": {"name": "Skill: Intimidation"}},
+          {"item": {"name": "Skill: Perception"}},
+          {"item": {"name": "Skill: Survival"}}
+        ]
+      }
+    }],
+    "is_caster": false,
+    "spellcasting_ability": null
+  },
+  {
+    "index": "monk",
+    "name": "Monk",
+    "hit_die": 8,
+    "saving_throws": ["STR", "DEX"],
+    "proficiencies": ["Simple weapons", "Shortswords"],
+    "proficiency_choices": [{
+      "choose": 2,
+      "from": {
+        "options": [
+          {"item": {"name": "Skill: Acrobatics"}},
+          {"item": {"name": "Skill: Athletics"}},
+          {"item": {"name": "Skill: History"}},
+          {"item": {"name": "Skill: Insight"}},
+          {"item": {"name": "Skill: Religion"}},
+          {"item": {"name": "Skill: Stealth"}}
+        ]
+      }
+    }],
+    "is_caster": false,
+    "spellcasting_ability": null
+  },
+  {
+    "index": "paladin",
+    "name": "Paladin",
+    "hit_die": 10,
+    "saving_throws": ["WIS", "CHA"],
+    "proficiencies": ["All armor", "Shields", "Simple weapons", "Martial weapons"],
+    "proficiency_choices": [{
+      "choose": 2,
+      "from": {
+        "options": [
+          {"item": {"name": "Skill: Athletics"}},
+          {"item": {"name": "Skill: Insight"}},
+          {"item": {"name": "Skill: Intimidation"}},
+          {"item": {"name": "Skill: Medicine"}},
+          {"item": {"name": "Skill: Persuasion"}},
+          {"item": {"name": "Skill: Religion"}}
+        ]
+      }
+    }],
+    "is_caster": true,
+    "spellcasting_ability": "CHA"
+  },
+  {
+    "index": "ranger",
+    "name": "Ranger",
+    "hit_die": 10,
+    "saving_throws": ["STR", "DEX"],
+    "proficiencies": ["Light armor", "Medium armor", "Shields", "Simple weapons", "Martial weapons"],
+    "proficiency_choices": [{
+      "choose": 3,
+      "from": {
+        "options": [
+          {"item": {"name": "Skill: Animal Handling"}},
+          {"item": {"name": "Skill: Athletics"}},
+          {"item": {"name": "Skill: Insight"}},
+          {"item": {"name": "Skill: Investigation"}},
+          {"item": {"name": "Skill: Nature"}},
+          {"item": {"name": "Skill: Perception"}},
+          {"item": {"name": "Skill: Stealth"}},
+          {"item": {"name": "Skill: Survival"}}
+        ]
+      }
+    }],
+    "is_caster": true,
+    "spellcasting_ability": "WIS"
+  },
+  {
+    "index": "rogue",
+    "name": "Rogue",
+    "hit_die": 8,
+    "saving_throws": ["DEX", "INT"],
+    "proficiencies": ["Light armor", "Simple weapons", "Hand crossbows", "Longswords", "Rapiers", "Shortswords", "Thieves' tools"],
+    "proficiency_choices": [{
+      "choose": 4,
+      "from": {
+        "options": [
+          {"item": {"name": "Skill: Acrobatics"}},
+          {"item": {"name": "Skill: Athletics"}},
+          {"item": {"name": "Skill: Deception"}},
+          {"item": {"name": "Skill: Insight"}},
+          {"item": {"name": "Skill: Intimidation"}},
+          {"item": {"name": "Skill: Investigation"}},
+          {"item": {"name": "Skill: Perception"}},
+          {"item": {"name": "Skill: Performance"}},
+          {"item": {"name": "Skill: Persuasion"}},
+          {"item": {"name": "Skill: Sleight of Hand"}},
+          {"item": {"name": "Skill: Stealth"}}
+        ]
+      }
+    }],
+    "is_caster": false,
+    "spellcasting_ability": null
+  },
+  {
+    "index": "sorcerer",
+    "name": "Sorcerer",
+    "hit_die": 6,
+    "saving_throws": ["CON", "CHA"],
+    "proficiencies": ["Daggers", "Darts", "Slings", "Quarterstaffs", "Light crossbows"],
+    "proficiency_choices": [{
+      "choose": 2,
+      "from": {
+        "options": [
+          {"item": {"name": "Skill: Arcana"}},
+          {"item": {"name": "Skill: Deception"}},
+          {"item": {"name": "Skill: Insight"}},
+          {"item": {"name": "Skill: Intimidation"}},
+          {"item": {"name": "Skill: Persuasion"}},
+          {"item": {"name": "Skill: Religion"}}
+        ]
+      }
+    }],
+    "is_caster": true,
+    "spellcasting_ability": "CHA"
+  },
+  {
+    "index": "warlock",
+    "name": "Warlock",
+    "hit_die": 8,
+    "saving_throws": ["WIS", "CHA"],
+    "proficiencies": ["Light armor", "Simple weapons"],
+    "proficiency_choices": [{
+      "choose": 2,
+      "from": {
+        "options": [
+          {"item": {"name": "Skill: Arcana"}},
+          {"item": {"name": "Skill: Deception"}},
+          {"item": {"name": "Skill: History"}},
+          {"item": {"name": "Skill: Intimidation"}},
+          {"item": {"name": "Skill: Investigation"}},
+          {"item": {"name": "Skill: Nature"}},
+          {"item": {"name": "Skill: Religion"}}
+        ]
+      }
+    }],
+    "is_caster": true,
+    "spellcasting_ability": "CHA"
+  },
+  {
+    "index": "wizard",
+    "name": "Wizard",
+    "hit_die": 6,
+    "saving_throws": ["INT", "WIS"],
+    "proficiencies": ["Daggers", "Darts", "Slings", "Quarterstaffs", "Light crossbows"],
+    "proficiency_choices": [{
+      "choose": 2,
+      "from": {
+        "options": [
+          {"item": {"name": "Skill: Arcana"}},
+          {"item": {"name": "Skill: History"}},
+          {"item": {"name": "Skill: Insight"}},
+          {"item": {"name": "Skill: Investigation"}},
+          {"item": {"name": "Skill: Medicine"}},
+          {"item": {"name": "Skill: Religion"}}
+        ]
+      }
+    }],
+    "is_caster": true,
+    "spellcasting_ability": "INT"
+  }
+]

@@ -1,10 +1,18 @@
 /**
  * D&D 5e Data Service
- * Fetches data from the D&D 5e API and caches in SQLite
- * Uses native fetch (Node 24+)
+ * Serves static SRD data for races/classes/skills/backgrounds.
+ * Fetches spells & equipment from the D&D 5e API and caches in SQLite.
  */
 
+const fs = require('fs');
+const path = require('path');
 const logger = require('../lib/logger');
+
+const SRD_DIR = path.join(__dirname, '../data/srd');
+const STATIC_RACES = JSON.parse(fs.readFileSync(path.join(SRD_DIR, 'races.json'), 'utf-8'));
+const STATIC_CLASSES = JSON.parse(fs.readFileSync(path.join(SRD_DIR, 'classes.json'), 'utf-8'));
+const STATIC_SKILLS = JSON.parse(fs.readFileSync(path.join(SRD_DIR, 'skills.json'), 'utf-8'));
+const STATIC_BACKGROUNDS = JSON.parse(fs.readFileSync(path.join(SRD_DIR, 'backgrounds.json'), 'utf-8'));
 
 const BASE_URL = 'https://www.dnd5eapi.co/api';
 
@@ -36,31 +44,7 @@ async function apiFetch(urlPath) {
 // ============================================
 
 async function getRaces(db) {
-  const cached = getCached(db, 'races:all');
-  if (cached) return cached;
-
-  const list = await apiFetch('/races');
-  const races = [];
-
-  for (const race of list.results) {
-    const detail = await apiFetch(race.url);
-    races.push({
-      index: detail.index,
-      name: detail.name,
-      speed: detail.speed,
-      size: detail.size,
-      ability_bonuses: (detail.ability_bonuses || []).map(b => ({
-        ability: b.ability_score.name,
-        bonus: b.bonus
-      })),
-      traits: (detail.traits || []).map(t => t.name),
-      languages: (detail.languages || []).map(l => l.name),
-      subraces: (detail.subraces || []).map(s => s.name),
-    });
-  }
-
-  setCache(db, 'races:all', races);
-  return races;
+  return STATIC_RACES;
 }
 
 // ============================================
@@ -68,30 +52,7 @@ async function getRaces(db) {
 // ============================================
 
 async function getClasses(db) {
-  const cached = getCached(db, 'classes:all');
-  if (cached) return cached;
-
-  const list = await apiFetch('/classes');
-  const classes = [];
-
-  for (const cls of list.results) {
-    const detail = await apiFetch(cls.url);
-    const isCaster = !!detail.spellcasting;
-
-    classes.push({
-      index: detail.index,
-      name: detail.name,
-      hit_die: detail.hit_die,
-      saving_throws: (detail.saving_throws || []).map(s => s.name),
-      proficiencies: (detail.proficiencies || []).map(p => p.name),
-      proficiency_choices: detail.proficiency_choices || [],
-      is_caster: isCaster,
-      spellcasting_ability: isCaster ? detail.spellcasting.spellcasting_ability.name : null,
-    });
-  }
-
-  setCache(db, 'classes:all', classes);
-  return classes;
+  return STATIC_CLASSES;
 }
 
 // ============================================
@@ -184,18 +145,7 @@ async function getEquipmentByCategory(db, category) {
 // ============================================
 
 async function getSkills(db) {
-  const cached = getCached(db, 'skills:all');
-  if (cached) return cached;
-
-  const data = await apiFetch('/skills');
-  const skills = (data.results || []).map(s => ({
-    index: s.index,
-    name: s.name,
-    ability_score: s.ability_score ? s.ability_score.name : null,
-  }));
-
-  setCache(db, 'skills:all', skills);
-  return skills;
+  return STATIC_SKILLS;
 }
 
 // ============================================
@@ -203,25 +153,7 @@ async function getSkills(db) {
 // ============================================
 
 async function getBackgrounds(db) {
-  const cached = getCached(db, 'backgrounds:all');
-  if (cached) return cached;
-
-  const data = await apiFetch('/backgrounds');
-  const backgrounds = [];
-
-  for (const bg of (data.results || [])) {
-    const detail = await apiFetch(bg.url);
-    backgrounds.push({
-      index: detail.index,
-      name: detail.name,
-      feature: detail.feature || null,
-      starting_proficiencies: (detail.starting_proficiencies || []).map(p => p.name),
-      starting_equipment: detail.starting_equipment || [],
-    });
-  }
-
-  setCache(db, 'backgrounds:all', backgrounds);
-  return backgrounds;
+  return STATIC_BACKGROUNDS;
 }
 
 module.exports = {

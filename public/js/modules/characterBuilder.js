@@ -210,16 +210,20 @@ export function initCharacterBuilder() {
 async function loadBuilderData() {
   try {
     const [races, classes, skills, backgrounds] = await Promise.all([
-      getRaces().catch(() => []),
-      getClasses().catch(() => []),
-      getSkills().catch(() => []),
-      getBackgrounds().catch(() => []),
+      getRaces().catch(err => { console.error('Failed to load races:', err); return []; }),
+      getClasses().catch(err => { console.error('Failed to load classes:', err); return []; }),
+      getSkills().catch(err => { console.error('Failed to load skills:', err); return []; }),
+      getBackgrounds().catch(err => { console.error('Failed to load backgrounds:', err); return []; }),
     ]);
 
     builder.races = races;
     builder.classes = classes;
     builder.skills = skills;
     builder.backgrounds = backgrounds;
+
+    if (races.length === 0 || classes.length === 0) {
+      showNotification('Warning: Could not load character data. Please refresh the page.');
+    }
 
     populateSelect('builder-race', races, 'Select race...');
     populateSelect('builder-class', classes, 'Select class...');
