@@ -22,6 +22,9 @@ function createCharacterRoutes(deps) {
   const { db, io, auth, aiService, getActiveApiConfig } = deps;
   const router = express.Router();
   const { checkPassword } = auth;
+  const { upload } = require('../middleware/upload');
+  const fs = require('fs');
+  const path = require('path');
 
   // XP thresholds for each level (D&D 5e)
   const XP_THRESHOLDS = [0, 300, 900, 2700, 6500, 14000, 23000, 34000, 48000, 64000, 85000, 100000, 120000, 140000, 165000, 195000, 225000, 265000, 305000, 355000];
@@ -86,27 +89,85 @@ function createCharacterRoutes(deps) {
 
   /**
    * POST /api/characters
-   * Create a new character manually
+   * Create a new character (supports both simple and full builder payloads)
    */
-  router.post('/', checkPassword, validateBody(schemas.character), (req, res) => {
-    const { player_name, character_name, race, class: charClass, strength, dexterity, constitution, intelligence, wisdom, charisma, background } = req.body;
+  router.post('/', checkPassword, (req, res) => {
+    const {
+      player_name, character_name, race, class: charClass,
+      strength, dexterity, constitution, intelligence, wisdom, charisma,
+      background, skills, spells, passives, class_features, feats,
+      appearance, backstory, gold, inventory, spell_slots, ac, classes
+    } = req.body;
 
-    // Sanitize string inputs
-    const sanitizedPlayerName = validate.sanitizeString(player_name, 100);
-    const sanitizedCharName = validate.sanitizeString(character_name, 100);
-    const sanitizedRace = validate.sanitizeString(race, 50);
-    const sanitizedClass = validate.sanitizeString(charClass, 50);
-    const sanitizedBackground = validate.sanitizeString(background, 1000);
+    // Validate required fields
+    if (!character_name || !race || !charClass) {
+      return res.status(400).json({ error: 'character_name, race, and class are required' });
+    }
 
     const id = uuidv4();
-    const hp = 10 + Math.floor((constitution - 10) / 2);
+    const con = constitution || 10;
+    const hp = 10 + Math.floor((con - 10) / 2);
 
-    db.prepare(`INSERT INTO characters (id, player_name, character_name, race, class, strength, dexterity, constitution, intelligence, wisdom, charisma, hp, max_hp, background) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, sanitizedPlayerName, sanitizedCharName, sanitizedRace, sanitizedClass, strength, dexterity, constitution, intelligence, wisdom, charisma, hp, hp, sanitizedBackground);
+    db.prepare(`INSERT INTO characters (
+      id, player_name, character_name, race, class,
+      strength, dexterity, constitution, intelligence, wisdom, charisma,
+      hp, max_hp, background, skills, spells, passives, class_features, feats,
+      appearance, backstory, gold, inventory, spell_slots, ac, classes
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      id,
+      validate.sanitizeString(player_name || 'Player', 100),
+      validate.sanitizeString(character_name, 100),
+      validate.sanitizeString(race, 50),
+      validate.sanitizeString(charClass, 50),
+      strength || 10, dexterity || 10, con, intelligence || 10, wisdom || 10, charisma || 10,
+      req.body.hp || hp, req.body.max_hp || hp,
+      validate.sanitizeString(background || '', 1000),
+      skills || '', spells || '', passives || '', class_features || '', feats || '',
+      appearance || '', backstory || '',
+      gold || 0,
+      typeof inventory === 'string' ? inventory : JSON.stringify(inventory || []),
+      typeof spell_slots === 'string' ? spell_slots : JSON.stringify(spell_slots || {}),
+      ac || 10,
+      typeof classes === 'string' ? classes : JSON.stringify(classes || { [charClass]: 1 })
+    );
 
     const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(id);
     invalidateCache('characters:');
     io.emit('character_created', character);
     res.json(character);
+  });
+
+  /**
+   * POST /api/characters/ai-assist
+   * AI-assisted generation of appearance or backstory text
+   * Must be defined BEFORE /:id param routes
+   */
+  router.post('/ai-assist', checkPassword, async (req, res) => {
+    const { field, context } = req.body;
+    if (!['appearance', 'backstory'].includes(field)) {
+      return res.status(400).json({ error: 'Invalid field. Must be "appearance" or "backstory".' });
+    }
+
+    const apiConfig = getActiveApiConfig();
+    if (!apiConfig || !apiConfig.api_key) {
+      return res.status(400).json({ error: 'No active API configuration. Please add and activate one in Settings.' });
+    }
+
+    const prompt = field === 'appearance'
+      ? `Generate a vivid physical description (2-3 sentences) for a D&D character: ${context.character_name || 'unnamed'}, a ${context.race || 'human'} ${context.class || 'adventurer'} with the ${context.background || 'folk hero'} background. Include hair, eyes, build, distinguishing features. Be creative and evocative.`
+      : `Generate a brief backstory (3-4 sentences) for a D&D character: ${context.character_name || 'unnamed'}, a ${context.race || 'human'} ${context.class || 'adventurer'} with the ${context.background || 'folk hero'} background. Include motivations and a key formative event. Be creative.`;
+
+    try {
+      const config = { endpoint: apiConfig.api_endpoint, api_key: apiConfig.api_key, model: apiConfig.api_model };
+      const data = await aiService.callAI(config, [
+        { role: 'system', content: 'You are a creative D&D character description writer. Write concise, evocative descriptions. Output ONLY the description text, no labels or formatting.' },
+        { role: 'user', content: prompt }
+      ], { maxTokens: 300 });
+      const text = aiService.extractAIMessage(data);
+      res.json({ text });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
   });
 
   /**
@@ -344,7 +405,7 @@ function createCharacterRoutes(deps) {
       'strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma',
       'hp', 'max_hp', 'ac', 'xp', 'gold',
       'skills', 'spells', 'passives', 'feats', 'class_features',
-      'appearance', 'backstory', 'initiative_bonus'
+      'appearance', 'backstory', 'initiative_bonus', 'image_url'
     ];
 
     const updates = [];
@@ -369,6 +430,30 @@ function createCharacterRoutes(deps) {
 
     values.push(req.params.id);
     db.prepare(`UPDATE characters SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+
+    const updated = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
+    invalidateCache('characters:');
+    io.emit('character_updated', updated);
+    res.json(updated);
+  });
+
+  /**
+   * POST /api/characters/:id/image
+   * Upload a character image
+   */
+  router.post('/:id/image', checkPassword, upload.single('image'), (req, res) => {
+    const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
+    if (!character) return res.status(404).json({ error: 'Character not found' });
+    if (!req.file) return res.status(400).json({ error: 'No image file provided' });
+
+    // Delete old image if exists
+    if (character.image_url) {
+      const oldPath = path.join(__dirname, '../../data/uploads/characters', path.basename(character.image_url));
+      try { fs.unlinkSync(oldPath); } catch (e) { /* ignore */ }
+    }
+
+    const imageUrl = `/uploads/characters/${req.file.filename}`;
+    db.prepare('UPDATE characters SET image_url = ? WHERE id = ?').run(imageUrl, req.params.id);
 
     const updated = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
     invalidateCache('characters:');

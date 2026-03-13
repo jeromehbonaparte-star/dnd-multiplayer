@@ -31,7 +31,6 @@ function applyAllTags(deps, aiResponse, characters, sessionId) {
     hp: [],
     spellSlots: [],
     ac: [],
-    combat: []
   };
 
   // Debug: Log tag detection
@@ -370,113 +369,6 @@ function applyAllTags(deps, aiResponse, characters, sessionId) {
         } else {
           console.log(`HP Update FAILED: Character "${charName}" not found in session`);
         }
-      }
-    }
-  }
-
-  // ==================== COMBAT ====================
-  const combatMatches = aiResponse.match(/\[COMBAT:([^\]]+)\]/gi);
-  if (combatMatches) {
-    for (const match of combatMatches) {
-      const combatContent = match.replace(/\[COMBAT:/i, '').replace(']', '').trim().toUpperCase();
-
-      if (combatContent.startsWith('START')) {
-        // Parse extended format: "START Name | Enemy1 15hp 13ac, Enemy2 30hp 16ac"
-        const rawContent = match.replace(/\[COMBAT:/i, '').replace(']', '').trim();
-        const startContent = rawContent.replace(/^START\s*/i, '').trim();
-
-        let combatName = 'Combat';
-        let parsedEnemies = [];
-
-        const pipeIdx = startContent.indexOf('|');
-        if (pipeIdx !== -1) {
-          combatName = startContent.substring(0, pipeIdx).trim() || 'Combat';
-          const enemyDefs = startContent.substring(pipeIdx + 1).trim();
-          for (const enemyStr of enemyDefs.split(',')) {
-            const trimmed = enemyStr.trim();
-            const enemyMatch = trimmed.match(/^(.+?)\s+(\d+)\s*hp\s+(\d+)\s*ac$/i);
-            if (enemyMatch) {
-              parsedEnemies.push({
-                name: enemyMatch[1].trim(),
-                hp: parseInt(enemyMatch[2]),
-                ac: parseInt(enemyMatch[3])
-              });
-            }
-          }
-        } else {
-          combatName = startContent || 'Combat';
-        }
-
-        const combatId = uuidv4();
-        const combatants = characters.map(c => ({
-          id: c.id,
-          name: c.character_name,
-          initiative: Math.floor(Math.random() * 20) + 1 + Math.floor(((c.dexterity || 10) - 10) / 2),
-          hp: c.hp,
-          maxHp: c.max_hp,
-          ac: c.ac,
-          isPlayer: true
-        }));
-
-        // Add parsed enemies as combatants
-        if (parsedEnemies.length > 0) {
-          for (const enemy of parsedEnemies) {
-            combatants.push({
-              id: uuidv4(),
-              name: enemy.name,
-              initiative: Math.floor(Math.random() * 20) + 1,
-              hp: enemy.hp,
-              maxHp: enemy.hp,
-              ac: enemy.ac,
-              isPlayer: false
-            });
-          }
-        }
-
-        // Sort all combatants by initiative
-        combatants.sort((a, b) => b.initiative - a.initiative);
-
-        db.prepare(`INSERT INTO combats (id, session_id, name, combatants, is_active) VALUES (?, ?, ?, ?, 1)`)
-          .run(combatId, sessionId, combatName, JSON.stringify(combatants));
-
-        const combat = db.prepare('SELECT * FROM combats WHERE id = ?').get(combatId);
-        io.emit('combat_started', { sessionId, combat: { ...combat, combatants: JSON.parse(combat.combatants) } });
-        console.log(`Combat started: ${combatName}`);
-        summary.combat.push({ action: 'start', name: combatName });
-      } else if (combatContent === 'END') {
-        db.prepare('UPDATE combats SET is_active = 0 WHERE session_id = ? AND is_active = 1').run(sessionId);
-        io.emit('combat_ended', { sessionId });
-        console.log('Combat ended');
-        summary.combat.push({ action: 'end' });
-      } else if (combatContent === 'NEXT') {
-        const combat = db.prepare('SELECT * FROM combats WHERE session_id = ? AND is_active = 1').get(sessionId);
-        if (combat) {
-          const combatants = JSON.parse(combat.combatants || '[]');
-          let newTurn = (combat.current_turn + 1) % combatants.length;
-          let newRound = combat.round;
-          if (newTurn === 0) newRound++;
-
-          db.prepare('UPDATE combats SET current_turn = ?, round = ? WHERE id = ?').run(newTurn, newRound, combat.id);
-          const updatedCombat = db.prepare('SELECT * FROM combats WHERE id = ?').get(combat.id);
-          io.emit('combat_updated', { sessionId, combat: { ...updatedCombat, combatants: JSON.parse(updatedCombat.combatants) } });
-        }
-        summary.combat.push({ action: 'next' });
-      } else if (combatContent === 'PREV') {
-        const combat = db.prepare('SELECT * FROM combats WHERE session_id = ? AND is_active = 1').get(sessionId);
-        if (combat) {
-          const combatants = JSON.parse(combat.combatants || '[]');
-          let newTurn = combat.current_turn - 1;
-          let newRound = combat.round;
-          if (newTurn < 0) {
-            newTurn = combatants.length - 1;
-            newRound = Math.max(1, newRound - 1);
-          }
-
-          db.prepare('UPDATE combats SET current_turn = ?, round = ? WHERE id = ?').run(newTurn, newRound, combat.id);
-          const updatedCombat = db.prepare('SELECT * FROM combats WHERE id = ?').get(combat.id);
-          io.emit('combat_updated', { sessionId, combat: { ...updatedCombat, combatants: JSON.parse(updatedCombat.combatants) } });
-        }
-        summary.combat.push({ action: 'prev' });
       }
     }
   }

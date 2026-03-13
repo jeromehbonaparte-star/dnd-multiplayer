@@ -11,73 +11,116 @@
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
-  <!-- Main App (auth handled by EasyPanel basic auth) -->
   <div id="app-screen" class="screen">
-    <nav>
-      <div class="nav-brand">D&D Multiplayer</div>
-      <button class="theme-toggle" onclick="toggleTheme()" id="theme-toggle" aria-label="Toggle light/dark theme">
-        <span class="theme-icon" id="theme-icon">🌙</span>
-        <span id="theme-label">Dark</span>
-      </button>
-      <button class="mobile-menu-btn" onclick="toggleMobileMenu()" aria-label="Toggle navigation menu">Menu</button>
-      <div class="nav-tabs" id="nav-tabs" role="tablist" aria-label="Main navigation">
-        <button class="tab-btn active" data-tab="game" role="tab" aria-selected="true" aria-controls="game-tab">Game</button>
-        <button class="tab-btn" data-tab="characters" role="tab" aria-selected="false" aria-controls="characters-tab">Characters</button>
-        <button class="tab-btn" data-tab="settings" role="tab" aria-selected="false" aria-controls="settings-tab">Settings</button>
+
+    <!-- TOP BAR -->
+    <header class="top-bar">
+      <div class="top-bar-left">
+        <button class="drawer-toggle" id="drawer-toggle" aria-label="Open menu">
+          <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none">
+            <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+          </svg>
+        </button>
+        <span class="brand">D&amp;D Multiplayer</span>
       </div>
+      <div class="top-nav-tabs" id="top-nav-tabs" role="tablist" aria-label="Main navigation">
+        <button class="tab-btn active" data-tab="game">Game</button>
+        <button class="tab-btn" data-tab="characters">Characters</button>
+        <button class="tab-btn" data-tab="settings">Settings</button>
+      </div>
+      <div class="top-bar-right">
+        <button class="theme-toggle" onclick="toggleTheme()" id="theme-toggle">
+          <span class="theme-icon" id="theme-icon">&#127769;</span>
+          <span id="theme-label" class="sr-only">Dark</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- BOTTOM NAV (mobile) -->
+    <nav class="bottom-nav" id="bottom-nav">
+      <button class="bottom-nav-btn active" data-tab="game">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+        </svg>
+        <span>Game</span>
+      </button>
+      <button class="bottom-nav-btn" data-tab="characters">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+        </svg>
+        <span>Characters</span>
+      </button>
+      <button class="bottom-nav-btn" data-tab="settings">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+        <span>Settings</span>
+      </button>
     </nav>
 
-    <!-- Game Tab -->
-    <div id="game-tab" class="tab-content active" role="tabpanel" aria-labelledby="game-tab-btn">
-      <div class="game-container">
-        <div class="sidebar">
-          <h3>Sessions</h3>
-          <button onclick="openNewSessionModal()">New Session</button>
-          <div id="session-list"></div>
+    <!-- GAME TAB -->
+    <div id="game-tab" class="tab-content active">
+      <div class="drawer-overlay" id="drawer-overlay"></div>
 
-          <h3>Party</h3>
-          <div id="party-list"></div>
-
-          <h3>Combat Tracker</h3>
-          <div id="combat-tracker">
-            <div id="no-combat-message">No active combat<br><small>The AI will start combat when needed</small></div>
-            <div id="combat-active" style="display: none;">
-              <div class="combat-header">
-                <span id="combat-name">Combat</span>
-                <span id="combat-round">Round 1</span>
-              </div>
-              <div id="initiative-order"></div>
-            </div>
+      <aside class="game-drawer" id="game-drawer">
+        <div class="drawer-section">
+          <div class="drawer-section-header">
+            <h3>Sessions</h3>
+            <button onclick="openNewSessionModal()" class="btn-small btn-accent">+ New</button>
           </div>
-
-          <h3>Pending Actions</h3>
-          <div id="pending-actions"></div>
-          <button onclick="forceProcessTurn()" class="btn-secondary">Force Process Turn</button>
-          <button onclick="rerollLastResponse()" class="btn-secondary" title="Regenerate the last AI response">Reroll</button>
-          <button onclick="recalculateXP()" class="btn-secondary">Recalculate XP</button>
-          <button onclick="recalculateLoot()" class="btn-secondary">Recalculate Loot</button>
-          <button onclick="recalculateInventory()" class="btn-secondary">Recalculate Inventory</button>
-          <button onclick="recalculateACSpells()" class="btn-secondary">Recalculate AC/Spells</button>
+          <div id="session-list"></div>
         </div>
 
-        <div class="main-content">
-          <div id="story-container" aria-live="polite" aria-label="Story narration">
-            <canvas id="weather-canvas" aria-hidden="true"></canvas>
-            <div id="story-summary"></div>
-            <div id="story-history"></div>
-            <div id="narrator-typing" class="typing-indicator hidden">
-              <span class="typing-text">Narrator is typing</span>
-              <span class="typing-dots"><span>.</span><span>.</span><span>.</span></span>
-            </div>
-          </div>
+        <div class="drawer-section">
+          <h3>Party</h3>
+          <div id="party-list"></div>
+        </div>
 
-          <div class="action-input">
+        <div class="drawer-section">
+          <h3>Pending Actions</h3>
+          <div id="pending-actions"></div>
+        </div>
+
+        <details class="drawer-section utility-menu">
+          <summary>Tools</summary>
+          <div class="utility-buttons">
+            <button onclick="forceProcessTurn()" class="btn-secondary">Force Process Turn</button>
+            <button onclick="rerollLastResponse()" class="btn-secondary">Reroll Last</button>
+            <button onclick="recalculateXP()" class="btn-secondary">Recalc XP</button>
+            <button onclick="recalculateLoot()" class="btn-secondary">Recalc Loot</button>
+            <button onclick="recalculateInventory()" class="btn-secondary">Recalc Inventory</button>
+            <button onclick="recalculateACSpells()" class="btn-secondary">Recalc AC/Spells</button>
+          </div>
+        </details>
+      </aside>
+
+      <main class="story-main">
+        <div class="story-topbar">
+          <div class="game-info">
+            <span id="turn-counter">Turn: 0</span>
+            <span id="token-counter">Tokens: 0</span>
+            <span id="waiting-counter">Waiting: 0</span>
+            <button id="weather-toggle-btn" class="btn-weather" onclick="cycleWeather()">&#9748;</button>
+          </div>
+        </div>
+
+        <div id="story-container">
+          <canvas id="weather-canvas" aria-hidden="true"></canvas>
+          <div id="story-summary"></div>
+          <div id="story-history"></div>
+          <div id="narrator-typing" class="typing-indicator hidden">
+            <span class="typing-text">Narrator is typing</span>
+            <span class="typing-dots"><span>.</span><span>.</span><span>.</span></span>
+          </div>
+        </div>
+
+        <div class="action-bar" id="action-bar">
+          <div class="action-bar-top">
             <select id="action-character">
-              <option value="">Select your character</option>
+              <option value="">Select character</option>
             </select>
-            <textarea id="action-text" placeholder="Describe your action..." aria-label="Describe your character's action"></textarea>
             <div class="dice-roller" id="dice-roller">
-              <select id="dice-stat-select" class="dice-stat-select" title="Stat modifier for this roll">
+              <select id="dice-stat-select" class="dice-stat-select" title="Stat modifier">
                 <option value="none">No mod</option>
                 <option value="strength">STR</option>
                 <option value="dexterity">DEX</option>
@@ -86,7 +129,7 @@
                 <option value="wisdom">WIS</option>
                 <option value="charisma">CHA</option>
               </select>
-              <button class="dice-roll-btn" id="dice-roll-btn" onclick="rollActionDice()" title="Roll d20 before submitting">
+              <button class="dice-roll-btn" id="dice-roll-btn" onclick="rollActionDice()" title="Roll d20">
                 <div class="dice-face" id="dice-face">
                   <svg viewBox="0 0 100 100" width="28" height="28" class="d20-icon">
                     <polygon points="50,2 93,27 93,73 50,98 7,73 7,27" fill="none" stroke="currentColor" stroke-width="4"/>
@@ -101,38 +144,217 @@
                 <span class="dice-total" id="dice-total"></span>
               </div>
             </div>
-            <button onclick="submitAction()" id="submit-action-btn">Submit Action</button>
           </div>
-
-          <div class="game-info">
-            <span id="turn-counter">Turn: 0</span>
-            <span id="token-counter">Tokens: 0</span>
-            <span id="waiting-counter">Waiting for: 0 players</span>
-            <button id="weather-toggle-btn" class="btn-weather" onclick="cycleWeather()" aria-label="Toggle weather effect" title="Weather: None">&#9748;</button>
+          <div class="action-bar-bottom">
+            <textarea id="action-text" placeholder="What do you do?" rows="2"></textarea>
+            <button onclick="submitAction()" id="submit-action-btn" class="btn-submit">Submit</button>
           </div>
         </div>
-      </div>
+      </main>
     </div>
 
-    <!-- Characters Tab -->
-    <div id="characters-tab" class="tab-content" role="tabpanel" aria-labelledby="characters-tab-btn">
+    <!-- CHARACTERS TAB -->
+    <div id="characters-tab" class="tab-content">
       <div class="characters-container">
         <div class="character-creator">
-          <h2>Create Character (AI Guided)</h2>
-          <div class="chat-container" id="char-chat-container">
-            <div class="chat-messages" id="char-chat-messages">
-              <div class="chat-message assistant">
-                <div class="message-content">Click "Start Character Creation" to begin creating your Level 1 character with AI guidance!</div>
+          <h2>Create Character</h2>
+          <div class="creator-mode-toggle">
+            <button class="creator-mode-btn active" id="mode-form-btn">Form Builder</button>
+            <button class="creator-mode-btn" id="mode-ai-btn">AI Guided</button>
+          </div>
+
+          <!-- === FORM BUILDER (default) === -->
+          <div id="char-builder">
+            <div class="builder-tabs">
+              <button class="builder-tab active" data-step="0">Basics</button>
+              <button class="builder-tab" data-step="1">Stats</button>
+              <button class="builder-tab" data-step="2">Abilities</button>
+              <button class="builder-tab" data-step="3">Equipment</button>
+              <button class="builder-tab" data-step="4">Story</button>
+            </div>
+
+            <div class="builder-progress">
+              <div class="builder-progress-fill" id="builder-progress-fill" style="width: 20%"></div>
+            </div>
+
+            <!-- Step 0: Basics -->
+            <div id="builder-basics" class="builder-step active">
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="builder-player-name">Player Name</label>
+                  <input type="text" id="builder-player-name" placeholder="Your name">
+                </div>
+                <div class="form-group">
+                  <label for="builder-char-name">Character Name *</label>
+                  <input type="text" id="builder-char-name" placeholder="Your character's name">
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="builder-race">Race *</label>
+                  <select id="builder-race"><option value="">Loading...</option></select>
+                  <div id="race-info" class="info-panel"></div>
+                </div>
+                <div class="form-group">
+                  <label for="builder-class">Class *</label>
+                  <select id="builder-class"><option value="">Loading...</option></select>
+                  <div id="class-info" class="info-panel"></div>
+                </div>
+              </div>
+              <div class="form-group">
+                <label for="builder-background">Background</label>
+                <select id="builder-background"><option value="">Loading...</option></select>
+              </div>
+              <div class="form-group">
+                <label>Character Image <span class="form-hint">(optional, max 5MB)</span></label>
+                <div class="image-upload-area" id="image-upload-area">
+                  <div class="image-upload-placeholder" id="image-upload-placeholder">
+                    <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5">
+                      <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                      <circle cx="8.5" cy="8.5" r="1.5"/>
+                      <polyline points="21 15 16 10 5 21"/>
+                    </svg>
+                    <span>Tap to upload image</span>
+                  </div>
+                  <img id="image-preview" class="image-preview hidden" alt="Character preview">
+                  <input type="file" id="builder-image" accept="image/jpeg,image/png,image/webp,image/gif" class="hidden-file-input">
+                  <button id="remove-image-btn" class="btn-tiny hidden" style="color: var(--danger);">Remove Image</button>
+                </div>
               </div>
             </div>
-            <div class="chat-input-area">
-              <textarea id="char-chat-input" placeholder="Type your response... (Shift+Enter to send)" disabled rows="2"></textarea>
-              <button id="char-chat-send" onclick="sendCharacterMessage()" disabled>Send</button>
+
+            <!-- Step 1: Stats -->
+            <div id="builder-stats" class="builder-step">
+              <div class="stat-method-selector">
+                <label>Generation Method</label>
+                <div class="stat-method-buttons">
+                  <button class="stat-method-btn active" data-method="standard-array">Standard Array</button>
+                  <button class="stat-method-btn" data-method="point-buy">Point Buy</button>
+                  <button class="stat-method-btn" data-method="roll">Roll 4d6</button>
+                  <button class="stat-method-btn" data-method="manual">Manual</button>
+                </div>
+              </div>
+
+              <div id="stat-standard-array" class="stat-method-panel active">
+                <p class="form-hint">Assign values to stats: 15, 14, 13, 12, 10, 8</p>
+                <div class="stats-grid" id="stat-assign-grid">
+                  <!-- Populated by JS: 6 form-groups with <select> -->
+                </div>
+              </div>
+
+              <div id="stat-point-buy" class="stat-method-panel">
+                <div class="point-buy-header">
+                  <span>Points remaining: <strong id="points-remaining">27</strong>/27</span>
+                </div>
+                <div class="stats-grid" id="stat-pointbuy-grid">
+                  <!-- Populated by JS: 6 stats with +/- buttons -->
+                </div>
+              </div>
+
+              <div id="stat-roll" class="stat-method-panel">
+                <button class="btn-primary" id="roll-stats-btn" style="width: 100%; margin-bottom: 12px;">Roll Stats (4d6 drop lowest)</button>
+                <div class="stats-grid" id="stat-roll-grid">
+                  <!-- Populated after rolling -->
+                </div>
+              </div>
+
+              <div id="stat-manual" class="stat-method-panel">
+                <div class="stats-grid" id="stat-manual-grid">
+                  <!-- Populated by JS: 6 number inputs -->
+                </div>
+              </div>
+
+              <div id="racial-bonus-display" class="info-panel"></div>
+              <div id="final-stats-summary" class="stats-summary"></div>
+            </div>
+
+            <!-- Step 2: Abilities -->
+            <div id="builder-abilities" class="builder-step">
+              <div class="form-group">
+                <label>Skill Proficiencies</label>
+                <span class="form-hint" id="skills-remaining">Select race and class first</span>
+                <div id="skill-checkboxes" class="checkbox-grid"></div>
+              </div>
+
+              <div id="spells-section" class="builder-subsection hidden">
+                <div class="form-group">
+                  <label>Cantrips</label>
+                  <span class="form-hint" id="cantrips-remaining"></span>
+                  <div id="cantrip-selector" class="checkbox-grid"></div>
+                </div>
+                <div class="form-group">
+                  <label>Level 1 Spells</label>
+                  <span class="form-hint" id="spells-remaining-count"></span>
+                  <div id="spell-selector" class="checkbox-grid"></div>
+                </div>
+              </div>
+
+              <div id="class-features-display" class="info-panel"></div>
+            </div>
+
+            <!-- Step 3: Equipment -->
+            <div id="builder-equipment" class="builder-step">
+              <div class="form-group">
+                <label>Starting Gold</label>
+                <input type="number" id="builder-gold" min="0" value="10" style="max-width: 120px;">
+              </div>
+              <div class="form-group" style="position: relative;">
+                <label>Equipment</label>
+                <input type="text" id="equipment-search" placeholder="Search equipment to add...">
+                <div id="equipment-search-results" class="search-results-dropdown hidden"></div>
+              </div>
+              <div id="selected-equipment" class="selected-items-list">
+                <!-- JS renders: item name + quantity + remove btn -->
+              </div>
+              <div id="suggested-equipment" class="info-panel">
+                <strong>Suggested starting equipment:</strong>
+                <!-- Populated based on class -->
+              </div>
+            </div>
+
+            <!-- Step 4: Story -->
+            <div id="builder-story" class="builder-step">
+              <div class="form-group">
+                <label>
+                  Appearance
+                  <button class="btn-ai-help" id="ai-help-appearance" type="button">AI Help</button>
+                </label>
+                <textarea id="builder-appearance" rows="4" placeholder="Physical description — hair, eyes, build, distinguishing features..."></textarea>
+              </div>
+              <div class="form-group">
+                <label>
+                  Backstory
+                  <button class="btn-ai-help" id="ai-help-backstory" type="button">AI Help</button>
+                </label>
+                <textarea id="builder-backstory" rows="6" placeholder="Character history, motivations, key events..."></textarea>
+              </div>
+            </div>
+
+            <!-- Navigation -->
+            <div class="builder-nav">
+              <button class="btn-secondary" id="builder-prev" disabled>Previous</button>
+              <button class="btn-primary" id="builder-next">Next</button>
+              <button class="btn-primary hidden" id="builder-create">Create Character</button>
             </div>
           </div>
-          <div class="creator-buttons">
-            <button onclick="startCharacterCreation()" id="start-creation-btn">Start Character Creation</button>
-            <button onclick="resetCharacterCreation()" class="btn-secondary">Reset</button>
+
+          <!-- === AI GUIDED (hidden by default, existing chat UI) === -->
+          <div id="char-ai-creator" class="hidden">
+            <div class="chat-container" id="char-chat-container">
+              <div class="chat-messages" id="char-chat-messages">
+                <div class="chat-message assistant">
+                  <div class="message-content">Click "Start Character Creation" to begin creating your Level 1 character with AI guidance!</div>
+                </div>
+              </div>
+              <div class="chat-input-area">
+                <textarea id="char-chat-input" placeholder="Type your response... (Shift+Enter to send)" disabled rows="2"></textarea>
+                <button id="char-chat-send" onclick="sendCharacterMessage()" disabled>Send</button>
+              </div>
+            </div>
+            <div class="creator-buttons">
+              <button onclick="startCharacterCreation()" id="start-creation-btn">Start Character Creation</button>
+              <button onclick="resetCharacterCreation()" class="btn-secondary">Reset</button>
+            </div>
           </div>
         </div>
 
@@ -143,8 +365,8 @@
       </div>
     </div>
 
-    <!-- Settings Tab -->
-    <div id="settings-tab" class="tab-content" role="tabpanel" aria-labelledby="settings-tab-btn">
+    <!-- SETTINGS TAB -->
+    <div id="settings-tab" class="tab-content">
       <div class="settings-container">
         <h2>API Configurations</h2>
         <p class="settings-note">Manage multiple API providers (OpenAI, DeepSeek, Local LLMs, etc.)</p>
@@ -452,7 +674,7 @@
       <div class="quick-edit-tabs" role="tablist" aria-label="Character edit sections">
         <button class="quick-edit-tab active" onclick="showQuickEditSection('basic')" role="tab" aria-selected="true" aria-controls="quick-edit-basic">Basic Info</button>
         <button class="quick-edit-tab" onclick="showQuickEditSection('stats')" role="tab" aria-selected="false" aria-controls="quick-edit-stats">Stats</button>
-        <button class="quick-edit-tab" onclick="showQuickEditSection('combat')" role="tab" aria-selected="false" aria-controls="quick-edit-combat">Combat</button>
+        <button class="quick-edit-tab" onclick="showQuickEditSection('combat')" role="tab" aria-selected="false" aria-controls="quick-edit-combat">Vitals</button>
         <button class="quick-edit-tab" onclick="showQuickEditSection('abilities')" role="tab" aria-selected="false" aria-controls="quick-edit-abilities">Abilities</button>
         <button class="quick-edit-tab" onclick="showQuickEditSection('story')" role="tab" aria-selected="false" aria-controls="quick-edit-story">Story</button>
       </div>

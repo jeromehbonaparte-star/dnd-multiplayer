@@ -1,6 +1,6 @@
 /**
  * Tag Parser Service
- * Parses DM response tags like [XP:], [HP:], [ITEM:], [SPELL:], [AC:], [COMBAT:], [MONEY:]
+ * Parses DM response tags like [XP:], [HP:], [ITEM:], [SPELL:], [AC:], [MONEY:]
  */
 
 const { v4: uuidv4 } = require('uuid');
@@ -366,58 +366,6 @@ function parseACChanges(text, characters) {
 }
 
 /**
- * Parse combat commands from AI response
- * Format: [COMBAT: START Name] or [COMBAT: END] or [COMBAT: NEXT]
- * @param {string} text - AI response text
- * @returns {Array} Array of combat commands
- */
-function parseCombatCommands(text) {
-  const commands = [];
-  const combatMatches = text.match(/\[COMBAT:\s*([^\]]+)\]/gi);
-
-  if (!combatMatches) return commands;
-
-  for (const match of combatMatches) {
-    const content = match.replace(/\[COMBAT:\s*/i, '').replace(']', '').trim();
-
-    if (content.toLowerCase() === 'end') {
-      commands.push({ action: 'end' });
-    } else if (content.toLowerCase() === 'next') {
-      commands.push({ action: 'next' });
-    } else if (content.toLowerCase().startsWith('start')) {
-      const startContent = content.replace(/^start\s*/i, '').trim() || 'Combat';
-
-      // Check for extended format: "CombatName | Enemy1 15hp 13ac, Enemy2 30hp 16ac"
-      const pipeIdx = startContent.indexOf('|');
-      if (pipeIdx !== -1) {
-        const name = startContent.substring(0, pipeIdx).trim() || 'Combat';
-        const enemyDefs = startContent.substring(pipeIdx + 1).trim();
-        const enemies = [];
-
-        for (const enemyStr of enemyDefs.split(',')) {
-          const trimmed = enemyStr.trim();
-          // Match: "Name HPvalue ACvalue" e.g. "Goblin 15hp 13ac" or "Orc Chief 45hp 16ac"
-          const enemyMatch = trimmed.match(/^(.+?)\s+(\d+)\s*hp\s+(\d+)\s*ac$/i);
-          if (enemyMatch) {
-            enemies.push({
-              name: enemyMatch[1].trim(),
-              hp: parseInt(enemyMatch[2]),
-              ac: parseInt(enemyMatch[3])
-            });
-          }
-        }
-
-        commands.push({ action: 'start', name: name, enemies: enemies.length > 0 ? enemies : undefined });
-      } else {
-        commands.push({ action: 'start', name: startContent });
-      }
-    }
-  }
-
-  return commands;
-}
-
-/**
  * Parse all tags from AI response
  * @param {string} text - AI response text
  * @param {Array} characters - Array of character objects
@@ -431,7 +379,6 @@ function parseAllTags(text, characters) {
     hp: parseHPChanges(text, characters),
     spellSlots: parseSpellSlotChanges(text, characters),
     ac: parseACChanges(text, characters),
-    combat: parseCombatCommands(text)
   };
 }
 
@@ -500,7 +447,6 @@ module.exports = {
   parseHPChanges,
   parseSpellSlotChanges,
   parseACChanges,
-  parseCombatCommands,
   parseAllTags,
   applyInventoryChange,
   calculateNewHP

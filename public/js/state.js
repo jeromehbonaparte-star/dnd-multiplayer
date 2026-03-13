@@ -10,7 +10,6 @@ const state = {
   sessionCharacters: [],
   socket: null,
   isTurnProcessing: false,
-  currentCombat: null,
   storyScrollPosition: 0,
 
   // Character creation

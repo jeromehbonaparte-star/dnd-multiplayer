@@ -17,7 +17,7 @@ export function initKeyboardNavigation() {
     actionTextarea.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
-        const submitBtn = document.querySelector('.action-input button[onclick*="submitAction"]');
+        const submitBtn = document.getElementById('submit-action-btn');
         if (submitBtn && !submitBtn.disabled) {
           submitBtn.click();
         }
@@ -26,7 +26,7 @@ export function initKeyboardNavigation() {
   }
 
   // Arrow keys for main nav tabs
-  setupTablistKeyboard(document.getElementById('nav-tabs'));
+  setupTablistKeyboard(document.getElementById('top-nav-tabs'));
 
   // Arrow keys for quick-edit tabs
   setupTablistKeyboard(document.querySelector('.quick-edit-tabs'));
@@ -141,7 +141,7 @@ function setupModalFocusManagement() {
  * Call this after switching tabs.
  */
 export function updateTabAriaStates(activeTabBtn) {
-  const tablist = activeTabBtn.closest('[role="tablist"], .nav-tabs, .quick-edit-tabs');
+  const tablist = activeTabBtn.closest('[role="tablist"], .top-nav-tabs, .quick-edit-tabs');
   if (!tablist) return;
 
   tablist.querySelectorAll('[role="tab"], .tab-btn, .quick-edit-tab').forEach(btn => {

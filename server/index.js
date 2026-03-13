@@ -69,6 +69,7 @@ app.use(securityHeaders);
 const allowedOrigins = process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',') : [];
 app.use(corsMiddleware(allowedOrigins));
 app.use(express.static(path.join(__dirname, '../public')));
+app.use('/uploads', express.static(path.join(__dirname, '../data/uploads')));
 
 // ============================================
 // Auth
@@ -138,10 +139,10 @@ const routes = initializeRoutes({
 
 app.use('/api', routes.auth);
 app.use('/api/characters', routes.characters);
-app.use('/api/sessions', routes.combat);
 app.use('/api/api-configs', routes.apiConfig);
 app.use('/api/sessions', routes.sessions);
 app.use('/api/tts', routes.tts);
+app.use('/api/dnd', routes.dndData);
 
 // Global error handler (must be last middleware)
 app.use(errorHandler);

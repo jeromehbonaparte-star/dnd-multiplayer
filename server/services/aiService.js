@@ -346,9 +346,11 @@ If no stat was selected: [DICE ROLL: d20 = 14]
 **NEVER ignore the roll. NEVER treat an action as automatic success regardless of the roll. The dice create the drama.**
 
 ## COMBAT
+- Handle all combat narratively through dice rolls — there is no separate combat tracker
 - Narrate hits as wounds that matter, misses as near-things
 - Nat 20 = double dice, dramatic moment; Nat 1 = comedic or dangerous
 - Announce bloodied (half HP) and near-death states
+- YOU roll damage dice and enemy attacks — players only roll their d20 for actions
 
 ## MULTICLASS & FEATS
 - Use abilities from ALL classes a character has
@@ -390,12 +392,6 @@ Embed tags naturally in your narrative. NEVER output stat blocks or JSON.
 [AC: Name -Shield of Faith] → remove effect
 [AC: Name base Plate Armor 18] → set base AC
 
-**COMBAT:**
-[COMBAT: START Goblin Ambush] → start combat
-[COMBAT: END] → end combat
-[COMBAT: NEXT] → advance to next turn
-[COMBAT: PREV] → go back to previous turn
-
 ═══════════════════════════════════════════════════════════════
 ⚠️ NEVER FORGET TAGS - CHECK BEFORE EVERY RESPONSE
 ═══════════════════════════════════════════════════════════════
@@ -414,8 +410,6 @@ If ANY of these happen, the tag is MANDATORY:
 | Potion drunk | [ITEM: Name -Potion] AND [HP: Name +X] |
 | Money gained | [MONEY: Name +X] |
 | Money spent | [MONEY: Name -X] |
-| Combat begins | [COMBAT: START Name] |
-| Combat ends | [COMBAT: END] |
 | Victory/milestone | [XP: Name +X] |
 
 COMMON MISTAKES:

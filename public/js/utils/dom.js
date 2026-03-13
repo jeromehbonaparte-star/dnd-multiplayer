@@ -93,9 +93,25 @@ export function scrollChatToBottom() {
 }
 
 /**
- * Mobile menu toggle.
+ * Game drawer (slide-out sidebar for sessions/party)
  */
-export function toggleMobileMenu() {
-  const navTabs = document.getElementById('nav-tabs');
-  if (navTabs) navTabs.classList.toggle('active');
+export function openGameDrawer() {
+  document.getElementById('game-drawer')?.classList.add('open');
+  document.getElementById('drawer-overlay')?.classList.add('open');
+  document.body.classList.add('drawer-open');
+}
+
+export function closeGameDrawer() {
+  document.getElementById('game-drawer')?.classList.remove('open');
+  document.getElementById('drawer-overlay')?.classList.remove('open');
+  document.body.classList.remove('drawer-open');
+}
+
+export function toggleGameDrawer() {
+  const drawer = document.getElementById('game-drawer');
+  if (drawer?.classList.contains('open')) {
+    closeGameDrawer();
+  } else {
+    openGameDrawer();
+  }
 }

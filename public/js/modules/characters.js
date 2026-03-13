@@ -265,9 +265,12 @@ export function renderCharactersList() {
 
       <div class="card-header">
         <div class="card-header-main">
-          <h3>${escapeHtml(c.character_name)}</h3>
+          ${c.image_url ? `<img src="${escapeHtml(c.image_url)}" class="char-avatar" alt="${escapeHtml(c.character_name)}">` : `<div class="char-avatar-placeholder"></div>`}
+          <div>
+            <h3>${escapeHtml(c.character_name)}</h3>
+            <div class="player">Played by ${escapeHtml(c.player_name)}</div>
+          </div>
         </div>
-        <div class="player">Played by ${escapeHtml(c.player_name)}</div>
         <div class="race-class">${escapeHtml(c.race)} ${escapeHtml(classDisplay)}</div>
         <div class="card-summary">
           <div class="stats stats-mini">

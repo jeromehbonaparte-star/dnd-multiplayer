@@ -8,9 +8,8 @@
 import { getState, setState } from '../state.js';
 import { api } from '../api.js';
 import { escapeHtml, formatContent } from '../utils/formatters.js';
-import { showNotification, scrollStoryToBottom, hideNarratorTyping } from '../utils/dom.js';
+import { showNotification, scrollStoryToBottom, hideNarratorTyping, closeGameDrawer } from '../utils/dom.js';
 import { loadCharacters, updateCharacterSelect, updatePartyList } from './characters.js';
-import { loadCombat } from './combat.js';
 import { saveAppState } from './auth.js';
 
 // ============================================
@@ -254,7 +253,7 @@ export async function loadSession(id) {
     updatePendingActions(data.pendingActions);
     loadSessions();
     saveAppState();
-    loadCombat();
+    closeGameDrawer();
   } catch (error) {
     console.error('Failed to load session:', error);
   }
@@ -930,7 +929,7 @@ export async function submitAction() {
 
 export function updateActionFormState() {
   const isTurnProcessing = getState('isTurnProcessing');
-  const submitBtn = document.getElementById('submit-action-btn') || document.querySelector('.action-input button[onclick*="submitAction"]');
+  const submitBtn = document.getElementById('submit-action-btn');
   const actionTextarea = document.getElementById('action-text');
 
   if (submitBtn) {

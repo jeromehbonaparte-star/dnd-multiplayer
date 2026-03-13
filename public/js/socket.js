@@ -6,7 +6,6 @@ import { getState, setState } from './state.js';
 import { showConnectionStatus, hideConnectionStatus, showNotification, showNarratorTyping, hideNarratorTyping } from './utils/dom.js';
 import { loadCharacters } from './modules/characters.js';
 import { loadSessions, loadSession, updatePendingActions, updateActionFormState, appendStreamChunk, finalizeStreamedContent } from './modules/sessions.js';
-import { renderCombatTracker } from './modules/combat.js';
 import { loadSessionSummary } from './modules/settings.js';
 
 export function initSocket() {
@@ -198,36 +197,6 @@ export function initSocket() {
     }
     loadCharacters();
     showNotification(`${character.character_name} leveled up to ${character.level}! ${summary}`);
-  });
-
-  // Combat tracker events
-  socket.off('combat_started');
-  socket.on('combat_started', ({ sessionId, combat }) => {
-    const currentSession = getState('currentSession');
-    if (currentSession && currentSession.id === sessionId) {
-      setState({ currentCombat: combat });
-      renderCombatTracker();
-      showNotification('Combat started!');
-    }
-  });
-
-  socket.off('combat_updated');
-  socket.on('combat_updated', ({ sessionId, combat }) => {
-    const currentSession = getState('currentSession');
-    if (currentSession && currentSession.id === sessionId) {
-      setState({ currentCombat: combat });
-      renderCombatTracker();
-    }
-  });
-
-  socket.off('combat_ended');
-  socket.on('combat_ended', ({ sessionId }) => {
-    const currentSession = getState('currentSession');
-    if (currentSession && currentSession.id === sessionId) {
-      setState({ currentCombat: null });
-      renderCombatTracker();
-      showNotification('Combat ended');
-    }
   });
 
   socket.off('session_compacted');

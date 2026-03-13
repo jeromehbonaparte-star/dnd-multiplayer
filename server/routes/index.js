@@ -5,10 +5,10 @@
 
 const { createAuthRoutes } = require('./auth');
 const { createCharacterRoutes } = require('./characters');
-const { createCombatRoutes } = require('./combat');
 const { createApiConfigRoutes } = require('./apiConfig');
 const { createSessionRoutes } = require('./sessions');
 const { createTTSRoutes } = require('./tts');
+const { createDndDataRoutes } = require('./dndData');
 
 /**
  * Initialize all routes with dependencies
@@ -27,7 +27,6 @@ function initializeRoutes(deps) {
   return {
     auth: createAuthRoutes(db, auth, authLimiter),
     characters: createCharacterRoutes({ db, io, auth, aiService, getActiveApiConfig }),
-    combat: createCombatRoutes(db, io, auth),
     apiConfig: createApiConfigRoutes(db, auth),
     sessions: createSessionRoutes({
       db, io, auth, aiService,
@@ -42,7 +41,8 @@ function initializeRoutes(deps) {
       AI_RESPONSE_PREFIX,
       getSessionCharacters
     }),
-    tts: createTTSRoutes({ db, auth, getOpenAIApiKey })
+    tts: createTTSRoutes({ db, auth, getOpenAIApiKey }),
+    dndData: createDndDataRoutes(db, auth)
   };
 }
 
@@ -50,8 +50,8 @@ module.exports = {
   initializeRoutes,
   createAuthRoutes,
   createCharacterRoutes,
-  createCombatRoutes,
   createApiConfigRoutes,
   createSessionRoutes,
-  createTTSRoutes
+  createTTSRoutes,
+  createDndDataRoutes
 };

@@ -113,6 +113,12 @@ function initializeTables() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (session_id) REFERENCES game_sessions(id)
     );
+
+    CREATE TABLE IF NOT EXISTS dnd_data_cache (
+      key TEXT PRIMARY KEY,
+      data TEXT NOT NULL,
+      fetched_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 
   // Create indexes for better performance
@@ -155,6 +161,7 @@ function runMigrations() {
     { col: 'appearance', sql: "ALTER TABLE characters ADD COLUMN appearance TEXT DEFAULT ''" },
     { col: 'backstory', sql: "ALTER TABLE characters ADD COLUMN backstory TEXT DEFAULT ''" },
     { col: 'initiative_bonus', sql: "ALTER TABLE characters ADD COLUMN initiative_bonus INTEGER DEFAULT 0" },
+    { col: 'image_url', sql: "ALTER TABLE characters ADD COLUMN image_url TEXT DEFAULT ''" },
   ];
 
   for (const { col, sql } of migrations) {

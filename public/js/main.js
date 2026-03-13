@@ -24,7 +24,6 @@ import {
   recalculateXP, recalculateLoot, recalculateInventory, recalculateACSpells,
   rollActionDice, getCurrentDiceRoll
 } from './modules/sessions.js';
-import { loadCombat, renderCombatTracker } from './modules/combat.js';
 import {
   loadSettings, saveSettings,
   addApiConfig, testNewConfig, activateApiConfig, testApiConfig, deleteApiConfig, testConnection,
@@ -44,11 +43,12 @@ import {
 import { openQuickEditModal, closeQuickEditModal, saveQuickEdit, showQuickEditSection } from './modules/modals/quickEdit.js';
 import { toggleTheme, loadTheme } from './modules/theme.js';
 import { ttsManager, handleTTSClick } from './modules/tts.js';
-import { showNotification, hideLevelUpNotification, scrollStoryToBottom, toggleMobileMenu } from './utils/dom.js';
+import { showNotification, hideLevelUpNotification, scrollStoryToBottom, openGameDrawer, closeGameDrawer, toggleGameDrawer } from './utils/dom.js';
 import { escapeHtml } from './utils/formatters.js';
 import './utils/modalManager.js'; // Registers Escape-to-close handler
 import { initKeyboardNavigation, updateTabAriaStates } from './utils/keyboard.js';
 import { initWeather, cycleWeather, setWeather } from './modules/weather.js';
+import { initCharacterBuilder, saveNewCharacter, resetBuilder } from './modules/characterBuilder.js';
 
 // ============================================
 // Expose functions to window for onclick handlers in HTML
@@ -62,7 +62,9 @@ window.closeAdminModal = closeAdminModal;
 window.toggleTheme = toggleTheme;
 
 // Mobile
-window.toggleMobileMenu = toggleMobileMenu;
+window.openGameDrawer = openGameDrawer;
+window.closeGameDrawer = closeGameDrawer;
+window.toggleGameDrawer = toggleGameDrawer;
 
 // Characters
 window.deleteCharacter = deleteCharacter;
@@ -152,6 +154,10 @@ window.hideLevelUpNotification = hideLevelUpNotification;
 window.cycleWeather = cycleWeather;
 window.setWeather = setWeather;
 
+// Character Builder
+window.saveNewCharacter = saveNewCharacter;
+window.resetBuilder = resetBuilder;
+
 // ============================================
 // Global click handler for section toggles (capture phase)
 // ============================================
@@ -210,53 +216,77 @@ document.addEventListener('DOMContentLoaded', () => {
   // Initialize weather effect system (starts disabled)
   initWeather();
 
-  // Tab navigation
-  document.querySelectorAll('.tab-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const targetTab = btn.dataset.tab;
-      const currentTab = document.querySelector('.tab-btn.active')?.dataset.tab;
+  // Initialize character builder form
+  initCharacterBuilder();
 
-      // Require admin password for settings tab
-      if (targetTab === 'settings' && !getState('isAdminAuthenticated')) {
-        const authenticated = await promptAdminLogin();
-        if (!authenticated) return;
+  // Shared tab switching function
+  async function switchTab(targetTab) {
+    const currentTab = document.querySelector('.tab-btn.active')?.dataset.tab
+                    || document.querySelector('.bottom-nav-btn.active')?.dataset.tab;
+
+    // Require admin password for settings tab
+    if (targetTab === 'settings' && !getState('isAdminAuthenticated')) {
+      const authenticated = await promptAdminLogin();
+      if (!authenticated) return;
+    }
+
+    // Save scroll position when leaving game tab
+    if (currentTab === 'game') {
+      const storyContainer = document.getElementById('story-container');
+      if (storyContainer) {
+        setState({ storyScrollPosition: storyContainer.scrollTop });
       }
+    }
 
-      // Save scroll position when leaving game tab
-      if (currentTab === 'game') {
+    // Update all tab button active states (top nav + bottom nav)
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.bottom-nav-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+
+    // Activate matching buttons
+    document.querySelectorAll(`.tab-btn[data-tab="${targetTab}"]`).forEach(b => b.classList.add('active'));
+    document.querySelectorAll(`.bottom-nav-btn[data-tab="${targetTab}"]`).forEach(b => b.classList.add('active'));
+    document.getElementById(`${targetTab}-tab`)?.classList.add('active');
+
+    // Update ARIA states
+    const activeBtn = document.querySelector(`.tab-btn[data-tab="${targetTab}"]`);
+    if (activeBtn) updateTabAriaStates(activeBtn);
+
+    // Restore scroll position when returning to game tab
+    if (targetTab === 'game') {
+      requestAnimationFrame(() => {
         const storyContainer = document.getElementById('story-container');
         if (storyContainer) {
-          setState({ storyScrollPosition: storyContainer.scrollTop });
+          storyContainer.scrollTop = getState('storyScrollPosition');
         }
-      }
+      });
+    }
 
-      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    // Load settings when tab is accessed
+    if (targetTab === 'settings') {
+      loadSettings();
+    }
 
-      btn.classList.add('active');
-      document.getElementById(`${targetTab}-tab`).classList.add('active');
+    saveAppState();
+  }
 
-      // Update ARIA states for tab buttons
-      updateTabAriaStates(btn);
-
-      // Restore scroll position when returning to game tab
-      if (targetTab === 'game') {
-        requestAnimationFrame(() => {
-          const storyContainer = document.getElementById('story-container');
-          if (storyContainer) {
-            storyContainer.scrollTop = getState('storyScrollPosition');
-          }
-        });
-      }
-
-      // Load settings when tab is accessed
-      if (targetTab === 'settings') {
-        loadSettings();
-      }
-
-      saveAppState();
-    });
+  // Wire top nav tab buttons
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => switchTab(btn.dataset.tab));
   });
+
+  // Wire bottom nav buttons
+  document.querySelectorAll('.bottom-nav-btn').forEach(btn => {
+    btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+  });
+
+  // Drawer toggle
+  const drawerToggle = document.getElementById('drawer-toggle');
+  if (drawerToggle) drawerToggle.addEventListener('click', toggleGameDrawer);
+
+  // Drawer overlay click-to-close
+  const drawerOverlay = document.getElementById('drawer-overlay');
+  if (drawerOverlay) drawerOverlay.addEventListener('click', closeGameDrawer);
 
   // Enter key on admin password input
   const adminInput = document.getElementById('admin-password-input');

@@ -37,7 +37,6 @@ const { createAuthMiddleware } = require('./middleware/auth');
 const {
   createAuthRoutes,
   createCharacterRoutes,
-  createCombatRoutes,
   createApiConfigRoutes
 } = require('./routes');
 
@@ -97,7 +96,6 @@ app.use('/api/', apiLimiter);
 // Mount modular routes
 app.use('/api', createAuthRoutes(db, auth, authLimiter));
 app.use('/api/characters', createCharacterRoutes(db, io, auth, aiService));
-app.use('/api/sessions', createCombatRoutes(db, io, auth));  // Combat routes are under /sessions/:id/combat
 app.use('/api/api-configs', createApiConfigRoutes(db, auth));
 
 // ============================================
