@@ -13,7 +13,8 @@ import {
   toggleSection, expandAllSections, collapseAllSections,
   startCharacterCreation, sendCharacterMessage, resetCharacterCreation,
   loadSectionStates, attachSectionToggleListeners,
-  toggleInventory, formatMulticlass
+  toggleInventory, formatMulticlass,
+  initAvatarUpload
 } from './modules/characters.js';
 import {
   loadSessions, loadSession, deleteSession,
@@ -218,6 +219,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Initialize character builder form
   initCharacterBuilder();
+
+  // Initialize avatar click-to-upload
+  initAvatarUpload();
 
   // Shared tab switching function
   async function switchTab(targetTab) {

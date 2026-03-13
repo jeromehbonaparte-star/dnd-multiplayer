@@ -10,14 +10,34 @@
     "subraces": ["Hill Dwarf"]
   },
   {
-    "index": "elf",
-    "name": "Elf",
+    "index": "high-elf",
+    "name": "High Elf",
     "speed": 30,
     "size": "Medium",
-    "ability_bonuses": [{"ability": "DEX", "bonus": 2}],
-    "traits": ["Darkvision", "Keen Senses", "Fey Ancestry", "Trance"],
+    "ability_bonuses": [{"ability": "DEX", "bonus": 2}, {"ability": "INT", "bonus": 1}],
+    "traits": ["Darkvision", "Keen Senses", "Fey Ancestry", "Trance", "Elf Weapon Training", "Cantrip (1 wizard cantrip)"],
     "languages": ["Common", "Elvish"],
-    "subraces": ["High Elf"]
+    "subraces": []
+  },
+  {
+    "index": "wood-elf",
+    "name": "Wood Elf",
+    "speed": 35,
+    "size": "Medium",
+    "ability_bonuses": [{"ability": "DEX", "bonus": 2}, {"ability": "WIS", "bonus": 1}],
+    "traits": ["Darkvision", "Keen Senses", "Fey Ancestry", "Trance", "Elf Weapon Training", "Fleet of Foot", "Mask of the Wild"],
+    "languages": ["Common", "Elvish"],
+    "subraces": []
+  },
+  {
+    "index": "dark-elf",
+    "name": "Dark Elf (Drow)",
+    "speed": 30,
+    "size": "Medium",
+    "ability_bonuses": [{"ability": "DEX", "bonus": 2}, {"ability": "CHA", "bonus": 1}],
+    "traits": ["Superior Darkvision (120ft)", "Keen Senses", "Fey Ancestry", "Trance", "Drow Magic (Dancing Lights)", "Sunlight Sensitivity"],
+    "languages": ["Common", "Elvish"],
+    "subraces": []
   },
   {
     "index": "halfling",

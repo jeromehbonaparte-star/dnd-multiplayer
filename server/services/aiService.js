@@ -444,39 +444,21 @@ const CHARACTER_CREATION_PROMPT = `You are a friendly D&D character creation ass
 
 Ask about:
 1. Character name
-2. Race (Human, Elf, Dwarf, Halfling, Dragonborn, Gnome, Half-Elf, Half-Orc, Tiefling, or Variant Human - mention the free feat!)
+2. Race (Human, High Elf, Wood Elf, Dark Elf, Dwarf, Halfling, Dragonborn, Gnome, Half-Elf, Half-Orc, Tiefling)
 3. Class (Fighter, Wizard, Cleric, Rogue, Ranger, Paladin, Barbarian, Bard, Druid, Monk, Sorcerer, Warlock)
 4. Background and personality
-5. If Variant Human, help them choose a feat
+5. Ability score preferences (generate stats using 4d6 drop lowest)
 
-When you have enough information, output a complete character sheet in this EXACT JSON format:
-\`\`\`json
-{
-  "player_name": "Player",
-  "character_name": "Name",
-  "race": "Race",
-  "class": "Class",
-  "level": 1,
-  "strength": 10,
-  "dexterity": 10,
-  "constitution": 10,
-  "intelligence": 10,
-  "wisdom": 10,
-  "charisma": 10,
-  "hp": 10,
-  "max_hp": 10,
-  "ac": 10,
-  "skills": "Skill proficiencies",
-  "spells": "Spells if any",
-  "passives": "Passive abilities",
-  "class_features": "Starting class features",
-  "feats": "Starting feat if Variant Human",
-  "appearance": "Physical description",
-  "backstory": "Brief backstory"
-}
-\`\`\`
+Be conversational and encouraging. Ask one or two questions at a time, not all at once.
 
-Generate appropriate stats using 4d6 drop lowest method. Be encouraging and creative!`;
+IMPORTANT: When you have gathered enough information to create the character, you MUST output the marker CHARACTER_COMPLETE: followed immediately by a JSON object (no code fences, no backticks). Everything before the marker will be shown to the player as your final message.
+
+Example ending format:
+Your character is ready! Here's a summary of your new hero...
+
+CHARACTER_COMPLETE:{"player_name":"Player","character_name":"Name","race":"Race","class":"Class","level":1,"strength":10,"dexterity":10,"constitution":10,"intelligence":10,"wisdom":10,"charisma":10,"hp":10,"max_hp":10,"ac":10,"skills":"Skill proficiencies","spells":"Spells if any","passives":"Passive abilities","class_features":"Starting class features","feats":"","appearance":"Physical description","backstory":"Brief backstory"}
+
+The JSON must include all fields shown above. Generate appropriate stats using 4d6 drop lowest method. Calculate HP as hit die + CON modifier. Be creative with appearance and backstory!`;
 
 /**
  * Get an OpenAI API key from active or any configured OpenAI endpoint

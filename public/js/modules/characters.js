@@ -611,3 +611,53 @@ export function formatMulticlass(classes) {
   if (!classes || Object.keys(classes).length === 0) return '';
   return Object.entries(classes).map(([cls, lvl]) => `${cls} ${lvl}`).join(' / ');
 }
+
+// ============================================
+// Avatar Upload (click avatar to change image)
+// ============================================
+
+let avatarFileInput = null;
+let avatarTargetCharId = null;
+
+export function initAvatarUpload() {
+  avatarFileInput = document.createElement('input');
+  avatarFileInput.type = 'file';
+  avatarFileInput.accept = 'image/jpeg,image/png,image/webp,image/gif';
+  avatarFileInput.style.display = 'none';
+  document.body.appendChild(avatarFileInput);
+
+  avatarFileInput.addEventListener('change', async () => {
+    if (!avatarFileInput.files[0] || !avatarTargetCharId) return;
+    const file = avatarFileInput.files[0];
+    if (file.size > 5 * 1024 * 1024) {
+      showNotification('Image must be under 5MB');
+      return;
+    }
+    const formData = new FormData();
+    formData.append('image', file);
+    try {
+      const res = await fetch(`/api/characters/${avatarTargetCharId}/image`, {
+        method: 'POST',
+        headers: { 'X-Admin-Password': getState('adminPassword') || '' },
+        body: formData
+      });
+      if (!res.ok) throw new Error('Upload failed');
+      showNotification('Avatar updated!');
+      loadCharacters();
+    } catch (e) {
+      showNotification('Failed to upload avatar: ' + e.message);
+    }
+    avatarFileInput.value = '';
+    avatarTargetCharId = null;
+  });
+
+  document.addEventListener('click', (e) => {
+    const avatar = e.target.closest('.char-avatar, .char-avatar-placeholder');
+    if (!avatar) return;
+    const card = avatar.closest('.character-card[data-id]');
+    if (!card) return;
+    e.stopPropagation();
+    avatarTargetCharId = card.dataset.id;
+    avatarFileInput.click();
+  });
+}

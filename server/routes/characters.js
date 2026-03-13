@@ -29,6 +29,99 @@ function createCharacterRoutes(deps) {
   // XP thresholds for each level (D&D 5e)
   const XP_THRESHOLDS = [0, 300, 900, 2700, 6500, 14000, 23000, 34000, 48000, 64000, 85000, 100000, 120000, 140000, 165000, 195000, 225000, 265000, 305000, 355000];
 
+  const STATIC_CLASSES = JSON.parse(
+    fs.readFileSync(path.join(__dirname, '../data/srd/classes.json'), 'utf-8')
+  );
+
+  const CLASS_FEATURES_L1 = {
+    'Barbarian': 'Rage (2/long rest, +2 damage), Unarmored Defense (AC = 10 + DEX + CON)',
+    'Bard': 'Bardic Inspiration (d6, CHA mod/long rest), Spellcasting',
+    'Cleric': 'Spellcasting, Divine Domain (choose at creation)',
+    'Druid': 'Druidic (secret language), Spellcasting',
+    'Fighter': 'Fighting Style (choose one), Second Wind (1d10 + 1 HP, 1/short rest)',
+    'Monk': 'Unarmored Defense (AC = 10 + DEX + WIS), Martial Arts (d4)',
+    'Paladin': 'Divine Sense (1 + CHA mod/long rest), Lay on Hands (5 HP pool)',
+    'Ranger': 'Favored Enemy (choose one), Natural Explorer (choose one terrain)',
+    'Rogue': 'Expertise (2 skills), Sneak Attack (1d6), Thieves\' Cant',
+    'Sorcerer': 'Spellcasting, Sorcerous Origin (choose at creation)',
+    'Warlock': 'Otherworldly Patron (choose at creation), Pact Magic',
+    'Wizard': 'Spellcasting, Arcane Recovery (1/long rest, recover spell slots on short rest)',
+  };
+
+  const RACIAL_TRAITS = {
+    'Human': '',
+    'High Elf': 'Darkvision (60ft), Keen Senses, Fey Ancestry, Trance, Elf Weapon Training, Cantrip (1 wizard cantrip)',
+    'Wood Elf': 'Darkvision (60ft), Keen Senses, Fey Ancestry, Trance, Elf Weapon Training, Fleet of Foot, Mask of the Wild',
+    'Dark Elf (Drow)': 'Superior Darkvision (120ft), Keen Senses, Fey Ancestry, Trance, Drow Magic (Dancing Lights), Sunlight Sensitivity',
+    'Elf': 'Darkvision (60ft), Keen Senses, Fey Ancestry, Trance',
+    'Dwarf': 'Darkvision (60ft), Dwarven Resilience, Dwarven Combat Training, Stonecunning',
+    'Halfling': 'Lucky, Brave, Halfling Nimbleness',
+    'Dragonborn': 'Draconic Ancestry, Breath Weapon, Damage Resistance',
+    'Gnome': 'Darkvision (60ft), Gnome Cunning',
+    'Half-Elf': 'Darkvision (60ft), Fey Ancestry, Skill Versatility (2 extra skill proficiencies)',
+    'Half-Orc': 'Darkvision (60ft), Menacing, Relentless Endurance, Savage Attacks',
+    'Tiefling': 'Darkvision (60ft), Hellish Resistance (fire), Infernal Legacy (Thaumaturgy cantrip)',
+  };
+
+  function enrichCharacter(id) {
+    const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(id);
+    if (!character) return;
+
+    const calcMod = (score) => Math.floor(((score || 10) - 10) / 2);
+    const updates = {};
+
+    // Passives — check skill proficiency for bonus
+    const wisMod = calcMod(character.wisdom);
+    const intMod = calcMod(character.intelligence);
+    const skills = (character.skills || '').toLowerCase();
+    const profBonus = 2; // Level 1
+    const passivePerception = 10 + wisMod + (skills.includes('perception') ? profBonus : 0);
+    const passiveInsight = 10 + wisMod + (skills.includes('insight') ? profBonus : 0);
+    const passiveInvestigation = 10 + intMod + (skills.includes('investigation') ? profBonus : 0);
+    updates.passives = `Passive Perception: ${passivePerception}, Passive Insight: ${passiveInsight}, Passive Investigation: ${passiveInvestigation}`;
+
+    // AC — class-specific unarmored defense
+    const dexMod = calcMod(character.dexterity);
+    const conMod = calcMod(character.constitution);
+    const className = character.class || '';
+    let ac = 10 + dexMod;
+    let acSource = 'Unarmored';
+
+    if (className === 'Barbarian') {
+      ac = 10 + dexMod + conMod;
+      acSource = 'Unarmored Defense (Barbarian)';
+    } else if (className === 'Monk') {
+      ac = 10 + dexMod + calcMod(character.wisdom);
+      acSource = 'Unarmored Defense (Monk)';
+    }
+
+    updates.ac = ac;
+    updates.ac_effects = JSON.stringify({ base_source: acSource, base_value: ac, effects: [] });
+
+    // HP from class hit die
+    const classData = STATIC_CLASSES.find(c => c.name === className);
+    const hitDie = classData ? classData.hit_die : 10;
+    const hp = hitDie + conMod;
+    updates.hp = hp;
+    updates.max_hp = hp;
+
+    // Initiative
+    updates.initiative_bonus = dexMod;
+
+    // Class features + racial traits
+    const classFeatures = CLASS_FEATURES_L1[className] || '';
+    const racialTraits = RACIAL_TRAITS[character.race] || '';
+    const parts = [];
+    if (classFeatures) parts.push(classFeatures);
+    if (racialTraits) parts.push(`[Racial] ${racialTraits}`);
+    updates.class_features = parts.join('\n');
+
+    // Apply
+    const setClauses = Object.keys(updates).map(k => `${k} = ?`).join(', ');
+    const values = [...Object.values(updates), id];
+    db.prepare(`UPDATE characters SET ${setClauses} WHERE id = ?`).run(...values);
+  }
+
   function canLevelUp(xp, currentLevel) {
     if (currentLevel >= 20) return false;
     return xp >= XP_THRESHOLDS[currentLevel];
@@ -131,6 +224,7 @@ function createCharacterRoutes(deps) {
       typeof classes === 'string' ? classes : JSON.stringify(classes || { [charClass]: 1 })
     );
 
+    enrichCharacter(id);
     const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(id);
     invalidateCache('characters:');
     io.emit('character_created', character);
@@ -964,6 +1058,7 @@ EDIT_COMPLETE:{"character_name":"...","race":"...","class":"PrimaryClass","class
               charData.feats || ''
             );
 
+            enrichCharacter(id);
             const character = db.prepare('SELECT * FROM characters WHERE id = ?').get(id);
             invalidateCache('characters:');
             io.emit('character_created', character);

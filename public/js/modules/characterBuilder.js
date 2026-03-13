@@ -323,10 +323,12 @@ function onRaceChange(raceIndex) {
   }
 
   const race = builder.selectedRace;
+  const SHORT_TO_LONG = { str: 'strength', dex: 'dexterity', con: 'constitution', int: 'intelligence', wis: 'wisdom', cha: 'charisma' };
   builder.racialBonuses = {};
   if (race.ability_bonuses) {
     race.ability_bonuses.forEach(b => {
-      const abilityName = (b.ability || b.ability_score?.name || '').toLowerCase();
+      const shortName = (b.ability || b.ability_score?.name || '').toLowerCase();
+      const abilityName = SHORT_TO_LONG[shortName] || shortName;
       if (abilityName) builder.racialBonuses[abilityName] = b.bonus;
     });
   }

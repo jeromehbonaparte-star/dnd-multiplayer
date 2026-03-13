@@ -1039,6 +1039,11 @@ details.drawer-section.utility-menu > summary::-webkit-details-marker { display:
   border-color: var(--accent);
 }
 
+#char-builder.hidden,
+#char-ai-creator.hidden {
+  display: none;
+}
+
 /* Builder tabs (reuse quick-edit-tab pattern) */
 .builder-tabs {
   display: flex;
@@ -1305,6 +1310,16 @@ details.drawer-section.utility-menu > summary::-webkit-details-marker { display:
   background: var(--bg-light);
   border: 2px dashed var(--border-color);
   flex-shrink: 0;
+}
+
+.character-card .char-avatar,
+.character-card .char-avatar-placeholder {
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+.character-card .char-avatar:hover,
+.character-card .char-avatar-placeholder:hover {
+  opacity: 0.7;
 }
 
 /* AI help button */
