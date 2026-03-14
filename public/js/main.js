@@ -23,7 +23,8 @@ import {
   submitAction, forceProcessTurn, rerollLastResponse, deleteStoryMessage,
   cancelAction, updateActionFormState,
   recalculateXP, recalculateLoot, recalculateInventory, recalculateACSpells,
-  rollActionDice, getCurrentDiceRoll
+  rollActionDice, getCurrentDiceRoll,
+  updateInspirationDisplay
 } from './modules/sessions.js';
 import {
   loadSettings, saveSettings,
@@ -222,6 +223,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Initialize avatar click-to-upload
   initAvatarUpload();
+
+  // Update inspiration display when character selection changes
+  const charSelect = document.getElementById('action-character');
+  if (charSelect) charSelect.addEventListener('change', () => updateInspirationDisplay());
 
   // Shared tab switching function
   async function switchTab(targetTab) {

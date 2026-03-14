@@ -162,6 +162,7 @@ function runMigrations() {
     { col: 'backstory', sql: "ALTER TABLE characters ADD COLUMN backstory TEXT DEFAULT ''" },
     { col: 'initiative_bonus', sql: "ALTER TABLE characters ADD COLUMN initiative_bonus INTEGER DEFAULT 0" },
     { col: 'image_url', sql: "ALTER TABLE characters ADD COLUMN image_url TEXT DEFAULT ''" },
+    { col: 'inspiration_points', sql: 'ALTER TABLE characters ADD COLUMN inspiration_points INTEGER DEFAULT 4' },
   ];
 
   for (const { col, sql } of migrations) {

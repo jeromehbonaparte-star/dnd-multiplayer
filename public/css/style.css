@@ -711,6 +711,50 @@ details.drawer-section.utility-menu > summary::-webkit-details-marker { display:
   cursor: not-allowed;
 }
 
+/* Inspiration reroll state — star-colored border */
+.dice-roll-btn.inspiration-reroll {
+  border-color: var(--spell-color) !important;
+  color: var(--spell-color) !important;
+}
+
+.dice-roll-btn.inspiration-reroll:hover {
+  box-shadow: 0 0 10px var(--spell-color);
+}
+
+/* Inspiration Points display */
+.inspiration-display {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--gold-color);
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: var(--bg-light);
+  border: 1px solid var(--gold-color);
+  cursor: default;
+  transition: all 0.3s;
+  flex-shrink: 0;
+}
+
+.inspiration-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.inspiration-count {
+  font-weight: 700;
+  min-width: 10px;
+  text-align: center;
+}
+
+.inspiration-display.empty {
+  opacity: 0.35;
+  border-color: var(--text-muted);
+  color: var(--text-muted);
+}
+
 @keyframes dice-spin {
   0%   { transform: rotate(0) scale(1); }
   50%  { transform: rotate(180deg) scale(1.2); }

@@ -427,6 +427,8 @@ function createCharacterRoutes(deps) {
       Object.keys(spellSlots).forEach(lvl => {
         spellSlots[lvl].current = spellSlots[lvl].max;
       });
+      // Restore inspiration points on long rest
+      db.prepare('UPDATE characters SET inspiration_points = 4 WHERE id = ?').run(req.params.id);
     } else if (action === 'set' && slots) {
       spellSlots = slots;
     }
@@ -499,7 +501,8 @@ function createCharacterRoutes(deps) {
       'strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma',
       'hp', 'max_hp', 'ac', 'xp', 'gold',
       'skills', 'spells', 'passives', 'feats', 'class_features',
-      'appearance', 'backstory', 'initiative_bonus', 'image_url'
+      'appearance', 'backstory', 'initiative_bonus', 'image_url',
+      'inspiration_points'
     ];
 
     const updates = [];

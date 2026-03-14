@@ -228,6 +228,7 @@ export async function loadSession(id) {
 
     updateCharacterSelect();
     updatePartyList();
+    updateInspirationDisplay();
 
     const currentSession = data.session;
     document.getElementById('turn-counter').textContent = `Turn: ${currentSession.current_turn}`;
@@ -581,11 +582,60 @@ export async function cancelAction(characterId) {
 // ============================================
 
 let _currentDiceRoll = null; // { value, modifier, modValue, stat, total, timestamp }
+let _rollCount = 0; // Track rolls this turn (max 2: initial + 1 reroll)
 
 const STAT_LABELS = {
   strength: 'STR', dexterity: 'DEX', constitution: 'CON',
   intelligence: 'INT', wisdom: 'WIS', charisma: 'CHA'
 };
+
+/**
+ * Get the currently selected character object.
+ */
+function getSelectedCharacter() {
+  const charSelect = document.getElementById('action-character');
+  if (!charSelect) return null;
+  const characterId = charSelect.value;
+  if (!characterId) return null;
+  const sessionChars = getState('sessionCharacters');
+  const allChars = getState('characters');
+  return sessionChars.find(c => c.id === characterId) || allChars.find(c => c.id === characterId) || null;
+}
+
+/**
+ * Spend one inspiration point for a reroll (client + server).
+ */
+async function spendInspirationPoint(characterId) {
+  try {
+    const char = getSelectedCharacter();
+    if (!char) return;
+    const newPoints = Math.max(0, (char.inspiration_points || 0) - 1);
+    await api(`/api/characters/${characterId}/quick-update`, 'POST', { inspiration_points: newPoints });
+    // Update local state
+    char.inspiration_points = newPoints;
+    updateInspirationDisplay();
+    showNotification(`Inspiration reroll! (${newPoints} points left)`);
+  } catch (e) {
+    console.error('Failed to spend inspiration point:', e);
+  }
+}
+
+/**
+ * Update the inspiration points display in the dice roller.
+ */
+export function updateInspirationDisplay() {
+  const countEl = document.getElementById('inspiration-count');
+  const displayEl = document.getElementById('inspiration-display');
+  const char = getSelectedCharacter();
+  const points = char ? (char.inspiration_points ?? 4) : 4;
+  if (countEl) countEl.textContent = points;
+  if (displayEl) {
+    displayEl.classList.toggle('empty', points <= 0);
+    displayEl.title = points > 0
+      ? `${points} Inspiration Point${points !== 1 ? 's' : ''} — spend to reroll`
+      : 'No inspiration points — rest to replenish';
+  }
+}
 
 /**
  * Calculate D&D ability modifier from a stat score.
@@ -643,10 +693,16 @@ export function rollActionDice() {
 
   if (!roller || !btn || !valueEl) return;
 
-  // Already rolled this turn — don't allow re-roll
-  if (_currentDiceRoll) {
-    showNotification('You already rolled! Submit your action first.');
-    return;
+  // Allow initial roll + 1 free reroll, then require inspiration
+  if (_rollCount >= 2) {
+    const charId = document.getElementById('action-character')?.value;
+    const char = getSelectedCharacter();
+    if (!char || (char.inspiration_points || 0) <= 0) {
+      showNotification('No inspiration points left! Submit your action.');
+      return;
+    }
+    // Spend an inspiration point for this reroll
+    spendInspirationPoint(charId);
   }
 
   // Trigger rolling animation
@@ -718,12 +774,28 @@ export function rollActionDice() {
 
     if (submitBtn) submitBtn.classList.remove('needs-roll');
 
-    // Lock dice after rolling — one roll per turn
-    btn.disabled = true;
-    btn.classList.add('dice-locked');
-    btn.title = 'Already rolled — submit your action';
-    const statSelect = document.getElementById('dice-stat-select');
-    if (statSelect) statSelect.disabled = true;
+    _rollCount++;
+    updateInspirationDisplay();
+
+    if (_rollCount >= 2) {
+      const char = getSelectedCharacter();
+      const inspirationLeft = char ? (char.inspiration_points || 0) : 0;
+      if (inspirationLeft <= 0) {
+        // No inspiration — fully lock dice
+        btn.disabled = true;
+        btn.classList.add('dice-locked');
+        btn.title = 'No inspiration points — submit your action';
+        const statSelect = document.getElementById('dice-stat-select');
+        if (statSelect) statSelect.disabled = true;
+      } else {
+        // Has inspiration — allow spending it to reroll
+        btn.title = `Reroll (costs 1 inspiration, ${inspirationLeft} left)`;
+        btn.classList.add('inspiration-reroll');
+      }
+    } else {
+      // First roll — allow one free reroll
+      btn.title = 'Reroll (1 free reroll left)';
+    }
 
     setTimeout(() => valueEl.classList.remove('pop'), 400);
   }, 600);
@@ -734,6 +806,7 @@ export function rollActionDice() {
  */
 function resetDiceRoll() {
   _currentDiceRoll = null;
+  _rollCount = 0;
   const roller = document.getElementById('dice-roller');
   const valueEl = document.getElementById('dice-value');
   const modEl = document.getElementById('dice-mod');
@@ -750,7 +823,7 @@ function resetDiceRoll() {
   const btn = document.getElementById('dice-roll-btn');
   if (btn) {
     btn.disabled = false;
-    btn.classList.remove('dice-locked');
+    btn.classList.remove('dice-locked', 'inspiration-reroll');
     btn.title = 'Roll d20';
   }
   const statSelect = document.getElementById('dice-stat-select');
@@ -834,12 +907,23 @@ function handleSlashCommand(text, characterId) {
       const currentSession = getState('currentSession');
       if (!currentSession) { alert('Please select a session first'); return true; }
       const restAction = 'I take a long rest, settling down to recover my strength and tend to any wounds.';
+
+      // Restore spell slots + inspiration points via the spell-slots rest endpoint
+      api(`/api/characters/${characterId}/spell-slots`, 'POST', { action: 'rest' })
+        .then(() => {
+          // Update local state
+          const char = getSelectedCharacter();
+          if (char) char.inspiration_points = 4;
+          updateInspirationDisplay();
+        })
+        .catch(e => console.error('Failed to rest-reset:', e));
+
       api(`/api/sessions/${currentSession.id}/action`, 'POST', {
         character_id: characterId,
         action: restAction
       }).then(result => {
         if (result.processed) loadSession(currentSession.id);
-        showNotification('Rest action submitted!');
+        showNotification('Rest action submitted! Inspiration restored.');
       }).catch(err => {
         alert('Failed to submit rest: ' + err.message);
       });
@@ -980,10 +1064,20 @@ export function updateActionFormState() {
   if (diceBtn) {
     if (isTurnProcessing) {
       diceBtn.disabled = true;
-    } else if (!_currentDiceRoll) {
+    } else if (_rollCount < 2) {
       diceBtn.disabled = false;
-      diceBtn.classList.remove('dice-locked');
-      diceBtn.title = 'Roll d20';
+      diceBtn.classList.remove('dice-locked', 'inspiration-reroll');
+      diceBtn.title = _rollCount === 0 ? 'Roll d20' : 'Reroll (1 free reroll left)';
+    } else {
+      // Past free rerolls — check inspiration
+      const char = getSelectedCharacter();
+      const inspirationLeft = char ? (char.inspiration_points || 0) : 0;
+      if (inspirationLeft > 0) {
+        diceBtn.disabled = false;
+        diceBtn.classList.remove('dice-locked');
+        diceBtn.classList.add('inspiration-reroll');
+        diceBtn.title = `Reroll (costs 1 inspiration, ${inspirationLeft} left)`;
+      }
     }
   }
   if (statSelect) {
