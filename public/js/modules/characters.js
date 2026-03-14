@@ -338,8 +338,17 @@ export function updateCharacterSelect() {
   const sessionCharacters = getState('sessionCharacters');
   const select = document.getElementById('action-character');
   if (!select) return;
+
+  // Remember current selection (from element or localStorage)
+  const savedId = select.value || localStorage.getItem('dnd-selected-character');
+
   select.innerHTML = '<option value="">Select your character</option>' +
     sessionCharacters.map(c => `<option value="${c.id}">${escapeHtml(c.character_name)} (${escapeHtml(c.player_name)})</option>`).join('');
+
+  // Restore selection if the character is still in this session
+  if (savedId && sessionCharacters.some(c => c.id === savedId)) {
+    select.value = savedId;
+  }
 }
 
 export function updatePartyList() {

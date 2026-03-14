@@ -605,19 +605,17 @@ function getSelectedCharacter() {
 /**
  * Spend one inspiration point for a reroll (client + server).
  */
-async function spendInspirationPoint(characterId) {
-  try {
-    const char = getSelectedCharacter();
-    if (!char) return;
-    const newPoints = Math.max(0, (char.inspiration_points || 0) - 1);
-    await api(`/api/characters/${characterId}/quick-update`, 'POST', { inspiration_points: newPoints });
-    // Update local state
-    char.inspiration_points = newPoints;
-    updateInspirationDisplay();
-    showNotification(`Inspiration reroll! (${newPoints} points left)`);
-  } catch (e) {
-    console.error('Failed to spend inspiration point:', e);
-  }
+function spendInspirationPoint(characterId) {
+  const char = getSelectedCharacter();
+  if (!char) return;
+  const newPoints = Math.max(0, (char.inspiration_points || 0) - 1);
+  // Update local state immediately (before async API call) to avoid race conditions
+  char.inspiration_points = newPoints;
+  updateInspirationDisplay();
+  showNotification(`Inspiration reroll! (${newPoints} points left)`);
+  // Persist to server in background
+  api(`/api/characters/${characterId}/quick-update`, 'POST', { inspiration_points: newPoints })
+    .catch(e => console.error('Failed to persist inspiration spend:', e));
 }
 
 /**

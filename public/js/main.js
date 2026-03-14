@@ -224,9 +224,12 @@ document.addEventListener('DOMContentLoaded', () => {
   // Initialize avatar click-to-upload
   initAvatarUpload();
 
-  // Update inspiration display when character selection changes
+  // Persist character selection + update inspiration display on change
   const charSelect = document.getElementById('action-character');
-  if (charSelect) charSelect.addEventListener('change', () => updateInspirationDisplay());
+  if (charSelect) charSelect.addEventListener('change', () => {
+    localStorage.setItem('dnd-selected-character', charSelect.value);
+    updateInspirationDisplay();
+  });
 
   // Shared tab switching function
   async function switchTab(targetTab) {
