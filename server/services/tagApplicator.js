@@ -196,8 +196,8 @@ function applyAllTags(deps, aiResponse, characters, sessionId) {
                   spellSlots[level].current = spellSlots[level].max;
                 }
               }
-              db.prepare('UPDATE characters SET spell_slots = ? WHERE id = ?').run(JSON.stringify(spellSlots), partyChar.id);
-              io.emit('character_updated', { ...partyChar, spell_slots: JSON.stringify(spellSlots) });
+              db.prepare('UPDATE characters SET spell_slots = ?, inspiration_points = 4 WHERE id = ?').run(JSON.stringify(spellSlots), partyChar.id);
+              io.emit('character_updated', { ...partyChar, spell_slots: JSON.stringify(spellSlots), inspiration_points: 4 });
             }
             summary.spellSlots.push({ character: 'Party', action: 'rest' });
             continue;
@@ -247,8 +247,13 @@ function applyAllTags(deps, aiResponse, characters, sessionId) {
               }
             }
 
-            db.prepare('UPDATE characters SET spell_slots = ? WHERE id = ?').run(JSON.stringify(spellSlots), char.id);
-            io.emit('character_updated', { ...char, spell_slots: JSON.stringify(spellSlots) });
+            if (slotLevel === 'rest') {
+              db.prepare('UPDATE characters SET spell_slots = ?, inspiration_points = 4 WHERE id = ?').run(JSON.stringify(spellSlots), char.id);
+              io.emit('character_updated', { ...char, spell_slots: JSON.stringify(spellSlots), inspiration_points: 4 });
+            } else {
+              db.prepare('UPDATE characters SET spell_slots = ? WHERE id = ?').run(JSON.stringify(spellSlots), char.id);
+              io.emit('character_updated', { ...char, spell_slots: JSON.stringify(spellSlots) });
+            }
           }
         }
       }
