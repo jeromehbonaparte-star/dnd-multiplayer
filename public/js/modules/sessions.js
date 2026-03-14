@@ -643,6 +643,12 @@ export function rollActionDice() {
 
   if (!roller || !btn || !valueEl) return;
 
+  // Already rolled this turn — don't allow re-roll
+  if (_currentDiceRoll) {
+    showNotification('You already rolled! Submit your action first.');
+    return;
+  }
+
   // Trigger rolling animation
   btn.classList.add('rolling');
   roller.classList.remove('rolled', 'nat20', 'nat1', 'must-roll');
@@ -712,6 +718,13 @@ export function rollActionDice() {
 
     if (submitBtn) submitBtn.classList.remove('needs-roll');
 
+    // Lock dice after rolling — one roll per turn
+    btn.disabled = true;
+    btn.classList.add('dice-locked');
+    btn.title = 'Already rolled — submit your action';
+    const statSelect = document.getElementById('dice-stat-select');
+    if (statSelect) statSelect.disabled = true;
+
     setTimeout(() => valueEl.classList.remove('pop'), 400);
   }, 600);
 }
@@ -732,6 +745,16 @@ function resetDiceRoll() {
   if (modEl) modEl.textContent = '';
   if (totalEl) totalEl.textContent = '';
   if (diceText) diceText.textContent = '?';
+
+  // Re-enable dice button for next roll
+  const btn = document.getElementById('dice-roll-btn');
+  if (btn) {
+    btn.disabled = false;
+    btn.classList.remove('dice-locked');
+    btn.title = 'Roll d20';
+  }
+  const statSelect = document.getElementById('dice-stat-select');
+  if (statSelect) statSelect.disabled = false;
 }
 
 /**
@@ -897,6 +920,8 @@ export async function submitAction() {
     submitBtn.disabled = true;
     submitBtn.textContent = 'Submitting...';
   }
+  const diceBtn = document.getElementById('dice-roll-btn');
+  if (diceBtn) diceBtn.disabled = true;
 
   try {
     const result = await api(`/api/sessions/${currentSession.id}/action`, 'POST', {
@@ -931,6 +956,8 @@ export function updateActionFormState() {
   const isTurnProcessing = getState('isTurnProcessing');
   const submitBtn = document.getElementById('submit-action-btn');
   const actionTextarea = document.getElementById('action-text');
+  const diceBtn = document.getElementById('dice-roll-btn');
+  const statSelect = document.getElementById('dice-stat-select');
 
   if (submitBtn) {
     if (isTurnProcessing) {
@@ -947,6 +974,20 @@ export function updateActionFormState() {
     actionTextarea.placeholder = isTurnProcessing
       ? 'Please wait for the Narrator to finish...'
       : 'What do you do?';
+  }
+
+  // Re-enable dice if turn processing ended and no roll is pending
+  if (diceBtn) {
+    if (isTurnProcessing) {
+      diceBtn.disabled = true;
+    } else if (!_currentDiceRoll) {
+      diceBtn.disabled = false;
+      diceBtn.classList.remove('dice-locked');
+      diceBtn.title = 'Roll d20';
+    }
+  }
+  if (statSelect) {
+    statSelect.disabled = isTurnProcessing;
   }
 }
 

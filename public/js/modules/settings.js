@@ -67,7 +67,7 @@ export async function loadApiConfigs() {
     }
 
     listEl.innerHTML = configs.map(config => `
-      <div class="api-config-card ${config.is_active ? 'active' : ''}" data-id="${config.id}"
+      <div class="api-config-card ${config.is_active ? 'active-config' : ''}" data-id="${config.id}"
            data-name="${escapeHtml(config.name)}"
            data-endpoint="${escapeHtml(config.endpoint)}"
            data-model="${escapeHtml(config.model)}">
@@ -80,7 +80,7 @@ export async function loadApiConfigs() {
           <span><span class="label">API Key:</span> <span class="value">${escapeHtml(config.api_key)}</span></span>
         </div>
         <div class="config-actions">
-          <button class="btn-activate" onclick="activateApiConfig('${config.id}')">Activate</button>
+          <button class="btn-activate" onclick="activateApiConfig('${config.id}')">${config.is_active ? 'Active' : 'Activate'}</button>
           <button class="btn-edit" onclick="editApiConfig('${config.id}')">Edit</button>
           <button class="btn-test-config" onclick="testApiConfig('${config.id}')">Test</button>
           <button class="btn-delete" onclick="deleteApiConfig('${config.id}')">Delete</button>
@@ -203,7 +203,7 @@ export async function deleteApiConfig(id) {
 }
 
 export async function testConnection() {
-  const activeCard = document.querySelector('.api-config-card.active');
+  const activeCard = document.querySelector('.api-config-card.active-config');
   if (activeCard) {
     const id = activeCard.dataset.id;
     await testApiConfig(id);

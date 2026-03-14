@@ -8,6 +8,47 @@ import { loadCharacters } from './modules/characters.js';
 import { loadSessions, loadSession, updatePendingActions, updateActionFormState, appendStreamChunk, finalizeStreamedContent } from './modules/sessions.js';
 import { loadSessionSummary } from './modules/settings.js';
 
+/**
+ * Play a short two-tone chime using Web Audio API.
+ * Medieval bell-like ascending tones (E5 → G5).
+ * Safe to call even if AudioContext is blocked — fails silently.
+ */
+function playNotificationChime() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+
+    // First tone: E5 (659 Hz)
+    const osc1 = ctx.createOscillator();
+    const gain1 = ctx.createGain();
+    osc1.type = 'sine';
+    osc1.frequency.value = 659;
+    gain1.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain1.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
+    osc1.connect(gain1);
+    gain1.connect(ctx.destination);
+    osc1.start(ctx.currentTime);
+    osc1.stop(ctx.currentTime + 0.4);
+
+    // Second tone: G5 (784 Hz), delayed 150ms
+    const osc2 = ctx.createOscillator();
+    const gain2 = ctx.createGain();
+    osc2.type = 'sine';
+    osc2.frequency.value = 784;
+    gain2.gain.setValueAtTime(0.3, ctx.currentTime + 0.15);
+    gain2.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.6);
+    osc2.connect(gain2);
+    gain2.connect(ctx.destination);
+    osc2.start(ctx.currentTime + 0.15);
+    osc2.stop(ctx.currentTime + 0.6);
+
+    // Clean up AudioContext after playback
+    setTimeout(() => ctx.close(), 1000);
+  } catch (e) {
+    // Non-critical — silently fail if browser blocks audio
+    console.warn('Could not play notification chime:', e);
+  }
+}
+
 export function initSocket() {
   // Clean up existing socket if any
   const existingSocket = getState('socket');
@@ -168,6 +209,7 @@ export function initSocket() {
       hideNarratorTyping();
       // Replace streamed content with final formatted version, then reload
       finalizeStreamedContent();
+      playNotificationChime();
       loadSession(sessionId);
       updateActionFormState();
       if (compacted) {

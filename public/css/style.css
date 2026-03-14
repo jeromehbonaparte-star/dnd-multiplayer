@@ -697,6 +697,20 @@ details.drawer-section.utility-menu > summary::-webkit-details-marker { display:
 
 .needs-roll { animation: shake 0.3s ease-out; }
 
+.dice-roll-btn:disabled,
+.dice-roll-btn.dice-locked {
+  opacity: 0.45;
+  cursor: not-allowed;
+  border-color: var(--text-muted) !important;
+  color: var(--text-muted) !important;
+  animation: none !important;
+}
+
+.dice-stat-select:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 @keyframes dice-spin {
   0%   { transform: rotate(0) scale(1); }
   50%  { transform: rotate(180deg) scale(1.2); }
@@ -1553,21 +1567,96 @@ details.drawer-section.utility-menu > summary::-webkit-details-marker { display:
   border-radius: 8px;
   padding: 12px;
   margin-bottom: 8px;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
-.api-config-card.active-config { border-color: var(--accent); }
+.api-config-card.active-config {
+  border-color: var(--accent);
+  box-shadow: 0 0 8px var(--accent-glow);
+}
 
-.api-config-card h4 {
+.config-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.config-name {
   font-family: var(--font-display);
-  font-size: 0.9rem;
+  font-size: 0.95rem;
+  font-weight: 600;
   color: var(--text-bright);
 }
 
-.api-config-actions {
+.api-config-card.active-config .config-name::after {
+  content: ' \2714';
+  color: var(--success);
+  font-size: 0.85em;
+  margin-left: 6px;
+}
+
+.config-details {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.config-details .label {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.config-details .value {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  word-break: break-all;
+}
+
+.config-actions {
   display: flex;
   gap: 6px;
   margin-top: 8px;
   flex-wrap: wrap;
+}
+
+.btn-activate, .btn-test-config, .btn-delete {
+  min-height: 32px;
+  padding: 4px 10px;
+  font-size: 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: var(--font-display);
+  border: 1px solid var(--border-color);
+  background: var(--bg-light);
+  color: var(--text);
+  transition: all 0.2s;
+}
+
+.btn-activate:hover, .btn-test-config:hover {
+  background: var(--bg-card);
+  border-color: var(--accent);
+}
+
+.btn-delete {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.btn-delete:hover {
+  background: var(--danger);
+  color: white;
+}
+
+.api-config-card.active-config .btn-activate {
+  background: var(--accent);
+  color: var(--bg-dark);
+  border-color: var(--accent);
+  cursor: default;
+  opacity: 0.8;
 }
 
 /* Summary section */
