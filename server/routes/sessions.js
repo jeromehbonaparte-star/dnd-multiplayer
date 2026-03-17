@@ -317,6 +317,57 @@ DO NOT give the players a list of choices or options. End with an evocative desc
   });
 
   /**
+   * POST /api/sessions/:id/generate-choices
+   * Generate choices on demand for the current scene
+   */
+  router.post('/:id/generate-choices', checkPassword, async (req, res) => {
+    const sessionId = req.params.id;
+    const session = db.prepare('SELECT * FROM game_sessions WHERE id = ?').get(sessionId);
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+
+    const config = getActiveApiConfig();
+    if (!config) return res.status(400).json({ error: 'No active API configuration' });
+
+    const characters = getSessionCharacters(sessionId);
+    if (characters.length === 0) return res.status(400).json({ error: 'No characters in session' });
+
+    const fullHistory = JSON.parse(session.full_history || '[]');
+    // Find the last narration
+    const lastNarration = [...fullHistory].reverse().find(
+      e => e.role === 'assistant' || e.type === 'narration'
+    );
+    if (!lastNarration) return res.status(400).json({ error: 'No narration found to generate choices for' });
+
+    const charNames = characters.map(c => c.character_name).join(', ');
+    const charDetails = characters.map(c =>
+      `${c.character_name} (${c.race} ${c.class} Lv${c.level})`
+    ).join(', ');
+
+    const choicePrompt = [
+      { role: 'system', content: `You are a D&D 5e Dungeon Master. Given the current scene, generate 2-4 suggested actions per character using CHOICE tags. Characters in the party: ${charDetails}.
+
+Format: [CHOICE: CharacterName | STAT | DIFFICULTY | Short action description]
+- STAT = STR, DEX, CON, INT, WIS, CHA
+- DIFFICULTY = EASY, MEDIUM, or HARD
+- Use "ALL" for actions any character can take
+- Make choices organic to the scene, mix difficulties and stats
+- Output ONLY the choice tags, nothing else.` },
+      { role: 'user', content: `Current scene:\n${lastNarration.content.substring(0, 2000)}\n\nGenerate choices for: ${charNames}` }
+    ];
+
+    try {
+      const data = await aiService.callAI(config, choicePrompt, { maxTokens: 1024, temperature: 0.9 });
+      const responseText = data.choices?.[0]?.message?.content || '';
+      const choices = tagParser.parseChoices(responseText, characters);
+      io.emit('choices_generated', { sessionId, choices });
+      res.json({ success: true, choices });
+    } catch (error) {
+      console.error('Failed to generate choices:', error);
+      res.status(500).json({ error: 'Failed to generate choices: ' + error.message });
+    }
+  });
+
+  /**
    * POST /api/sessions/:id/reroll
    * Reroll - Regenerate the last AI response (admin only)
    */

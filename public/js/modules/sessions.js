@@ -948,6 +948,40 @@ export function dismissChoices() {
   setState({ pendingChoices: null });
 }
 
+/**
+ * Request the server to generate choices for the current scene.
+ */
+export async function generateChoices() {
+  const currentSession = getState('currentSession');
+  if (!currentSession) {
+    showNotification('Select a session first');
+    return;
+  }
+
+  const btn = document.getElementById('choices-generate-btn');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Generating...';
+  }
+
+  try {
+    const result = await api(`/api/sessions/${currentSession.id}/generate-choices`, 'POST');
+    if (result.choices && result.choices.length > 0) {
+      displayChoices(result.choices);
+    } else {
+      showNotification('No choices generated — try after a narration');
+    }
+  } catch (error) {
+    console.error('Failed to generate choices:', error);
+    showNotification('Failed to generate choices');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Generate Choices';
+    }
+  }
+}
+
 // ============================================
 // Slash Commands
 // ============================================

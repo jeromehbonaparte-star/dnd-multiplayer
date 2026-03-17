@@ -222,6 +222,15 @@ export function initSocket() {
     }
   });
 
+  // Choices generated on demand
+  socket.off('choices_generated');
+  socket.on('choices_generated', ({ sessionId, choices }) => {
+    const currentSession = getState('currentSession');
+    if (currentSession && currentSession.id === sessionId && choices && choices.length > 0) {
+      displayChoices(choices);
+    }
+  });
+
   socket.off('character_updated');
   socket.on('character_updated', (character) => {
     const sessionCharacters = [...getState('sessionCharacters')];
