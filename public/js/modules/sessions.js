@@ -968,12 +968,13 @@ export async function generateChoices() {
     const result = await api(`/api/sessions/${currentSession.id}/generate-choices`, 'POST');
     if (result.choices && result.choices.length > 0) {
       displayChoices(result.choices);
+      showNotification(`${result.choices.length} choices generated!`);
     } else {
-      showNotification('No choices generated — try after a narration');
+      showNotification('AI returned no parseable choices — try again');
     }
   } catch (error) {
     console.error('Failed to generate choices:', error);
-    showNotification('Failed to generate choices');
+    showNotification('Failed: ' + (error.message || 'unknown error'));
   } finally {
     if (btn) {
       btn.disabled = false;

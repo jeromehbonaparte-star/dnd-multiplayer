@@ -357,9 +357,13 @@ Format: [CHOICE: CharacterName | STAT | DIFFICULTY | Short action description]
 
     try {
       const data = await aiService.callAI(config, choicePrompt, { maxTokens: 1024, temperature: 0.9 });
-      const responseText = data.choices?.[0]?.message?.content || '';
+      const responseText = aiService.extractAIMessage(data) || '';
+      console.log('Generate choices raw response:', responseText.substring(0, 500));
       const choices = tagParser.parseChoices(responseText, characters);
-      io.emit('choices_generated', { sessionId, choices });
+      console.log(`Parsed ${choices.length} choices from response`);
+      if (choices.length > 0) {
+        io.emit('choices_generated', { sessionId, choices });
+      }
       res.json({ success: true, choices });
     } catch (error) {
       console.error('Failed to generate choices:', error);

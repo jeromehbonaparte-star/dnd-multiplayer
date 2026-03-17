@@ -407,6 +407,8 @@ details.drawer-section.utility-menu > summary::-webkit-details-marker { display:
   text-align: center;
 }
 
+.choices-badge:empty { display: none; }
+
 .choices-body {
   max-height: 0;
   overflow: hidden;
@@ -416,8 +418,9 @@ details.drawer-section.utility-menu > summary::-webkit-details-marker { display:
 }
 
 .choices-drawer.open .choices-body {
-  max-height: 400px;
+  max-height: 500px;
   padding: 6px 12px 10px;
+  overflow-y: auto;
 }
 
 .choices-list {
