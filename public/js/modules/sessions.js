@@ -854,9 +854,10 @@ const DIFFICULTY_COLORS = {
  * Display AI-generated choices filtered for the current player's character.
  */
 export function displayChoices(choices) {
-  const panel = document.getElementById('choices-panel');
+  const drawer = document.getElementById('choices-drawer');
   const list = document.getElementById('choices-list');
-  if (!panel || !list) return;
+  const badge = document.getElementById('choices-badge');
+  if (!drawer || !list) return;
 
   const charSelect = document.getElementById('action-character');
   const selectedCharId = charSelect?.value;
@@ -867,7 +868,7 @@ export function displayChoices(choices) {
   );
 
   if (relevant.length === 0) {
-    panel.style.display = 'none';
+    drawer.classList.remove('has-choices', 'open');
     return;
   }
 
@@ -888,11 +889,22 @@ export function displayChoices(choices) {
     `;
   }).join('');
 
-  panel.style.display = 'block';
+  if (badge) badge.textContent = relevant.length;
+  drawer.classList.add('has-choices');
+  // Auto-open when new choices arrive
+  drawer.classList.add('open');
 }
 
 /**
- * Player selects a choice — fill action text, auto-select stat.
+ * Toggle the choices drawer open/closed.
+ */
+export function toggleChoicesDrawer() {
+  const drawer = document.getElementById('choices-drawer');
+  if (drawer) drawer.classList.toggle('open');
+}
+
+/**
+ * Player selects a choice — fill action text, auto-select stat, collapse drawer.
  */
 export function selectChoice(index) {
   const choices = getState('pendingChoices') || [];
@@ -920,15 +932,19 @@ export function selectChoice(index) {
   const btn = document.querySelectorAll('.choice-btn')[index];
   if (btn) btn.classList.add('selected');
 
+  // Collapse the drawer after selection
+  const drawer = document.getElementById('choices-drawer');
+  if (drawer) drawer.classList.remove('open');
+
   showNotification(`${choice.stat} Check (${choice.difficulty}) — roll your d20!`);
 }
 
 /**
- * Dismiss the choices panel.
+ * Dismiss choices entirely (clear state + hide drawer).
  */
 export function dismissChoices() {
-  const panel = document.getElementById('choices-panel');
-  if (panel) panel.style.display = 'none';
+  const drawer = document.getElementById('choices-drawer');
+  if (drawer) drawer.classList.remove('has-choices', 'open');
   setState({ pendingChoices: null });
 }
 

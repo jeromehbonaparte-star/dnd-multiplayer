@@ -25,7 +25,7 @@ import {
   recalculateXP, recalculateLoot, recalculateInventory, recalculateACSpells,
   rollActionDice, getCurrentDiceRoll,
   updateInspirationDisplay,
-  displayChoices, selectChoice, dismissChoices
+  displayChoices, selectChoice, dismissChoices, toggleChoicesDrawer
 } from './modules/sessions.js';
 import {
   loadSettings, saveSettings,
@@ -101,6 +101,7 @@ window.recalculateACSpells = recalculateACSpells;
 window.rollActionDice = rollActionDice;
 window.selectChoice = selectChoice;
 window.dismissChoices = dismissChoices;
+window.toggleChoicesDrawer = toggleChoicesDrawer;
 
 // Settings
 window.saveSettings = saveSettings;

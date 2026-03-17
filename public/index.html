@@ -115,12 +115,15 @@
         </div>
 
         <div class="action-bar" id="action-bar">
-          <div class="choices-panel" id="choices-panel" style="display:none">
-            <div class="choices-header">
-              <span class="choices-title">Suggested Actions</span>
-              <button class="choices-dismiss" id="choices-dismiss" onclick="dismissChoices()" title="Dismiss">&times;</button>
+          <div class="choices-drawer" id="choices-drawer">
+            <button class="choices-toggle" id="choices-toggle" onclick="toggleChoicesDrawer()" title="Suggested Actions">
+              <span class="choices-toggle-arrow" id="choices-toggle-arrow">&#9650;</span>
+              <span class="choices-toggle-label">Suggested Actions</span>
+              <span class="choices-badge" id="choices-badge"></span>
+            </button>
+            <div class="choices-body" id="choices-body">
+              <div class="choices-list" id="choices-list"></div>
             </div>
-            <div class="choices-list" id="choices-list"></div>
           </div>
           <div class="action-bar-top">
             <select id="action-character">
