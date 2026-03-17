@@ -350,15 +350,24 @@ DO NOT give the players a list of choices or options. End with an evocative desc
     ).join(', ');
 
     const choicePrompt = [
-      { role: 'system', content: `You are a D&D 5e Dungeon Master. Given the current scene, generate 2-4 suggested actions per character using CHOICE tags. Characters in the party: ${charDetails}.
+      { role: 'system', content: `You are a D&D 5e Dungeon Master. Read the current scene carefully and generate IMMEDIATE NEXT ACTIONS the characters can take RIGHT NOW.
+
+Characters in the party: ${charDetails}
 
 Format: [CHOICE: CharacterName | STAT | DIFFICULTY | Short action description]
 - STAT = STR, DEX, CON, INT, WIS, CHA
 - DIFFICULTY = EASY, MEDIUM, or HARD
-- Use "ALL" for actions any character can take
-- Make choices organic to the scene, mix difficulties and stats
-- Output ONLY the choice tags, nothing else.` },
-      { role: 'user', content: `Current scene:\n${lastNarration.content.substring(0, 2000)}\n\nGenerate choices for: ${charNames}` }
+- "ALL" for actions any character can take (limit to 1-2)
+
+RULES:
+- Choices must DIRECTLY respond to what's happening in the scene
+- Reference specific NPCs, objects, threats, or opportunities from the narration
+- Tailor choices to each character's class — fighters get physical options, rogues get stealth/cunning, casters get magical solutions
+- NEVER give generic choices like "look around" or "explore"
+- Mix difficulties — include at least one HARD risky option
+- 2-4 choices per character
+- Output ONLY the [CHOICE: ...] tags, nothing else` },
+      { role: 'user', content: `Current scene:\n\n${lastNarration.content.substring(0, 3000)}\n\nGenerate focused, scene-specific choices for: ${charNames}` }
     ];
 
     try {
