@@ -325,8 +325,14 @@ DO NOT give the players a list of choices or options. End with an evocative desc
     const session = db.prepare('SELECT * FROM game_sessions WHERE id = ?').get(sessionId);
     if (!session) return res.status(404).json({ error: 'Session not found' });
 
-    const config = getActiveApiConfig();
-    if (!config) return res.status(400).json({ error: 'No active API configuration' });
+    const rawConfig = getActiveApiConfig();
+    if (!rawConfig) return res.status(400).json({ error: 'No active API configuration' });
+    // Map to the format callAI expects
+    const config = {
+      endpoint: rawConfig.api_endpoint || rawConfig.endpoint,
+      api_key: rawConfig.api_key,
+      model: rawConfig.api_model || rawConfig.model
+    };
 
     const characters = getSessionCharacters(sessionId);
     if (characters.length === 0) return res.status(400).json({ error: 'No characters in session' });
