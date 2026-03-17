@@ -24,7 +24,8 @@ import {
   cancelAction, updateActionFormState,
   recalculateXP, recalculateLoot, recalculateInventory, recalculateACSpells,
   rollActionDice, getCurrentDiceRoll,
-  updateInspirationDisplay
+  updateInspirationDisplay,
+  displayChoices, selectChoice, dismissChoices
 } from './modules/sessions.js';
 import {
   loadSettings, saveSettings,
@@ -98,6 +99,8 @@ window.recalculateLoot = recalculateLoot;
 window.recalculateInventory = recalculateInventory;
 window.recalculateACSpells = recalculateACSpells;
 window.rollActionDice = rollActionDice;
+window.selectChoice = selectChoice;
+window.dismissChoices = dismissChoices;
 
 // Settings
 window.saveSettings = saveSettings;
@@ -224,11 +227,14 @@ document.addEventListener('DOMContentLoaded', () => {
   // Initialize avatar click-to-upload
   initAvatarUpload();
 
-  // Persist character selection + update inspiration display on change
+  // Persist character selection + update inspiration display + re-filter choices on change
   const charSelect = document.getElementById('action-character');
   if (charSelect) charSelect.addEventListener('change', () => {
     localStorage.setItem('dnd-selected-character', charSelect.value);
     updateInspirationDisplay();
+    // Re-filter choices for newly selected character
+    const pendingChoices = getState('pendingChoices');
+    if (pendingChoices) displayChoices(pendingChoices);
   });
 
   // Shared tab switching function

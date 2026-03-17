@@ -371,6 +371,61 @@ function parseACChanges(text, characters) {
  * @param {Array} characters - Array of character objects
  * @returns {Object} All parsed changes
  */
+/**
+ * Parse player choice suggestions from AI response
+ * Format: [CHOICE: CharacterName | STAT | DIFFICULTY | description]
+ * @param {string} text - AI response text
+ * @param {Array} characters - Array of character objects
+ * @returns {Array} Array of {characterId, characterName, stat, difficulty, description}
+ */
+function parseChoices(text, characters) {
+  const choices = [];
+  const choiceMatches = text.match(/\[CHOICE:\s*([^\]]+)\]/gi);
+  if (!choiceMatches) return choices;
+
+  for (const match of choiceMatches) {
+    const content = match.replace(/\[CHOICE:\s*/i, '').replace(']', '');
+    const parts = content.split('|').map(p => p.trim());
+    if (parts.length < 4) continue;
+
+    const [charName, stat, difficulty, ...descParts] = parts;
+    const description = descParts.join('|').trim();
+    if (!description) continue;
+
+    const normalizedStat = stat.toUpperCase();
+    const normalizedDifficulty = difficulty.toUpperCase();
+
+    // Validate stat and difficulty
+    const validStats = ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'];
+    const validDifficulties = ['EASY', 'MEDIUM', 'HARD'];
+    if (!validStats.includes(normalizedStat) || !validDifficulties.includes(normalizedDifficulty)) continue;
+
+    if (charName.toLowerCase() === 'all') {
+      // Choice available to all characters
+      choices.push({
+        characterId: 'all',
+        characterName: 'ALL',
+        stat: normalizedStat,
+        difficulty: normalizedDifficulty,
+        description
+      });
+    } else {
+      const char = findCharacterByName(characters, charName);
+      if (char) {
+        choices.push({
+          characterId: char.id,
+          characterName: char.character_name,
+          stat: normalizedStat,
+          difficulty: normalizedDifficulty,
+          description
+        });
+      }
+    }
+  }
+
+  return choices;
+}
+
 function parseAllTags(text, characters) {
   return {
     xp: parseXPAwards(text, characters),
@@ -379,6 +434,7 @@ function parseAllTags(text, characters) {
     hp: parseHPChanges(text, characters),
     spellSlots: parseSpellSlotChanges(text, characters),
     ac: parseACChanges(text, characters),
+    choices: parseChoices(text, characters),
   };
 }
 
@@ -447,6 +503,7 @@ module.exports = {
   parseHPChanges,
   parseSpellSlotChanges,
   parseACChanges,
+  parseChoices,
   parseAllTags,
   applyInventoryChange,
   calculateNewHP

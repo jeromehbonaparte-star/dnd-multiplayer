@@ -5,7 +5,7 @@
 import { getState, setState } from './state.js';
 import { showConnectionStatus, hideConnectionStatus, showNotification, showNarratorTyping, hideNarratorTyping } from './utils/dom.js';
 import { loadCharacters } from './modules/characters.js';
-import { loadSessions, loadSession, updatePendingActions, updateActionFormState, appendStreamChunk, finalizeStreamedContent } from './modules/sessions.js';
+import { loadSessions, loadSession, updatePendingActions, updateActionFormState, appendStreamChunk, finalizeStreamedContent, displayChoices } from './modules/sessions.js';
 import { loadSessionSummary } from './modules/settings.js';
 
 /**
@@ -202,7 +202,7 @@ export function initSocket() {
   });
 
   socket.off('turn_processed');
-  socket.on('turn_processed', ({ sessionId, response, turn, tokensUsed, compacted }) => {
+  socket.on('turn_processed', ({ sessionId, response, turn, tokensUsed, compacted, choices }) => {
     const currentSession = getState('currentSession');
     if (currentSession && currentSession.id === sessionId) {
       setState({ isTurnProcessing: false });
@@ -212,6 +212,10 @@ export function initSocket() {
       playNotificationChime();
       loadSession(sessionId);
       updateActionFormState();
+      // Display choices for the current player's character
+      if (choices && choices.length > 0) {
+        displayChoices(choices);
+      }
       if (compacted) {
         showNotification('History was auto-compacted to save tokens!');
       }

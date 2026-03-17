@@ -836,6 +836,103 @@ export function getCurrentDiceRoll() {
 }
 
 // ============================================
+// Player Choices
+// ============================================
+
+const STAT_TO_SELECT_VALUE = {
+  STR: 'strength', DEX: 'dexterity', CON: 'constitution',
+  INT: 'intelligence', WIS: 'wisdom', CHA: 'charisma'
+};
+
+const DIFFICULTY_COLORS = {
+  EASY: '#2ecc71',
+  MEDIUM: '#f1c40f',
+  HARD: '#e74c3c'
+};
+
+/**
+ * Display AI-generated choices filtered for the current player's character.
+ */
+export function displayChoices(choices) {
+  const panel = document.getElementById('choices-panel');
+  const list = document.getElementById('choices-list');
+  if (!panel || !list) return;
+
+  const charSelect = document.getElementById('action-character');
+  const selectedCharId = charSelect?.value;
+
+  // Filter choices for selected character + "ALL" choices
+  const relevant = choices.filter(c =>
+    c.characterId === 'all' || c.characterId === selectedCharId
+  );
+
+  if (relevant.length === 0) {
+    panel.style.display = 'none';
+    return;
+  }
+
+  // Store choices for re-filtering on character change
+  setState({ pendingChoices: choices });
+
+  list.innerHTML = relevant.map((choice, i) => {
+    const color = DIFFICULTY_COLORS[choice.difficulty] || '#f1c40f';
+    return `
+      <button class="choice-btn" onclick="selectChoice(${i})"
+              data-stat="${choice.stat}" data-difficulty="${choice.difficulty}"
+              data-description="${escapeHtml(choice.description)}"
+              data-index="${i}">
+        <span class="choice-stat" style="color:${color}">[${choice.stat}]</span>
+        <span class="choice-difficulty" style="background:${color}">${choice.difficulty}</span>
+        <span class="choice-text">${escapeHtml(choice.description)}</span>
+      </button>
+    `;
+  }).join('');
+
+  panel.style.display = 'block';
+}
+
+/**
+ * Player selects a choice — fill action text, auto-select stat.
+ */
+export function selectChoice(index) {
+  const choices = getState('pendingChoices') || [];
+  const charSelect = document.getElementById('action-character');
+  const selectedCharId = charSelect?.value;
+
+  const relevant = choices.filter(c =>
+    c.characterId === 'all' || c.characterId === selectedCharId
+  );
+
+  const choice = relevant[index];
+  if (!choice) return;
+
+  // Fill action text
+  const textarea = document.getElementById('action-text');
+  if (textarea) textarea.value = choice.description;
+
+  // Auto-select the stat modifier
+  const statSelect = document.getElementById('dice-stat-select');
+  const selectValue = STAT_TO_SELECT_VALUE[choice.stat];
+  if (statSelect && selectValue) statSelect.value = selectValue;
+
+  // Highlight the selected choice
+  document.querySelectorAll('.choice-btn').forEach(b => b.classList.remove('selected'));
+  const btn = document.querySelectorAll('.choice-btn')[index];
+  if (btn) btn.classList.add('selected');
+
+  showNotification(`${choice.stat} Check (${choice.difficulty}) — roll your d20!`);
+}
+
+/**
+ * Dismiss the choices panel.
+ */
+export function dismissChoices() {
+  const panel = document.getElementById('choices-panel');
+  if (panel) panel.style.display = 'none';
+  setState({ pendingChoices: null });
+}
+
+// ============================================
 // Slash Commands
 // ============================================
 
@@ -996,6 +1093,7 @@ export async function submitAction() {
 
   actionTextarea.value = '';
   resetDiceRoll();
+  dismissChoices();
 
   const submitBtn = document.getElementById('submit-action-btn');
   if (submitBtn) {

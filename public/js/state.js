@@ -45,6 +45,9 @@ const state = {
   // Section expand/collapse state
   sectionExpandedStates: {},
   sectionToggleListenerAttached: false,
+
+  // AI-generated choices for current turn
+  pendingChoices: null,
 };
 
 const subscribers = {};

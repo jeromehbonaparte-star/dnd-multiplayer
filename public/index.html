@@ -115,6 +115,13 @@
         </div>
 
         <div class="action-bar" id="action-bar">
+          <div class="choices-panel" id="choices-panel" style="display:none">
+            <div class="choices-header">
+              <span class="choices-title">Suggested Actions</span>
+              <button class="choices-dismiss" id="choices-dismiss" onclick="dismissChoices()" title="Dismiss">&times;</button>
+            </div>
+            <div class="choices-list" id="choices-list"></div>
+          </div>
           <div class="action-bar-top">
             <select id="action-character">
               <option value="">Select character</option>

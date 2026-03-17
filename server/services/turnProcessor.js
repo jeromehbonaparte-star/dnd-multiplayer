@@ -330,7 +330,12 @@ async function processAITurn(deps, sessionId, pendingActions, characters) {
 
   const tokensUsed = data.usage?.total_tokens || estimateTokens(JSON.stringify(messages) + aiResponse);
 
-  fullHistory.push({ role: 'assistant', content: aiResponse, type: 'narration' });
+  // Parse choices before stripping them from the response
+  const parsedChoices = tagParser.parseChoices ? tagParser.parseChoices(aiResponse, characters) : [];
+
+  // Strip CHOICE tags from the narration stored in history (they're UI-only)
+  const cleanedResponse = aiResponse.replace(/\[CHOICE:\s*[^\]]+\]/gi, '').replace(/\n{3,}/g, '\n\n').trim();
+  fullHistory.push({ role: 'assistant', content: cleanedResponse, type: 'narration' });
 
   // Snapshot character states BEFORE applying tags (for reroll restore)
   try {
@@ -413,13 +418,14 @@ async function processAITurn(deps, sessionId, pendingActions, characters) {
   // Emit update to all clients
   io.emit('turn_processed', {
     sessionId,
-    response: aiResponse,
+    response: cleanedResponse,
     turn: session.current_turn + 1,
     tokensUsed: recentHistoryTokens,
-    compacted: shouldCompact
+    compacted: shouldCompact,
+    choices: parsedChoices
   });
 
-  return { response: aiResponse, tokensUsed: recentHistoryTokens };
+  return { response: cleanedResponse, tokensUsed: recentHistoryTokens };
 }
 
 /**
@@ -610,7 +616,12 @@ async function streamAITurn(deps, sessionId, pendingActions, characters) {
 
   const tokensUsed = estimateTokens(JSON.stringify(messages) + aiResponse);
 
-  fullHistory.push({ role: 'assistant', content: aiResponse, type: 'narration' });
+  // Parse choices before stripping them from the response
+  const parsedChoices = tagParser.parseChoices ? tagParser.parseChoices(aiResponse, characters) : [];
+
+  // Strip CHOICE tags from the narration stored in history (they're UI-only)
+  const cleanedResponse = aiResponse.replace(/\[CHOICE:\s*[^\]]+\]/gi, '').replace(/\n{3,}/g, '\n\n').trim();
+  fullHistory.push({ role: 'assistant', content: cleanedResponse, type: 'narration' });
 
   // Snapshot character states BEFORE applying tags (for reroll restore)
   try {
@@ -693,13 +704,14 @@ async function streamAITurn(deps, sessionId, pendingActions, characters) {
   // Emit final turn_processed to all clients (replaces streaming content with formatted version)
   io.emit('turn_processed', {
     sessionId,
-    response: aiResponse,
+    response: cleanedResponse,
     turn: session.current_turn + 1,
     tokensUsed: recentHistoryTokens,
-    compacted: shouldCompact
+    compacted: shouldCompact,
+    choices: parsedChoices
   });
 
-  return { response: aiResponse, tokensUsed: recentHistoryTokens };
+  return { response: cleanedResponse, tokensUsed: recentHistoryTokens };
 }
 
 module.exports = {
