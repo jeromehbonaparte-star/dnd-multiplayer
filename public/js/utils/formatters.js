@@ -46,11 +46,16 @@ export function formatContent(content) {
   const hasHtml = /<[a-z][\s\S]*?>/i.test(content);
 
   if (hasHtml) {
-    // HTML mode: sanitize and pass through, convert remaining markdown
+    // HTML mode: sanitize and pass through
     let html = sanitizeHtml(content);
-    // Convert markdown bold/italic that may exist alongside HTML
-    html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
+    // Convert newlines to <br> only in text segments (outside HTML tags)
+    html = html.replace(/(^|>)([^<]+)(<|$)/g, (match, before, text, after) => {
+      const converted = text
+        .replace(/\n/g, '<br>')
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.*?)\*/g, '<em>$1</em>');
+      return before + converted + after;
+    });
     return html;
   }
 
