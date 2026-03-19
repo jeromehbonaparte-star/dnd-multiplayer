@@ -21,15 +21,22 @@ function sanitizeHtml(html) {
 
   // Remove dangerous attributes from all remaining elements
   const allEls = doc.body.querySelectorAll('*');
-  const dangerousAttrs = ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus',
-    'onblur', 'oninput', 'onchange', 'onsubmit', 'onkeydown', 'onkeyup', 'onkeypress'];
   allEls.forEach(el => {
-    dangerousAttrs.forEach(attr => el.removeAttribute(attr));
-    // Remove javascript: protocol from href/src
+    // Strip ALL on* event handler attributes (covers onerror, onwheel, onpointerenter, etc.)
+    const attrs = [...el.attributes];
+    for (const attr of attrs) {
+      if (attr.name.toLowerCase().startsWith('on')) {
+        el.removeAttribute(attr.name);
+      }
+    }
+    // Remove javascript: and data: protocols from href/src
     ['href', 'src', 'action'].forEach(attr => {
       const val = el.getAttribute(attr);
-      if (val && val.trim().toLowerCase().startsWith('javascript:')) {
-        el.removeAttribute(attr);
+      if (val) {
+        const trimmed = val.trim().toLowerCase();
+        if (trimmed.startsWith('javascript:') || trimmed.startsWith('data:')) {
+          el.removeAttribute(attr);
+        }
       }
     });
   });
@@ -42,6 +49,7 @@ function sanitizeHtml(html) {
  * plus markdown bold/italic for non-HTML content.
  */
 export function formatContent(content) {
+  if (!content) return '';
   // Check if content contains HTML tags
   const hasHtml = /<[a-z][\s\S]*?>/i.test(content);
 

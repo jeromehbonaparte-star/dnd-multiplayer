@@ -339,6 +339,47 @@ function applyAllTags(deps, aiResponse, characters, sessionId) {
     }
   }
 
+  // ==================== REST (Long Rest) ====================
+  const restMatches = aiResponse.match(/\[REST:\s*([^\]]+)\]/gi);
+  if (restMatches) {
+    console.log('REST tags found:', restMatches);
+    for (const match of restMatches) {
+      const name = match.replace(/\[REST:\s*/i, '').replace(']', '').trim();
+      const isParty = name.toLowerCase() === 'party' || name.toLowerCase() === 'all';
+
+      const targets = isParty ? characters : (() => {
+        const char = findCharacterByName(characters, name);
+        return char ? [char] : [];
+      })();
+
+      for (const char of targets) {
+        // Restore HP to max
+        db.prepare('UPDATE characters SET hp = max_hp WHERE id = ?').run(char.id);
+
+        // Restore spell slots
+        let spellSlots = {};
+        try {
+          spellSlots = JSON.parse(char.spell_slots || '{}');
+        } catch (e) {
+          spellSlots = {};
+        }
+        for (const level in spellSlots) {
+          if (spellSlots[level].max) {
+            spellSlots[level].current = spellSlots[level].max;
+          }
+        }
+
+        // Restore inspiration points to 4
+        db.prepare('UPDATE characters SET spell_slots = ?, inspiration_points = 4 WHERE id = ?')
+          .run(JSON.stringify(spellSlots), char.id);
+
+        const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(char.id);
+        io.emit('character_updated', updatedChar);
+        console.log(`REST: ${char.character_name} - HP restored to max, spell slots restored, inspiration reset to 4`);
+      }
+    }
+  }
+
   // ==================== HP ====================
   const hpMatches = aiResponse.match(/\[HP:\s*([^\]]+)\]/gi);
   console.log('HP tags found:', hpMatches);
@@ -357,13 +398,18 @@ function applyAllTags(deps, aiResponse, characters, sessionId) {
 
         const char = findCharacterByName(characters, charName);
         if (char) {
+          // Re-read from DB to get latest HP (may have been changed by REST or prior HP tags)
+          const freshChar = db.prepare('SELECT hp, max_hp FROM characters WHERE id = ?').get(char.id);
+          const currentHp = freshChar ? freshChar.hp : (char.hp || 0);
+          const maxHp = freshChar ? freshChar.max_hp : (char.max_hp || currentHp);
+
           let newHp;
           if (operator === '=') {
             newHp = value;
           } else if (operator === '+') {
-            newHp = Math.min((char.hp || 0) + value, char.max_hp || value);
+            newHp = Math.min(currentHp + value, maxHp);
           } else {
-            newHp = Math.max((char.hp || 0) - value, 0);
+            newHp = Math.max(currentHp - value, 0);
           }
 
           db.prepare('UPDATE characters SET hp = ? WHERE id = ?').run(newHp, char.id);

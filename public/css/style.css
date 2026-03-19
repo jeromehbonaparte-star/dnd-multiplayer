@@ -646,6 +646,75 @@ details.drawer-section.utility-menu > summary::-webkit-details-marker { display:
 
 .delete-msg-btn:hover { opacity: 1; }
 
+/* ── POV Narration ── */
+.pov-narration {
+  border-left: 3px solid var(--accent);
+}
+
+.pov-badge {
+  display: inline-block;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.7em;
+  padding: 1px 8px;
+  border-radius: 10px;
+  margin-left: 8px;
+  vertical-align: middle;
+  font-family: var(--font-body);
+  letter-spacing: 0.02em;
+}
+
+.pov-toggle-btn {
+  font-size: 14px !important;
+}
+
+.pov-section {
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.03);
+  border-left: 3px solid rgba(255,255,255,0.15);
+}
+
+.pov-section.pov-current {
+  border-left-color: var(--accent);
+  background: rgba(233, 69, 96, 0.06);
+}
+
+.pov-section.pov-other {
+  opacity: 0.7;
+}
+
+.pov-section-header {
+  font-family: var(--font-display);
+  font-size: 0.85em;
+  color: var(--accent);
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.pov-section-content {
+  font-size: var(--step-0);
+  line-height: 1.7;
+}
+
+.pov-all-container {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+
+[data-theme="light"] .pov-section {
+  background: rgba(0,0,0,0.02);
+  border-left-color: rgba(0,0,0,0.1);
+}
+[data-theme="light"] .pov-section.pov-current {
+  background: rgba(214, 51, 132, 0.06);
+}
+[data-theme="light"] .pov-all-container {
+  border-top-color: rgba(0,0,0,0.08);
+}
+
 /* Player action bubbles */
 .player-actions-group {
   max-width: 720px;

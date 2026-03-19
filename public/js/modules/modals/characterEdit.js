@@ -99,6 +99,6 @@ export async function sendModalMessage() {
     }
   } catch (error) {
     document.getElementById('modal-loading')?.remove();
-    messagesContainer.innerHTML += `<div class="chat-message assistant"><div class="message-content">Error: ${error.message}</div></div>`;
+    messagesContainer.innerHTML += `<div class="chat-message assistant"><div class="message-content">Error: ${escapeHtml(error.message)}</div></div>`;
   }
 }

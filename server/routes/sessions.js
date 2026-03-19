@@ -113,15 +113,27 @@ function createSessionRoutes(deps) {
                   classDisplay = Object.entries(classes).map(([cls, lvl]) => `${cls} ${lvl}`).join('/');
                 }
               } catch (e) {}
-              return `- ${c.character_name}, ${c.race} ${classDisplay} (played by ${c.player_name})`;
+              let info = `- ${c.character_name}, ${c.race} ${classDisplay}`;
+              if (c.appearance) info += ` — ${c.appearance}`;
+              if (c.backstory) info += ` | Backstory: ${c.backstory}`;
+              return info;
             }).join('\n');
           }
 
-          const openingPrompt = `You are starting a new adventure with this setting: ${sanitizedPrompt}${characterIntro}
+          const charNames = characters.map(c => c.character_name).join(', ');
 
-Write an atmospheric opening scene that sets the mood and introduces the world. Describe where the party finds themselves and what they see, hear, and sense around them. Make it vivid and immersive, drawing the players into the story.
+          const openingPrompt = `Setting: ${sanitizedPrompt}${characterIntro}
 
-DO NOT give the players a list of choices or options. End with an evocative description that invites them to act on their own initiative.`;
+Write the opening scene as separate 2nd-person POV narrations — one [POV: CharacterName]...[/POV] block per character. Each character experiences the scene through their own eyes, shaped by their race, class, personality, and backstory. Make it atmospheric, vivid, and immersive.
+
+Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is just the intro.
+End each POV with something that invites that character to act.
+
+Characters: ${charNames}`;
+
+          const openingSystemPrompt = `You are the Dungeon Master for a multiplayer D&D 5e game. Write vivid, grounded prose in 2nd person ("You see...", "You feel..."). Show without telling. Use all five senses. Give NPCs distinct voices. You may use HTML/inline CSS for diegetic objects (signs, documents, etc). No code blocks.
+
+Output format: [POV: CharacterName] ... [/POV] blocks only. Nothing outside POV tags.`;
 
           const response = await fetch(apiConfig.api_endpoint, {
             method: 'POST',
@@ -132,10 +144,10 @@ DO NOT give the players a list of choices or options. End with an evocative desc
             body: JSON.stringify({
               model: apiConfig.api_model,
               messages: [
-                { role: 'system', content: DEFAULT_SYSTEM_PROMPT },
+                { role: 'system', content: openingSystemPrompt },
                 { role: 'user', content: openingPrompt }
               ],
-              max_tokens: 2000
+              max_tokens: 4096
             })
           });
 
@@ -143,7 +155,23 @@ DO NOT give the players a list of choices or options. End with an evocative desc
             const data = await response.json();
             const openingScene = aiService.extractAIMessage(data);
             if (openingScene) {
-              const history = [{ role: 'assistant', content: openingScene, type: 'narration' }];
+              // Parse POV sections from opening scene
+              const parsedPOVs = tagParser.parsePOVSections
+                ? tagParser.parsePOVSections(openingScene, characters)
+                : {};
+              const hasPOVs = Object.keys(parsedPOVs).length > 0;
+
+              // Strip POV tags from content for clean storage
+              const cleanedContent = openingScene
+                .replace(/\[POV:\s*[^\]]*\]/gi, '')
+                .replace(/\[\/POV\]/gi, '')
+                .replace(/\n{3,}/g, '\n\n')
+                .trim();
+
+              const historyEntry = { role: 'assistant', content: cleanedContent, type: 'narration' };
+              if (hasPOVs) historyEntry.povs = parsedPOVs;
+
+              const history = [historyEntry];
               db.prepare('UPDATE game_sessions SET full_history = ? WHERE id = ?').run(JSON.stringify(history), id);
             }
           }
@@ -367,7 +395,13 @@ RULES:
 - Mix difficulties — include at least one HARD risky option
 - 2-4 choices per character
 - Output ONLY the [CHOICE: ...] tags, nothing else` },
-      { role: 'user', content: `Current scene:\n\n${lastNarration.content.substring(0, 3000)}\n\nGenerate focused, scene-specific choices for: ${charNames}` }
+      { role: 'user', content: `Current scene:\n\n${(() => {
+        // Use POV content if available (richer scene detail), otherwise fall back to content
+        if (lastNarration.povs && Object.keys(lastNarration.povs).length > 0) {
+          return Object.entries(lastNarration.povs).map(([name, pov]) => `[${name}'s perspective]: ${pov}`).join('\n\n');
+        }
+        return lastNarration.content;
+      })().substring(0, 4000)}\n\nGenerate focused, scene-specific choices for: ${charNames}` }
     ];
 
     try {
@@ -538,7 +572,14 @@ RULES:
     const visibleHistory = fullHistory.filter(m => !m.hidden && m.type !== 'context');
     const recentHistory = visibleHistory.slice(-30);
 
-    const lastDMMessage = [...recentHistory].reverse().find(m => m.role === 'assistant');
+    const lastDMMessageRaw = [...recentHistory].reverse().find(m => m.role === 'assistant');
+    // For auto-reply, prefer the character's POV (richer context) over stripped content
+    const lastDMMessage = lastDMMessageRaw ? {
+      ...lastDMMessageRaw,
+      content: (lastDMMessageRaw.povs && lastDMMessageRaw.povs[character.character_name])
+        ? lastDMMessageRaw.povs[character.character_name]
+        : lastDMMessageRaw.content
+    } : null;
 
     const recentExchanges = recentHistory.slice(-10).map(m => {
       if (m.role === 'assistant') return `DM: ${m.content.substring(0, 800)}`;
@@ -617,33 +658,18 @@ DON'T:
 Generate ONLY a brief action description.`;
 
     try {
-      const activeConfig = db.prepare('SELECT * FROM api_configs WHERE is_active = 1').get();
-      if (!activeConfig) {
+      const rawConfig = getActiveApiConfig();
+      if (!rawConfig) {
         return res.status(500).json({ error: 'No active API configuration' });
       }
+      const config = {
+        endpoint: rawConfig.api_endpoint || rawConfig.endpoint,
+        api_key: rawConfig.api_key,
+        model: rawConfig.api_model || rawConfig.model
+      };
 
-      const apiResponse = await fetch(activeConfig.endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${activeConfig.api_key}`
-        },
-        body: JSON.stringify({
-          model: activeConfig.model,
-          messages: [{ role: 'user', content: prompt }],
-          max_tokens: 300,
-          temperature: 0.7
-        })
-      });
-
-      if (!apiResponse.ok) {
-        const errorText = await apiResponse.text();
-        console.error('AI API error for auto-reply:', errorText);
-        return res.status(500).json({ error: 'Failed to generate action' });
-      }
-
-      const aiData = await apiResponse.json();
-      const generatedAction = aiData.choices?.[0]?.message?.content?.trim();
+      const aiData = await aiService.callAI(config, [{ role: 'user', content: prompt }], { maxTokens: 300, temperature: 0.7 });
+      const generatedAction = (aiService.extractAIMessage(aiData) || '').trim();
 
       if (!generatedAction) {
         return res.status(500).json({ error: 'AI returned empty response' });

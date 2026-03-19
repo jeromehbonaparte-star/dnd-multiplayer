@@ -495,6 +495,58 @@ function calculateNewHP(character, operator, value) {
   return newHp;
 }
 
+/**
+ * Parse [REST: Name] or [REST: Party] tags from AI response
+ * Triggers long rest mechanics: restore spell slots, HP, inspiration
+ * @param {string} text - AI response text
+ * @param {Array} characters - Array of character objects
+ * @returns {Array} Array of {characterId, characterName, scope}
+ */
+function parseRestTags(text, characters) {
+  const rests = [];
+  const restMatches = text.match(/\[REST:\s*([^\]]+)\]/gi);
+  if (!restMatches) return rests;
+
+  for (const match of restMatches) {
+    const name = match.replace(/\[REST:\s*/i, '').replace(']', '').trim();
+
+    if (name.toLowerCase() === 'party' || name.toLowerCase() === 'all') {
+      rests.push({ characterId: 'all', characterName: 'Party', scope: 'party' });
+    } else {
+      const char = findCharacterByName(characters, name);
+      if (char) {
+        rests.push({ characterId: char.id, characterName: char.character_name, scope: 'individual' });
+      }
+    }
+  }
+
+  return rests;
+}
+
+/**
+ * Parse [POV: CharacterName]...[/POV] sections from AI response
+ * @param {string} text - AI response text
+ * @param {Array} characters - Array of character objects
+ * @returns {Object} Map of characterName -> POV narration content
+ */
+function parsePOVSections(text, characters) {
+  const povs = {};
+  const povRegex = /\[POV:\s*(.+?)\]([\s\S]*?)\[\/POV\]/gi;
+  let match;
+  while ((match = povRegex.exec(text)) !== null) {
+    const charName = match[1].trim();
+    const content = match[2].trim();
+    const char = findCharacterByName(characters, charName);
+    if (char) {
+      povs[char.character_name] = content;
+    } else if (charName) {
+      // Store by raw name if character not found (backward compat)
+      povs[charName] = content;
+    }
+  }
+  return povs;
+}
+
 module.exports = {
   findCharacterByName,
   parseXPAwards,
@@ -505,6 +557,8 @@ module.exports = {
   parseACChanges,
   parseChoices,
   parseAllTags,
+  parseRestTags,
+  parsePOVSections,
   applyInventoryChange,
   calculateNewHP
 };

@@ -106,10 +106,19 @@ const turnDeps = {
 };
 
 function processAITurn(sessionId, pendingActions, characters) {
-  // Use streaming by default, fall back to non-streaming on error
+  // Use streaming by default, fall back to non-streaming only if stream fails BEFORE any state mutation
   return streamAITurnCore(turnDeps, sessionId, pendingActions, characters)
     .catch(streamError => {
-      console.warn('Streaming failed, falling back to non-streaming:', streamError.message);
+      // Only safe to fallback if the error is a connection/setup error (before history was mutated)
+      // Check if history was already modified by re-reading session
+      const session = turnDeps.db.prepare('SELECT full_history FROM game_sessions WHERE id = ?').get(sessionId);
+      const history = JSON.parse(session?.full_history || '[]');
+      const lastEntry = history[history.length - 1];
+      if (lastEntry && lastEntry.type === 'narration') {
+        // Stream already wrote a narration — don't double-process
+        throw new Error('Streaming failed after partial processing: ' + streamError.message);
+      }
+      console.warn('Streaming failed before processing, falling back to non-streaming:', streamError.message);
       return processAITurnCore(turnDeps, sessionId, pendingActions, characters);
     });
 }

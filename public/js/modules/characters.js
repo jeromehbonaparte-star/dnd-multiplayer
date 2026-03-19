@@ -593,7 +593,7 @@ export async function sendCharacterMessage() {
     }
   } catch (error) {
     document.getElementById('loading-msg')?.remove();
-    messagesContainer.innerHTML += `<div class="chat-message assistant"><div class="message-content">Error: ${error.message}</div></div>`;
+    messagesContainer.innerHTML += `<div class="chat-message assistant"><div class="message-content">Error: ${escapeHtml(error.message)}</div></div>`;
     input.disabled = false;
     document.getElementById('char-chat-send').disabled = false;
   }

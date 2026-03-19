@@ -261,6 +261,27 @@ export async function loadSession(id) {
 }
 
 /**
+ * Re-render the story history locally (no network request).
+ * Used when the selected character changes to switch POV display.
+ */
+export function reRenderStory() {
+  if (_fullRenderedHistory.length === 0) return;
+  const historyContainer = document.getElementById('story-history');
+  if (!historyContainer) return;
+
+  const storyContainer = document.getElementById('story-container');
+  const scrollWasAtBottom = storyContainer
+    ? (storyContainer.scrollHeight - storyContainer.scrollTop - storyContainer.clientHeight < 50)
+    : false;
+
+  const startIndex = Math.max(0, _fullRenderedHistory.length - _renderedCount);
+  const visibleHistory = _fullRenderedHistory.slice(startIndex);
+  historyContainer.innerHTML = renderStoryHistory(visibleHistory, startIndex);
+
+  if (scrollWasAtBottom) scrollStoryToBottom();
+}
+
+/**
  * Set up IntersectionObserver to load more messages when scrolling to top.
  */
 function setupScrollObserver(historyContainer) {
@@ -399,20 +420,75 @@ export function renderStoryHistory(history, indexOffset = 0) {
         turnActionIndices = [];
       }
 
-      const ttsId = 'tts-' + Math.random().toString(36).substr(2, 9);
-      const ttsContent = btoa(encodeURIComponent(entry.content));
-      html += `
-        <div class="story-entry assistant narration" data-index="${globalIndex}">
-          <div class="narration-header">
-            <div class="role">Dungeon Master</div>
-            <div class="narration-controls">
-              <button class="tts-play-btn" id="${ttsId}" data-tts-content="${ttsContent}" onclick="handleTTSClick(this)" title="Play narration">\uD83D\uDD0A</button>
-              <button class="delete-msg-btn" onclick="deleteStoryMessage(${globalIndex})" title="Delete this message">\uD83D\uDDD1\uFE0F</button>
+      // Check for POV narrations
+      const hasPOVs = entry.povs && Object.keys(entry.povs).length > 0;
+      const selectedCharName = getSelectedCharacterName();
+
+      if (hasPOVs && selectedCharName && entry.povs[selectedCharName]) {
+        // Render only the selected character's POV
+        const povContent = entry.povs[selectedCharName];
+        const ttsId = 'tts-' + Math.random().toString(36).substr(2, 9);
+        const ttsContent = btoa(encodeURIComponent(povContent));
+        html += `
+          <div class="story-entry assistant narration pov-narration" data-index="${globalIndex}">
+            <div class="narration-header">
+              <div class="role">Your Story <span class="pov-badge">${escapeHtml(selectedCharName)}'s POV</span></div>
+              <div class="narration-controls">
+                <button class="pov-toggle-btn" onclick="togglePOVView(${globalIndex})" title="Switch POV view">\uD83D\uDC41\uFE0F</button>
+                <button class="tts-play-btn" id="${ttsId}" data-tts-content="${ttsContent}" onclick="handleTTSClick(this)" title="Play narration">\uD83D\uDD0A</button>
+                <button class="delete-msg-btn" onclick="deleteStoryMessage(${globalIndex})" title="Delete this message">\uD83D\uDDD1\uFE0F</button>
+              </div>
+            </div>
+            <div class="content pov-content" data-pov-for="${escapeHtml(selectedCharName)}">${formatContent(povContent)}</div>
+            <div class="pov-all-container" style="display:none" data-index="${globalIndex}">
+              ${Object.entries(entry.povs).map(([name, content]) => `
+                <div class="pov-section ${name === selectedCharName ? 'pov-current' : 'pov-other'}">
+                  <div class="pov-section-header">${escapeHtml(name)}'s POV</div>
+                  <div class="pov-section-content">${formatContent(content)}</div>
+                </div>
+              `).join('')}
             </div>
           </div>
-          <div class="content">${formatContent(entry.content)}</div>
-        </div>
-      `;
+        `;
+      } else if (hasPOVs && !selectedCharName) {
+        // No character selected — show all POVs stacked
+        const allPovText = Object.values(entry.povs).join('\n\n');
+        const ttsId = 'tts-' + Math.random().toString(36).substr(2, 9);
+        const ttsContent = btoa(encodeURIComponent(allPovText));
+        html += `
+          <div class="story-entry assistant narration pov-narration" data-index="${globalIndex}">
+            <div class="narration-header">
+              <div class="role">Dungeon Master <span class="pov-badge">All POVs</span></div>
+              <div class="narration-controls">
+                <button class="tts-play-btn" id="${ttsId}" data-tts-content="${ttsContent}" onclick="handleTTSClick(this)" title="Play narration">\uD83D\uDD0A</button>
+                <button class="delete-msg-btn" onclick="deleteStoryMessage(${globalIndex})" title="Delete this message">\uD83D\uDDD1\uFE0F</button>
+              </div>
+            </div>
+            ${Object.entries(entry.povs).map(([name, content]) => `
+              <div class="pov-section">
+                <div class="pov-section-header">${escapeHtml(name)}'s POV</div>
+                <div class="pov-section-content">${formatContent(content)}</div>
+              </div>
+            `).join('')}
+          </div>
+        `;
+      } else {
+        // No POV data (legacy narration or opening scene) — render normally
+        const ttsId = 'tts-' + Math.random().toString(36).substr(2, 9);
+        const ttsContent = btoa(encodeURIComponent(entry.content));
+        html += `
+          <div class="story-entry assistant narration" data-index="${globalIndex}">
+            <div class="narration-header">
+              <div class="role">Dungeon Master</div>
+              <div class="narration-controls">
+                <button class="tts-play-btn" id="${ttsId}" data-tts-content="${ttsContent}" onclick="handleTTSClick(this)" title="Play narration">\uD83D\uDD0A</button>
+                <button class="delete-msg-btn" onclick="deleteStoryMessage(${globalIndex})" title="Delete this message">\uD83D\uDDD1\uFE0F</button>
+              </div>
+            </div>
+            <div class="content">${formatContent(entry.content)}</div>
+          </div>
+        `;
+      }
       continue;
     }
 
@@ -448,6 +524,39 @@ export function renderStoryHistory(history, indexOffset = 0) {
   }
 
   return html;
+}
+
+/**
+ * Get the currently selected character's name from the action character dropdown.
+ * Used for POV rendering.
+ */
+function getSelectedCharacterName() {
+  const charSelect = document.getElementById('action-character');
+  if (!charSelect || !charSelect.value) return null;
+  const sessionChars = getState('sessionCharacters');
+  const allChars = getState('characters');
+  const char = sessionChars.find(c => c.id === charSelect.value) || allChars.find(c => c.id === charSelect.value);
+  return char ? char.character_name : null;
+}
+
+/**
+ * Toggle between showing only selected character's POV and all POVs.
+ */
+export function togglePOVView(index) {
+  const entry = document.querySelector(`.story-entry.narration[data-index="${index}"]`);
+  if (!entry) return;
+  const allContainer = entry.querySelector('.pov-all-container');
+  const singleContent = entry.querySelector('.content.pov-content');
+  if (!allContainer) return;
+
+  const isShowingAll = allContainer.style.display !== 'none';
+  allContainer.style.display = isShowingAll ? 'none' : 'block';
+  if (singleContent) singleContent.style.display = isShowingAll ? 'block' : 'none';
+
+  const toggleBtn = entry.querySelector('.pov-toggle-btn');
+  if (toggleBtn) {
+    toggleBtn.title = isShowingAll ? 'Show all POVs' : 'Show only your POV';
+  }
 }
 
 function renderPlayerActionsGroup(actions, indices = []) {

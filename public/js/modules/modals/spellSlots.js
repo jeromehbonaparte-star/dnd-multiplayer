@@ -191,14 +191,16 @@ function renderSpellSlotsList(char) {
   } else {
     listEl.innerHTML = levels.map(lvl => {
       const slot = spellSlots[lvl];
-      const available = (slot.max || 0) - (slot.used || 0);
+      const current = slot.current ?? slot.max ?? 0;
+      const max = slot.max || 0;
+      const used = max - current;
       const levelName = lvl === '1' ? '1st' : lvl === '2' ? '2nd' : lvl === '3' ? '3rd' : `${lvl}th`;
       return `
         <div class="spell-slot-row">
           <span class="slot-level">${levelName} Level</span>
-          <span class="slot-count">${available} / ${slot.max || 0}</span>
-          <button class="btn-tiny" onclick="useSpellSlot('${lvl}')" ${available <= 0 ? 'disabled' : ''}>Use</button>
-          <button class="btn-tiny btn-restore" onclick="restoreSpellSlot('${lvl}')" ${slot.used <= 0 ? 'disabled' : ''}>+1</button>
+          <span class="slot-count">${current} / ${max}</span>
+          <button class="btn-tiny" onclick="useSpellSlot('${lvl}')" ${current <= 0 ? 'disabled' : ''}>Use</button>
+          <button class="btn-tiny btn-restore" onclick="restoreSpellSlot('${lvl}')" ${used <= 0 ? 'disabled' : ''}>+1</button>
           <button class="btn-tiny btn-remove" onclick="removeSpellSlotLevel('${lvl}')">X</button>
         </div>
       `;

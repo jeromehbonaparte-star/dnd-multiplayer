@@ -25,11 +25,15 @@ function estimateTokens(text) {
  * @returns {Promise<string>} New summary text
  */
 async function compactHistory(apiConfig, existingSummary, history, characters, extractAIMessage) {
-  // Format history with better context
+  // Format history with better context — include POV content for richer summaries
   const historyText = history.map(h => {
     if (h.type === 'action' && h.character_name) {
       return `[${h.character_name}]: ${h.content}`;
     } else if (h.type === 'narration' || h.role === 'assistant') {
+      // If POVs exist, include them for richer summary context
+      if (h.povs && Object.keys(h.povs).length > 0) {
+        return Object.entries(h.povs).map(([name, pov]) => `[DM → ${name}]: ${pov}`).join('\n\n');
+      }
       return `[DM]: ${h.content}`;
     } else if (h.type === 'gm_nudge') {
       return `[GM INSTRUCTION]: ${h.content}`;
@@ -58,7 +62,7 @@ ${historyText}
 [1-2 paragraphs: Where is the party RIGHT NOW? What were they just doing? What immediate situation are they in?]
 
 ## ACTIVE QUESTS & OBJECTIVES
-${characters.length > 0 ? characters.map(c => `- List any active quests or goals`).join('\n') : '- List any active quests or goals for the party'}
+- List any active quests or goals for the party
 
 ## KEY NPCs ENCOUNTERED
 [For each important NPC:]
@@ -92,26 +96,14 @@ Generate the structured summary now:`;
   console.log(`History entries to compact: ${history.length}`);
 
   try {
-    const response = await fetch(apiConfig.api_endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiConfig.api_key}`
-      },
-      body: JSON.stringify({
-        model: apiConfig.api_model,
-        messages: [{ role: 'user', content: compactPrompt }],
-        max_tokens: 4000
-      })
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Compaction API error:', errorText);
-      return existingSummary + '\n\n[Compaction failed - API error]';
-    }
-
-    const data = await response.json();
+    // Use aiService.callAI to support both OpenAI and Anthropic providers
+    const { callAI } = require('./aiService');
+    const config = {
+      endpoint: apiConfig.api_endpoint,
+      api_key: apiConfig.api_key,
+      model: apiConfig.api_model
+    };
+    const data = await callAI(config, [{ role: 'user', content: compactPrompt }], { maxTokens: 4000 });
     const summary = extractAIMessage(data);
 
     if (!summary) {
@@ -288,26 +280,14 @@ async function processAITurn(deps, sessionId, pendingActions, characters) {
   }
   console.log(`Total messages to AI: ${messages.length} (1 system + ${aiMessages.length} conversation)`);
 
-  // Call AI API
-  const response = await fetch(apiConfig.api_endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiConfig.api_key}`
-    },
-    body: JSON.stringify({
-      model: apiConfig.api_model,
-      messages: messages,
-      max_tokens: 64000
-    })
-  });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`API Error: ${error}`);
-  }
-
-  const data = await response.json();
+  // Call AI API (supports both OpenAI and Anthropic via aiService)
+  const { callAI } = require('./aiService');
+  const aiCallConfig = {
+    endpoint: apiConfig.api_endpoint,
+    api_key: apiConfig.api_key,
+    model: apiConfig.api_model
+  };
+  const data = await callAI(aiCallConfig, messages, { maxTokens: 64000 });
   let aiResponse = extractAIMessage(data);
 
   if (!aiResponse) {
@@ -333,9 +313,25 @@ async function processAITurn(deps, sessionId, pendingActions, characters) {
   // Parse choices before stripping them from the response
   const parsedChoices = tagParser.parseChoices ? tagParser.parseChoices(aiResponse, characters) : [];
 
-  // Strip CHOICE tags from the narration stored in history (they're UI-only)
-  const cleanedResponse = aiResponse.replace(/\[CHOICE:\s*[^\]]+\]/gi, '').replace(/\n{3,}/g, '\n\n').trim();
-  fullHistory.push({ role: 'assistant', content: cleanedResponse, type: 'narration' });
+  // Parse POV sections from AI response
+  const parsedPOVs = tagParser.parsePOVSections ? tagParser.parsePOVSections(aiResponse, characters) : {};
+  const hasPOVs = Object.keys(parsedPOVs).length > 0;
+  console.log(`POV sections found: ${Object.keys(parsedPOVs).length}`, Object.keys(parsedPOVs));
+
+  // Strip CHOICE and POV tags from the narration stored in history (they're stored separately)
+  let cleanedResponse = aiResponse
+    .replace(/\[CHOICE:\s*[^\]]+\]/gi, '')
+    .replace(/\[POV:\s*[^\]]*\]/gi, '')
+    .replace(/\[\/POV\]/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  // Build history entry with POVs attached
+  const historyEntry = { role: 'assistant', content: cleanedResponse, type: 'narration' };
+  if (hasPOVs) {
+    historyEntry.povs = parsedPOVs;
+  }
+  fullHistory.push(historyEntry);
 
   // Snapshot character states BEFORE applying tags (for reroll restore)
   try {
@@ -422,7 +418,8 @@ async function processAITurn(deps, sessionId, pendingActions, characters) {
     turn: session.current_turn + 1,
     tokensUsed: recentHistoryTokens,
     compacted: shouldCompact,
-    choices: parsedChoices
+    choices: parsedChoices,
+    povs: hasPOVs ? parsedPOVs : null
   });
 
   return { response: cleanedResponse, tokensUsed: recentHistoryTokens };
@@ -619,9 +616,25 @@ async function streamAITurn(deps, sessionId, pendingActions, characters) {
   // Parse choices before stripping them from the response
   const parsedChoices = tagParser.parseChoices ? tagParser.parseChoices(aiResponse, characters) : [];
 
-  // Strip CHOICE tags from the narration stored in history (they're UI-only)
-  const cleanedResponse = aiResponse.replace(/\[CHOICE:\s*[^\]]+\]/gi, '').replace(/\n{3,}/g, '\n\n').trim();
-  fullHistory.push({ role: 'assistant', content: cleanedResponse, type: 'narration' });
+  // Parse POV sections from AI response
+  const parsedPOVs = tagParser.parsePOVSections ? tagParser.parsePOVSections(aiResponse, characters) : {};
+  const hasPOVs = Object.keys(parsedPOVs).length > 0;
+  console.log(`POV sections found: ${Object.keys(parsedPOVs).length}`, Object.keys(parsedPOVs));
+
+  // Strip CHOICE and POV tags from the narration stored in history
+  let cleanedResponse = aiResponse
+    .replace(/\[CHOICE:\s*[^\]]+\]/gi, '')
+    .replace(/\[POV:\s*[^\]]*\]/gi, '')
+    .replace(/\[\/POV\]/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  // Build history entry with POVs attached
+  const historyEntry = { role: 'assistant', content: cleanedResponse, type: 'narration' };
+  if (hasPOVs) {
+    historyEntry.povs = parsedPOVs;
+  }
+  fullHistory.push(historyEntry);
 
   // Snapshot character states BEFORE applying tags (for reroll restore)
   try {
@@ -708,7 +721,8 @@ async function streamAITurn(deps, sessionId, pendingActions, characters) {
     turn: session.current_turn + 1,
     tokensUsed: recentHistoryTokens,
     compacted: shouldCompact,
-    choices: parsedChoices
+    choices: parsedChoices,
+    povs: hasPOVs ? parsedPOVs : null
   });
 
   return { response: cleanedResponse, tokensUsed: recentHistoryTokens };

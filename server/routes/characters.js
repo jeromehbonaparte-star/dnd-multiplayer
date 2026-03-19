@@ -697,7 +697,7 @@ LEVELUP_COMPLETE:{"hp_increase":N,"class_leveled":"ClassName","new_class_level":
         body: JSON.stringify({
           model: apiConfig.api_model,
           messages: allMessages,
-          max_tokens: 64000
+          max_tokens: 4096
         })
       });
 
@@ -833,33 +833,25 @@ LEVELUP_COMPLETE:{"hp_increase":N,"class_leveled":"ClassName","new_class_level":
       }
     } catch (e) { }
 
-    const editPrompt = `You are a D&D 5e character editor assistant. Help modify this character based on the user's request.
+    const editPrompt = `You are a D&D 5e character editor. Help modify this character.
 
-CURRENT CHARACTER:
-- Player: ${character.player_name}
-- Name: ${character.character_name}
-- Race: ${character.race}
-- Classes: ${classesDisplay} (Total Level: ${character.level})
-- Classes JSON: ${classesJson}
-- XP: ${character.xp || 0}
-- Gold: ${character.gold || 0}
-- Stats: STR ${character.strength}, DEX ${character.dexterity}, CON ${character.constitution}, INT ${character.intelligence}, WIS ${character.wisdom}, CHA ${character.charisma}
-- HP: ${character.hp}/${character.max_hp}
-- AC (Armor Class): ${character.ac || 10}
-- Spell Slots: ${spellSlotsDisplay}
-- Background: ${character.background}
-- Appearance: ${character.appearance || 'Not set'}
-- Backstory: ${character.backstory || 'Not set'}
-- Spells: ${character.spells || 'None'}
-- Skills: ${character.skills || 'None'}
-- Passives: ${character.passives || 'None'}
-- Class Features: ${character.class_features || 'None'}
-- Feats: ${character.feats || 'None'}
+CHARACTER: ${character.character_name} (${character.race} ${classesDisplay}, Lv${character.level})
+Stats: STR ${character.strength}, DEX ${character.dexterity}, CON ${character.constitution}, INT ${character.intelligence}, WIS ${character.wisdom}, CHA ${character.charisma}
+HP: ${character.hp}/${character.max_hp}, AC: ${character.ac || 10}, XP: ${character.xp || 0}, Gold: ${character.gold || 0}
+Spells: ${character.spells || 'None'} | Skills: ${character.skills || 'None'}
+Feats: ${character.feats || 'None'} | Features: ${character.class_features || 'None'}
+Appearance: ${character.appearance || 'Not set'} | Backstory: ${character.backstory || 'Not set'}
+Spell Slots: ${spellSlotsDisplay} | Classes JSON: ${classesJson}
 
-USER'S EDIT REQUEST: ${editRequest}
+${editRequest ? `USER REQUEST: ${editRequest}\n` : ''}Discuss changes with the user. When confirmed, output ONLY the CHANGED fields as JSON:
+EDIT_COMPLETE:{"field":"new_value"}
 
-Discuss the changes with the user. When you have confirmed ALL changes, output the COMPLETE updated character in this EXACT JSON format.
-EDIT_COMPLETE:{"character_name":"...","race":"...","class":"PrimaryClass","classes":{"Fighter":5},"level":N,"xp":N,"gold":N,"strength":N,"dexterity":N,"constitution":N,"intelligence":N,"wisdom":N,"charisma":N,"hp":N,"max_hp":N,"ac":N,"spell_slots":{"1":{"current":N,"max":N}},"background":"...","appearance":"...","backstory":"...","spells":"...","skills":"...","passives":"...","class_features":"...","feats":"..."}`;
+Only include fields that changed. Valid fields: character_name, race, class, classes, level, xp, gold, strength, dexterity, constitution, intelligence, wisdom, charisma, hp, max_hp, ac, spell_slots, background, appearance, backstory, spells, skills, passives, class_features, feats.
+
+Example - if only changing spells and HP:
+EDIT_COMPLETE:{"spells":"Fireball, Shield, Misty Step","hp":35,"max_hp":35}
+
+IMPORTANT: Output EDIT_COMPLETE: immediately followed by the JSON on ONE line. No code fences, no backticks, no extra formatting around it.`;
 
     try {
       const allMessages = [
@@ -876,7 +868,7 @@ EDIT_COMPLETE:{"character_name":"...","race":"...","class":"PrimaryClass","class
         body: JSON.stringify({
           model: apiConfig.api_model,
           messages: allMessages,
-          max_tokens: 64000
+          max_tokens: 4096
         })
       });
 
@@ -891,8 +883,8 @@ EDIT_COMPLETE:{"character_name":"...","race":"...","class":"PrimaryClass","class
         throw new Error('Could not parse AI response');
       }
 
-      // Check if edit is complete
-      if (aiMessage.includes('EDIT_COMPLETE:')) {
+      // Check if edit is complete — try marker first, then fallback to JSON detection
+      if (aiMessage.includes('EDIT_COMPLETE:') || aiMessage.includes('"EDIT_COMPLETE"')) {
         let jsonStr = null;
         const startIdx = aiMessage.indexOf('EDIT_COMPLETE:') + 'EDIT_COMPLETE:'.length;
         const jsonStart = aiMessage.indexOf('{', startIdx);
@@ -947,10 +939,54 @@ EDIT_COMPLETE:{"character_name":"...","race":"...","class":"PrimaryClass","class
             invalidateCache('characters:');
             io.emit('character_updated', updatedChar);
 
-            const cleanMessage = aiMessage.substring(0, aiMessage.indexOf('EDIT_COMPLETE:')).trim();
+            const markerIdx = aiMessage.indexOf('EDIT_COMPLETE:');
+            const cleanMessage = markerIdx >= 0 ? aiMessage.substring(0, markerIdx).trim() : '';
             return res.json({ message: cleanMessage || 'Character updated!', complete: true, character: updatedChar });
           } catch (parseError) {
-            console.error('Failed to parse edit JSON:', parseError.message);
+            console.error('Failed to parse edit JSON:', parseError.message, '\nJSON string:', jsonStr?.substring(0, 200));
+          }
+        }
+      }
+
+      // Fallback: only if the AI clearly intended to save (has confirmation language + JSON)
+      if (!aiMessage.includes('EDIT_COMPLETE:')) {
+        const hasConfirmation = /(?:updated|saved|applied|confirmed|here(?:'s| is) the|changes? (?:made|applied)|done)/i.test(aiMessage);
+        const jsonFallback = hasConfirmation
+          ? aiMessage.match(/\{[^{}]*(?:"(?:strength|dexterity|spells|hp|max_hp|skills|class_features|appearance|backstory)"[^{}]*)+\}/)
+          : null;
+        if (jsonFallback) {
+          try {
+            const editData = JSON.parse(jsonFallback[0]);
+            const updates = [];
+            const values = [];
+            const fields = ['character_name', 'race', 'class', 'level', 'xp', 'gold', 'strength', 'dexterity', 'constitution',
+                           'intelligence', 'wisdom', 'charisma', 'hp', 'max_hp', 'ac', 'background',
+                           'appearance', 'backstory', 'spells', 'skills', 'passives', 'class_features', 'feats'];
+            fields.forEach(field => {
+              if (editData[field] !== undefined && editData[field] !== null) {
+                updates.push(`${field} = ?`);
+                values.push(editData[field]);
+              }
+            });
+            if (editData.spell_slots !== undefined) {
+              updates.push('spell_slots = ?');
+              values.push(typeof editData.spell_slots === 'string' ? editData.spell_slots : JSON.stringify(editData.spell_slots));
+            }
+            if (editData.classes !== undefined) {
+              updates.push('classes = ?');
+              values.push(typeof editData.classes === 'string' ? editData.classes : JSON.stringify(editData.classes));
+            }
+            if (updates.length > 0) {
+              values.push(req.params.id);
+              db.prepare(`UPDATE characters SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+              const updatedChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(req.params.id);
+              invalidateCache('characters:');
+              io.emit('character_updated', updatedChar);
+              console.log('Edit saved via fallback JSON detection');
+              return res.json({ message: 'Character updated!', complete: true, character: updatedChar });
+            }
+          } catch (e) {
+            console.error('Fallback JSON parse failed:', e.message);
           }
         }
       }
@@ -989,7 +1025,7 @@ EDIT_COMPLETE:{"character_name":"...","race":"...","class":"PrimaryClass","class
             { role: 'system', content: CHARACTER_CREATION_PROMPT },
             ...(messages || [])
           ],
-          max_tokens: 64000
+          max_tokens: 4096
         })
       });
 

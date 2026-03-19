@@ -25,7 +25,8 @@ import {
   recalculateXP, recalculateLoot, recalculateInventory, recalculateACSpells,
   rollActionDice, getCurrentDiceRoll,
   updateInspirationDisplay,
-  displayChoices, selectChoice, dismissChoices, toggleChoicesDrawer, generateChoices
+  displayChoices, selectChoice, dismissChoices, toggleChoicesDrawer, generateChoices,
+  togglePOVView, reRenderStory
 } from './modules/sessions.js';
 import {
   loadSettings, saveSettings,
@@ -103,6 +104,7 @@ window.selectChoice = selectChoice;
 window.dismissChoices = dismissChoices;
 window.toggleChoicesDrawer = toggleChoicesDrawer;
 window.generateChoices = generateChoices;
+window.togglePOVView = togglePOVView;
 
 // Settings
 window.saveSettings = saveSettings;
@@ -237,6 +239,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Re-filter choices for newly selected character
     const pendingChoices = getState('pendingChoices');
     if (pendingChoices) displayChoices(pendingChoices);
+    // Re-render story locally to switch POV narration for selected character (no network fetch)
+    reRenderStory();
   });
 
   // Shared tab switching function
