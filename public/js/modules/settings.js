@@ -143,7 +143,7 @@ export async function testNewConfig() {
   }
 
   try {
-    const result = await api('/api/test-connection', 'POST', testData);
+    const result = await api('/api/api-configs/test-connection', 'POST', testData);
     statusEl.textContent = `Connection successful! Response: ${result.message}`;
     statusEl.className = 'success';
   } catch (error) {
@@ -169,7 +169,7 @@ export async function testApiConfig(id) {
   btn.disabled = true;
 
   try {
-    const result = await api(`/api/test-connection/${id}`, 'POST');
+    const result = await api(`/api/api-configs/test-connection/${id}`, 'POST');
     btn.textContent = 'Success!';
     btn.style.color = 'var(--success)';
     btn.style.borderColor = 'var(--success)';

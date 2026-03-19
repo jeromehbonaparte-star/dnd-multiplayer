@@ -135,16 +135,20 @@ function createApiConfigRoutes(db, auth) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    const result = await testConnection({
-      endpoint: api_endpoint,
-      api_key: api_key,
-      model: api_model
-    });
+    try {
+      const result = await testConnection({
+        endpoint: api_endpoint,
+        api_key: api_key,
+        model: api_model
+      });
 
-    if (result.success) {
-      res.json({ success: true, message: result.message });
-    } else {
-      res.status(500).json({ error: result.message });
+      if (result.success) {
+        res.json({ success: true, message: result.message });
+      } else {
+        res.status(500).json({ error: result.message });
+      }
+    } catch (error) {
+      res.status(500).json({ error: 'Test failed: ' + error.message });
     }
   });
 
@@ -160,16 +164,20 @@ function createApiConfigRoutes(db, auth) {
       return res.status(404).json({ error: 'Configuration not found' });
     }
 
-    const result = await testConnection({
-      endpoint: config.endpoint,
-      api_key: config.api_key,
-      model: config.model
-    });
+    try {
+      const result = await testConnection({
+        endpoint: config.endpoint,
+        api_key: config.api_key,
+        model: config.model
+      });
 
-    if (result.success) {
-      res.json({ success: true, message: result.message });
-    } else {
-      res.status(500).json({ error: result.message });
+      if (result.success) {
+        res.json({ success: true, message: result.message });
+      } else {
+        res.status(500).json({ error: result.message });
+      }
+    } catch (error) {
+      res.status(500).json({ error: 'Test failed: ' + error.message });
     }
   });
 
