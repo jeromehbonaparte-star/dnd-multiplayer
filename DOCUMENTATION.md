@@ -17,7 +17,7 @@ A real-time multiplayer D&D (Dungeons & Dragons 5e) web application with an AI-p
 - **Backend:** Node.js, Express.js, Socket.IO
 - **Database:** SQLite (better-sqlite3)
 - **Frontend:** Vanilla HTML/CSS/JavaScript
-- **AI Integration:** OpenAI-compatible API (works with DeepSeek, OpenRouter, etc.)
+- **AI Integration:** OpenAI-compatible & Anthropic API (works with DeepSeek, OpenRouter, Claude, etc.)
 - **Auth:** bcrypt for password hashing
 - **Security:** express-rate-limit for brute force protection
 - **Deployment:** Docker
@@ -136,11 +136,15 @@ The `full_history` field stores a JSON array of message objects with the followi
     "character_name": "Thorin",
     "player_name": "John"
   },
-  // DM narration response
+  // DM narration response (with per-character POV narrations)
   {
     "role": "assistant",
-    "content": "Thorin swings his mighty sword...",
-    "type": "narration"
+    "content": "Cleaned narration text (POV tags stripped)",
+    "type": "narration",
+    "povs": {
+      "Thorin": "Your sword connects with the goblin's shield...",
+      "Elara": "You watch Thorin charge forward as you nock an arrow..."
+    }
   }
 ]
 ```
@@ -148,7 +152,8 @@ The `full_history` field stores a JSON array of message objects with the followi
 This format enables:
 - Character sheets to be sent to AI without cluttering player UI
 - Player actions displayed as individual styled chat bubbles per character
-- Backward compatibility with legacy messages (no `type` field)
+- **Per-character POV narrations** — each player sees only their character's story
+- Backward compatibility with legacy messages (no `type` or `povs` field — renders as standard narration)
 
 **pending_actions**
 ```sql
@@ -177,7 +182,10 @@ created_at DATETIME
 
 ### 3. Turn-Based Gameplay
 - All players submit actions before AI processes the turn
-- AI receives party status + actions and narrates outcome
+- AI receives party status + actions and narrates outcome as **per-character POV narrations**
+- Each player sees only their own character's 2nd-person POV story
+- Eye icon button toggles between "Your POV" and "All POVs" view
+- Switching character in the dropdown instantly re-renders the story to show that character's POV
 - "Force Process Turn" button for DM override
 - Real-time updates via Socket.IO
 
@@ -197,7 +205,8 @@ When creating a new session, players can choose from predefined scenarios:
 | Horror Mystery | Lovecraftian cosmic horror |
 | Custom Setting | User-defined world and scenario |
 
-- AI generates an atmospheric opening scene based on selected scenario
+- AI generates an atmospheric opening scene as **per-character POV narrations**
+- Each character's intro is personalized using their appearance, backstory, race, and class
 - Custom setting allows free-form world description
 - Opening scene introduces existing party characters if any
 
@@ -205,7 +214,9 @@ When creating a new session, players can choose from predefined scenarios:
 - Character sheets sent as hidden context (AI sees them, players don't clutter)
 - Player actions displayed as individual styled bubbles per character
 - Each character has unique color for visual distinction
-- DM narrations styled separately with gradient background
+- **POV narrations:** Each narration entry shows the selected character's personal 2nd-person story, styled with accent border and POV badge
+- Toggle button to view all characters' POVs side-by-side
+- Legacy narrations (pre-POV) render as standard "Dungeon Master" narration
 - Legacy message format supported for backward compatibility
 
 ### 4. Auto-Compact System
@@ -303,12 +314,19 @@ When creating a new session, players can choose from predefined scenarios:
 
 **Spell Slots:**
 - AI tracks spell slot usage using format: `[SPELL: CharacterName -1st]` (uses one 1st level slot)
-- AI tracks spell slot restoration: `[SPELL: CharacterName +REST]` (restores all slots)
+- AI tracks individual slot restoration: `[SPELL: CharacterName +1st]` (restores one slot, e.g., Arcane Recovery)
 - Spell slots stored as JSON: `{level: {current: X, max: Y}}`
 - Visual pip interface in Spell Slots modal (click to use/restore)
 - Long Rest button restores all spell slots
 - Add/remove spell slot levels for class flexibility
 - Displayed in character cards and party sidebar
+
+**Long Rest:**
+- Dedicated tag: `[REST: Party]` (all characters) or `[REST: CharacterName]` (one character)
+- Restores: HP to max, all spell slots, inspiration points to 4
+- AI is instructed to always use `[REST:]` when narrating a long rest
+- Old `[SPELL: CharacterName +REST]` format still works for backward compatibility
+- `/rest` slash command in action textarea triggers long rest for selected character
 - "Recalculate AC/Spells" button scans existing history for:
   - [AC:] tags for base AC and effects
   - [SPELL:] tags
@@ -333,6 +351,8 @@ When creating a new session, players can choose from predefined scenarios:
 - Can update stats, equipment, spells, skills, backstory, **feats, multiclass info**
 - Supports editing `classes` JSON directly
 - AI confirms changes before applying
+- **Optimized:** AI only outputs changed fields (not full character JSON), making saves more reliable
+- Fallback JSON parser catches saves even if AI omits the `EDIT_COMPLETE:` marker (requires confirmation language)
 - Endpoint: `POST /api/characters/:id/edit`
 
 **Party Sidebar Quick Actions:**
@@ -567,40 +587,39 @@ created_at DATETIME
 - `session_deleted` - Session removed
 - `action_submitted` - Player submitted action
 - `turn_processing` - AI is generating response (shows typing indicator)
-- `turn_processed` - AI response complete
+- `turn_processed` - AI response complete (includes `povs` object with per-character narrations)
+- `turn_chunk` - Streaming text chunk from AI (real-time display)
+- `choices_generated` - On-demand choice generation result
+- `reroll_started` - Reroll initiated (shows typing indicator)
+- `session_compacted` - History auto-compacted
+- `session_updated` - Session data changed (character added/removed)
 
 ---
 
 ## Default DM Instructions (System Prompt)
 
-The system prompt is hardcoded in `server/index.js` as `DEFAULT_SYSTEM_PROMPT`. It includes:
+The system prompt is hardcoded in `server/services/aiService.js` as `DEFAULT_SYSTEM_PROMPT` (~1600 tokens). It covers:
 
-**Narrative Mastery (Author-Inspired Storytelling):**
-- Tolkien's Grandeur: Epic, sweeping language and poetic descriptions
-- Salvatore's Combat Poetry: Visceral, cinematic action scenes
-- Rothfuss's Lyrical Beauty: Metaphor and memorable prose
-- Sanderson's Clarity: Precise, visual action with clear stakes
-- Pratchett's Wit: Clever observations and well-timed humor
-- Martin's Consequences: Choices matter, NPCs remember
+**Sections (8 total):**
+1. **Immersion & Narrative** — Webnovel-inspired prose, show-don't-tell, five senses, NPC autonomy
+2. **HTML Rendering** — Diegetic objects (signs, documents, menus) rendered as inline HTML
+3. **Dice Rolling** — d20 roll interpretation, outcome scaling (Nat 1 through 23+), proficiency rules
+4. **Combat** — Narrative combat, DM rolls damage/enemy attacks, bloodied/near-death announcements
+5. **Multiclass & Feats** — Key feat mechanics (GWM, Sentinel, Lucky, etc.)
+6. **Tracking Tags** — All 7 mandatory tag formats (HP, XP, MONEY, ITEM, SPELL, REST, AC)
+7. **Output Format — POV Narrations** — Entire response must be `[POV: Name]...[/POV]` blocks per character, followed by `[CHOICE:]` tags
+8. **Multiplayer Rules** — Never control player characters, narrate only stated actions
 
-**Storytelling Principles:**
-- Show, don't tell
-- Give NPCs distinct voices
-- Use all five senses
-- Build tension through pacing
-- End scenes with hooks
-
-**Technical Instructions:**
-- Role instructions for AI DM
-- Dice rolling format and calculation rules
-- Combat mechanics with dramatic descriptions
-- XP award format: `[XP: CharacterName +100]`
-- Money award format: `[MONEY: CharacterName +50]` (or `[GOLD:]` for compatibility)
-- Item tracking format: `[ITEM: CharacterName +Sword of Fire]`
-- Spell slot tracking format: `[SPELL: CharacterName -1st]` or `[SPELL: CharacterName +REST]`
-- HP tracking format: `[HP: CharacterName -10]`, `[HP: CharacterName +5]`, `[HP: CharacterName =20]`
-- Combat control format: `[COMBAT: START Name]`, `[COMBAT: END]`, `[COMBAT: NEXT]`, `[COMBAT: PREV]`
-- Player Agency rules: Never give numbered lists of choices, let players discover and decide
+**Tracking Tags (parsed automatically by the system):**
+- `[HP: Name -10]` / `[HP: Name +5]` / `[HP: Name =30]`
+- `[XP: Name +100]` / `[XP: Thorin +50, Elara +50]`
+- `[MONEY: Name +50]` / `[MONEY: Name -25]`
+- `[ITEM: Name +Sword of Fire]` / `[ITEM: Name -Health Potion]`
+- `[SPELL: Name -1st]` / `[SPELL: Name +1st]`
+- `[REST: Party]` / `[REST: Name]` — long rest (restores HP, spell slots, inspiration)
+- `[AC: Name +Shield of Faith +2 spell]` / `[AC: Name -Shield of Faith]` / `[AC: Name base Plate Armor 18]`
+- `[CHOICE: Name | STAT | DIFFICULTY | description]` — suggested next actions
+- `[POV: Name]...[/POV]` — per-character 2nd-person narration blocks
 
 **Important:** This is NOT editable via settings to ensure tracking always works.
 
@@ -743,8 +762,10 @@ The Dockerfile:
 - Use `deepseek-chat` model (not `deepseek-reasoner` for regular chat)
 
 ### 3. AI response format issues
-- `extractAIMessage()` helper handles different API response formats
-- Checks `choices[0].message.content` and fallbacks
+- `extractAIMessage()` helper handles both OpenAI and Anthropic response formats
+- OpenAI: `choices[0].message.content`
+- Anthropic: `content[0].text`
+- All AI calls (narration, compaction, auto-reply, test connection) route through `aiService.callAI()` which auto-detects the provider from the endpoint URL
 
 ### 4. XP not updating
 - AI must use exact format: `[XP: CharacterName +100]`
@@ -780,6 +801,13 @@ The Dockerfile:
 - **General API:** 100 requests per minute
 - Uses `express-rate-limit` package
 
+### HTML Sanitization
+- AI narration may contain HTML (for diegetic objects like signs, documents)
+- `sanitizeHtml()` strips all `on*` event handler attributes (not just a fixed list)
+- Removes `script`, `iframe`, `object`, `embed`, `form`, `link`, `meta`, `base` elements
+- Blocks `javascript:` and `data:` protocol URIs on `href`/`src` attributes
+- Error messages are escaped with `escapeHtml()` before any innerHTML injection
+
 ### API Key Protection
 - API key is masked in settings response (shows only `****xxxx`)
 - Full key never sent to frontend after initial setup
@@ -807,6 +835,10 @@ The Dockerfile:
 - [x] Class Features tracking (implemented!)
 - [x] Appearance & Backstory tracking (implemented!)
 - [x] Combat tracker with initiative (implemented!)
+- [x] Per-character POV narrations (implemented!)
+- [x] Long Rest tag with full resource restoration (implemented!)
+- [x] Anthropic API provider support (implemented!)
+- [x] Optimized DM system prompt — 56% token reduction (implemented!)
 - [ ] Map/image uploads
 - [ ] Multiple campaigns per session
 - [ ] Character import/export
