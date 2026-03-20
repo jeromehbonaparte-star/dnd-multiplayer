@@ -649,10 +649,9 @@ h1, h2, h3 {
   left: 0;
   width: 85vw;
   max-width: 320px;
-  background: rgba(var(--bg-medium-rgb), 0.95);
-  background-image: var(--noise-texture);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: rgba(var(--bg-medium-rgb), 0.82);
+  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+  backdrop-filter: blur(20px) saturate(1.2);
   border-right: 1px solid var(--border-accent);
   transform: translateX(-100%);
   transition: transform 0.3s var(--ease-out);
@@ -732,7 +731,9 @@ details.drawer-section.utility-menu > summary:hover { color: var(--accent-hover)
 .story-topbar {
   padding: 8px 14px;
   border-bottom: 1px solid var(--border-color);
-  background: var(--bg-medium);
+  background: rgba(var(--bg-medium-rgb), 0.8);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
 }
 
 .game-info {
@@ -759,8 +760,9 @@ details.drawer-section.utility-menu > summary:hover { color: var(--accent-hover)
   overscroll-behavior: contain;
   padding: 16px 12px;
   position: relative;
-  background: var(--bg-dark);
-  background-image: var(--noise-texture);
+  background: rgba(var(--bg-medium-rgb), 0.75);
+  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+  backdrop-filter: blur(20px) saturate(1.2);
 }
 
 /* ---------------------------------------------------------------
@@ -1218,9 +1220,9 @@ details.drawer-section.utility-menu > summary:hover { color: var(--accent-hover)
 
 .action-bar {
   padding: 10px 14px;
-  background: rgba(var(--bg-medium-rgb), 0.92);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: rgba(var(--bg-medium-rgb), 0.85);
+  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+  backdrop-filter: blur(20px) saturate(1.2);
   border-top: 1px solid var(--border-accent);
   display: flex;
   flex-direction: column;
@@ -1601,6 +1603,9 @@ details.drawer-section.utility-menu > summary:hover { color: var(--accent-hover)
   overscroll-behavior: contain;
   height: 100vh;
   height: 100dvh;
+  background: rgba(var(--bg-medium-rgb), 0.78);
+  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+  backdrop-filter: blur(20px) saturate(1.2);
 }
 
 #characters-grid {
@@ -2535,6 +2540,9 @@ details.drawer-section.utility-menu > summary:hover { color: var(--accent-hover)
   overscroll-behavior: contain;
   height: 100vh;
   height: 100dvh;
+  background: rgba(var(--bg-medium-rgb), 0.78);
+  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+  backdrop-filter: blur(20px) saturate(1.2);
   max-width: 800px;
   margin: 0 auto;
 }
@@ -3763,30 +3771,7 @@ button { cursor: pointer; }
    33. BACKGROUND ART & TEXTURES
    --------------------------------------------------------------- */
 
-/* Story area — dark leather parchment texture */
-#story-container {
-  background-image: url('/assets/parchment-dark.jpg');
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
-  background-blend-mode: overlay;
-}
-
-/* Parchment overlay to blend the texture with theme */
-#story-container::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: var(--bg-dark);
-  opacity: 0.82;
-  pointer-events: none;
-  z-index: 0;
-}
-
-#story-container > * {
-  position: relative;
-  z-index: 1;
-}
+/* Story area — parchment texture removed, using glassmorphism over body scenery */
 
 /* Character cards — subtle parchment texture on hover */
 .character-card::before {
@@ -3805,15 +3790,7 @@ button { cursor: pointer; }
   opacity: 0.08;
 }
 
-/* Light theme: hide parchment backgrounds that look wrong on light */
-[data-theme="light"] #story-container {
-  background-image: none;
-}
-
-[data-theme="light"] #story-container::before {
-  display: none;
-}
-
+/* Light theme: hide parchment hover on cards */
 [data-theme="light"] .character-card::before {
   display: none;
 }
