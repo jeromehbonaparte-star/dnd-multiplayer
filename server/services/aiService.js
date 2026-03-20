@@ -65,8 +65,16 @@ function buildRequestBody(config, messages, options, provider) {
   if (provider === 'anthropic') {
     // Extract system message from messages array
     const systemMessages = messages.filter(m => m.role === 'system');
-    const nonSystemMessages = messages.filter(m => m.role !== 'system');
+    const nonSystemMessages = messages.filter(m => m.role !== 'system').map(m => ({ ...m }));
     const systemContent = systemMessages.map(m => m.content).join('\n\n');
+
+    // Anthropic rejects trailing whitespace on the final assistant message (prefill)
+    if (nonSystemMessages.length > 0) {
+      const last = nonSystemMessages[nonSystemMessages.length - 1];
+      if (last.role === 'assistant' && last.content) {
+        last.content = last.content.trimEnd();
+      }
+    }
 
     return {
       model: config.model,
