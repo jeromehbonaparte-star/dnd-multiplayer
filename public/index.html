@@ -2,8 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0d0d14">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="description" content="Multiplayer D&D 5e with AI Dungeon Master">
   <title>D&D Multiplayer</title>
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
   <!-- Google Fonts: Medieval/RPG Typography -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -21,7 +26,7 @@
             <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
           </svg>
         </button>
-        <span class="brand">D&amp;D Multiplayer</span>
+        <span class="brand">D&amp;D Realms</span>
       </div>
       <div class="top-nav-tabs" id="top-nav-tabs" role="tablist" aria-label="Main navigation">
         <button class="tab-btn active" data-tab="game">Game</button>
@@ -39,20 +44,23 @@
     <!-- BOTTOM NAV (mobile) -->
     <nav class="bottom-nav" id="bottom-nav">
       <button class="bottom-nav-btn active" data-tab="game">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8">
           <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
         </svg>
-        <span>Game</span>
+        <span>Quest</span>
       </button>
       <button class="bottom-nav-btn" data-tab="characters">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8">
+          <path d="M12 2C9.5 2 8 4 8 6.5S9.5 11 12 11s4-2 4-4.5S14.5 2 12 2z"/>
+          <path d="M4 21v-1c0-3 3-5.5 8-5.5s8 2.5 8 5.5v1"/>
+          <path d="M15 3.5l2-1.5M9 3.5L7 2"/>
         </svg>
-        <span>Characters</span>
+        <span>Party</span>
       </button>
       <button class="bottom-nav-btn" data-tab="settings">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
         </svg>
         <span>Settings</span>
       </button>
@@ -100,7 +108,7 @@
             <span id="turn-counter">Turn: 0</span>
             <span id="token-counter">Tokens: 0</span>
             <span id="waiting-counter">Waiting: 0</span>
-            <button id="weather-toggle-btn" class="btn-weather" onclick="cycleWeather()">&#9748;</button>
+            <button id="weather-toggle-btn" class="btn-weather" onclick="cycleWeather()" aria-label="Toggle weather effects">&#9748;</button>
           </div>
         </div>
 
@@ -127,11 +135,11 @@
             </div>
           </div>
           <div class="action-bar-top">
-            <select id="action-character">
+            <select id="action-character" aria-label="Select character">
               <option value="">Select character</option>
             </select>
             <div class="dice-roller" id="dice-roller">
-              <select id="dice-stat-select" class="dice-stat-select" title="Stat modifier">
+              <select id="dice-stat-select" class="dice-stat-select" title="Stat modifier" aria-label="Stat modifier">
                 <option value="none">No mod</option>
                 <option value="strength">STR</option>
                 <option value="dexterity">DEX</option>
@@ -161,7 +169,7 @@
             </div>
           </div>
           <div class="action-bar-bottom">
-            <textarea id="action-text" placeholder="What do you do?" rows="2"></textarea>
+            <textarea id="action-text" placeholder="What do you do?" rows="2" aria-label="Action description"></textarea>
             <button onclick="submitAction()" id="submit-action-btn" class="btn-submit">Submit</button>
           </div>
         </div>
@@ -310,11 +318,11 @@
             <!-- Step 3: Equipment -->
             <div id="builder-equipment" class="builder-step">
               <div class="form-group">
-                <label>Starting Gold</label>
+                <label for="builder-gold">Starting Gold</label>
                 <input type="number" id="builder-gold" min="0" value="10" style="max-width: 120px;">
               </div>
               <div class="form-group" style="position: relative;">
-                <label>Equipment</label>
+                <label for="equipment-search">Equipment</label>
                 <input type="text" id="equipment-search" placeholder="Search equipment to add...">
                 <div id="equipment-search-results" class="search-results-dropdown hidden"></div>
               </div>
@@ -393,19 +401,19 @@
         <div class="add-api-config">
           <h3>Add New API Configuration</h3>
           <div class="form-group">
-            <label>Name</label>
+            <label for="new-config-name">Name</label>
             <input type="text" id="new-config-name" placeholder="e.g., OpenAI GPT-4, DeepSeek, Local Ollama">
           </div>
           <div class="form-group">
-            <label>API Endpoint</label>
+            <label for="new-config-endpoint">API Endpoint</label>
             <input type="text" id="new-config-endpoint" placeholder="https://api.openai.com/v1/chat/completions">
           </div>
           <div class="form-group">
-            <label>API Key</label>
+            <label for="new-config-key">API Key</label>
             <input type="password" id="new-config-key" placeholder="sk-...">
           </div>
           <div class="form-group">
-            <label>Model</label>
+            <label for="new-config-model">Model</label>
             <input type="text" id="new-config-model" placeholder="gpt-4">
           </div>
           <div class="form-group checkbox-group">
@@ -420,7 +428,7 @@
 
         <h2>Game Settings</h2>
         <div class="form-group">
-          <label>Max Tokens Before Auto-Compact</label>
+          <label for="max-tokens">Max Tokens Before Auto-Compact</label>
           <input type="number" id="max-tokens" min="1000" max="100000" value="8000">
         </div>
         <p class="settings-note">DM Instructions are built-in and automatically updated with new features (XP tracking, dice rolling, etc.)</p>
@@ -428,7 +436,7 @@
         <h2>Text-to-Speech (TTS)</h2>
         <p class="settings-note">AI-powered narration for DM messages. Click the speaker icon on any DM message to hear it read aloud.</p>
         <div class="form-group">
-          <label>Voice</label>
+          <label for="tts-voice">Voice</label>
           <select id="tts-voice" onchange="ttsManager.setVoice(this.value)">
             <option value="alloy">Alloy (Neutral)</option>
             <option value="echo">Echo (Male)</option>
@@ -452,7 +460,7 @@
         <h2>GM Mode</h2>
         <p class="settings-note">Send hidden instructions to the AI. Players won't see these messages, but the AI will use them to guide the story.</p>
         <div class="form-group">
-          <label>Select Session</label>
+          <label for="gm-session-select">Select Session</label>
           <select id="gm-session-select" onchange="loadGMSessionInfo()">
             <option value="">-- Select a session --</option>
           </select>
@@ -462,7 +470,7 @@
           <p>Turn: <span id="gm-session-turn"></span></p>
         </div>
         <div class="form-group">
-          <label>GM Message</label>
+          <label for="gm-message-input">GM Message</label>
           <textarea id="gm-message-input" rows="4" placeholder="Example: Have a mysterious stranger approach the party with urgent news about the dragon's lair..."></textarea>
         </div>
         <div class="form-group">
@@ -473,7 +481,7 @@
         <h2>Story Summary Management</h2>
         <p class="settings-note">The AI uses a summary of past events to maintain story continuity. You can view, edit, or force-regenerate this summary.</p>
         <div class="form-group">
-          <label>Select Session</label>
+          <label for="summary-session-select">Select Session</label>
           <select id="summary-session-select" onchange="loadSessionSummary()">
             <option value="">-- Select a session --</option>
           </select>
@@ -486,7 +494,7 @@
           </div>
         </div>
         <div class="form-group">
-          <label>Current Summary</label>
+          <label for="summary-textarea">Current Summary</label>
           <textarea id="summary-textarea" rows="10" placeholder="No summary yet. The AI will create one automatically when the history gets long, or you can force compact below."></textarea>
         </div>
         <div class="form-group summary-buttons">
@@ -498,19 +506,19 @@
         <h2>AI Auto-Reply</h2>
         <p class="settings-note">Let the AI generate a short action/response for a character and send it automatically. Useful for NPCs or absent players.</p>
         <div class="form-group">
-          <label>Select Session</label>
+          <label for="autoreply-session-select">Select Session</label>
           <select id="autoreply-session-select" onchange="loadAutoReplyCharacters()">
             <option value="">-- Select a session --</option>
           </select>
         </div>
         <div class="form-group">
-          <label>Select Character</label>
+          <label for="autoreply-character-select">Select Character</label>
           <select id="autoreply-character-select" disabled onchange="onAutoReplyCharacterChange()">
             <option value="">-- Select a session first --</option>
           </select>
         </div>
         <div class="form-group">
-          <label>Context/Guidance (optional)</label>
+          <label for="autoreply-context">Context/Guidance (optional)</label>
           <textarea id="autoreply-context" rows="2" placeholder="e.g., 'Act cautiously' or 'Try to haggle' - leave blank for AI to decide"></textarea>
         </div>
         <div class="form-group">
@@ -527,7 +535,7 @@
   <!-- Character Edit/Level Up Modal -->
   <div id="char-modal" class="modal" role="dialog" aria-modal="true" aria-label="Character edit">
     <div class="modal-content">
-      <span class="modal-close" onclick="closeModal()" role="button" aria-label="Close dialog">&times;</span>
+      <button class="modal-close" onclick="closeModal()" aria-label="Close dialog">&times;</button>
       <h2 id="modal-title">Edit Character</h2>
       <div class="modal-chat" id="modal-chat-messages"></div>
       <div class="modal-input">
@@ -549,10 +557,10 @@
   <!-- Inventory Modal -->
   <div id="inventory-modal" class="modal" role="dialog" aria-modal="true" aria-label="Character inventory">
     <div class="modal-content inventory-modal-content">
-      <span class="modal-close" onclick="closeInventoryModal()" role="button" aria-label="Close dialog">&times;</span>
+      <button class="modal-close" onclick="closeInventoryModal()" aria-label="Close dialog">&times;</button>
       <h2 id="inventory-modal-title">Inventory</h2>
       <div class="inventory-modal-gold">
-        <label>Money:</label>
+        <label for="inventory-gold-input">Money:</label>
         <input type="number" id="inventory-gold-input" min="0" value="0">
         <button onclick="updateGold()" class="btn-small">Update</button>
       </div>
@@ -560,7 +568,9 @@
         <h3>Items</h3>
         <div id="inventory-modal-list"></div>
         <div class="inventory-add-item">
+          <label for="new-item-name" class="sr-only">Item name</label>
           <input type="text" id="new-item-name" placeholder="Item name">
+          <label for="new-item-qty" class="sr-only">Quantity</label>
           <input type="number" id="new-item-qty" min="1" value="1" style="width: 60px;">
           <button onclick="addItemToInventory()" class="btn-small">Add</button>
         </div>
@@ -574,14 +584,16 @@
   <!-- Spell Slots Modal -->
   <div id="spell-slots-modal" class="modal" role="dialog" aria-modal="true" aria-label="Spell slots and armor class">
     <div class="modal-content spell-slots-modal-content">
-      <span class="modal-close" onclick="closeSpellSlotsModal()" role="button" aria-label="Close dialog">&times;</span>
+      <button class="modal-close" onclick="closeSpellSlotsModal()" aria-label="Close dialog">&times;</button>
       <h2 id="spell-slots-modal-title">Spell Slots & AC</h2>
 
       <div class="ac-section">
         <h3>Armor Class</h3>
         <div class="ac-base-row">
           <label>Base AC:</label>
+          <label for="ac-base-source" class="sr-only">Armor name</label>
           <input type="text" id="ac-base-source" placeholder="Armor name (e.g., Plate Armor)">
+          <label for="ac-base-value" class="sr-only">Base AC value</label>
           <input type="number" id="ac-base-value" min="1" max="30" value="10">
           <button onclick="updateAcBase()" class="btn-small">Set Base</button>
         </div>
@@ -592,8 +604,11 @@
           <h4>AC Effects <span class="ac-effects-hint">(spells, shields, items)</span></h4>
           <div id="ac-effects-list"></div>
           <div class="ac-effects-add">
+            <label for="new-effect-name" class="sr-only">Effect name</label>
             <input type="text" id="new-effect-name" placeholder="Effect name">
+            <label for="new-effect-value" class="sr-only">Effect value</label>
             <input type="number" id="new-effect-value" min="-10" max="10" value="2" placeholder="+/-">
+            <label for="new-effect-type" class="sr-only">Effect type</label>
             <select id="new-effect-type">
               <option value="equipment">Equipment</option>
               <option value="spell">Spell</option>
@@ -623,6 +638,7 @@
             <option value="8">8th Level</option>
             <option value="9">9th Level</option>
           </select>
+          <label for="new-slot-max" class="sr-only">Max slots</label>
           <input type="number" id="new-slot-max" min="1" max="10" value="2" placeholder="Max slots">
           <button onclick="addSpellSlotLevel()" class="btn-small">Add</button>
         </div>
@@ -640,6 +656,7 @@
       <h2>Admin Access Required</h2>
       <p>Enter admin password to access settings</p>
       <div class="form-group">
+        <label for="admin-password-input">Admin Password</label>
         <input type="password" id="admin-password-input" placeholder="Admin Password">
       </div>
       <p id="admin-login-error" class="error"></p>
@@ -653,22 +670,22 @@
   <!-- API Config Edit Modal -->
   <div id="api-edit-modal" class="modal" role="dialog" aria-modal="true" aria-label="Edit API configuration">
     <div class="modal-content api-edit-modal-content">
-      <span class="modal-close" onclick="closeApiEditModal()" role="button" aria-label="Close dialog">&times;</span>
+      <button class="modal-close" onclick="closeApiEditModal()" aria-label="Close dialog">&times;</button>
       <h2>Edit API Configuration</h2>
       <div class="form-group">
-        <label>Name</label>
+        <label for="edit-config-name">Name</label>
         <input type="text" id="edit-config-name" placeholder="Configuration name">
       </div>
       <div class="form-group">
-        <label>API Endpoint</label>
+        <label for="edit-config-endpoint">API Endpoint</label>
         <input type="text" id="edit-config-endpoint" placeholder="https://api.openai.com/v1/chat/completions">
       </div>
       <div class="form-group">
-        <label>Model</label>
+        <label for="edit-config-model">Model</label>
         <input type="text" id="edit-config-model" placeholder="gpt-4">
       </div>
       <div class="form-group">
-        <label>API Key</label>
+        <label for="edit-config-key">API Key</label>
         <input type="password" id="edit-config-key" placeholder="Leave blank to keep current key">
       </div>
       <p id="edit-config-status"></p>
@@ -682,7 +699,7 @@
   <!-- Quick Edit Modal (direct field editing) -->
   <div id="quick-edit-modal" class="modal" role="dialog" aria-modal="true" aria-label="Quick edit character">
     <div class="modal-content quick-edit-modal-content">
-      <span class="modal-close" onclick="closeQuickEditModal()" role="button" aria-label="Close dialog">&times;</span>
+      <button class="modal-close" onclick="closeQuickEditModal()" aria-label="Close dialog">&times;</button>
       <h2 id="quick-edit-title">Edit Character</h2>
 
       <!-- Tabs for sections -->
@@ -835,11 +852,11 @@
   <!-- New Session Modal -->
   <div id="new-session-modal" class="modal" role="dialog" aria-modal="true" aria-label="Create new session">
     <div class="modal-content new-session-modal-content">
-      <span class="modal-close" onclick="closeNewSessionModal()" role="button" aria-label="Close dialog">&times;</span>
+      <button class="modal-close" onclick="closeNewSessionModal()" aria-label="Close dialog">&times;</button>
       <h2>Create New Session</h2>
 
       <div class="form-group">
-        <label>Session Name</label>
+        <label for="new-session-name">Session Name</label>
         <input type="text" id="new-session-name" placeholder="Enter a name for your adventure...">
       </div>
 
@@ -849,7 +866,7 @@
       </div>
 
       <div class="form-group" id="custom-scenario-group" style="display: none;">
-        <label>Describe Your Custom Setting</label>
+        <label for="custom-scenario-input">Describe Your Custom Setting</label>
         <textarea id="custom-scenario-input" rows="4" placeholder="Describe the world, the era, the mood, and how you'd like the adventure to begin..."></textarea>
       </div>
 
