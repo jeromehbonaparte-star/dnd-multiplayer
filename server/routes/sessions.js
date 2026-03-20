@@ -254,6 +254,7 @@ Output format: [POV: CharacterName] ... [/POV] blocks only. Nothing outside POV 
         res.json({ processed: true, result });
       } catch (error) {
         console.error('AI processing error:', error);
+        io.emit('turn_error', { sessionId, error: error.message });
         res.json({ processed: false, error: error.message });
       } finally {
         processingSessions.delete(sessionId);
@@ -300,6 +301,7 @@ Output format: [POV: CharacterName] ... [/POV] blocks only. Nothing outside POV 
       res.json({ success: true, result });
     } catch (error) {
       console.error('AI processing error:', error);
+      io.emit('turn_error', { sessionId, error: error.message });
       res.status(500).json({ error: error.message });
     } finally {
       processingSessions.delete(sessionId);

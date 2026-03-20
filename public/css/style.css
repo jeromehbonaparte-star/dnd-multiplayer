@@ -939,6 +939,52 @@ details.drawer-section.utility-menu > summary:hover { color: var(--accent-hover)
   border-top-color: rgba(0,0,0,0.06);
 }
 
+/* ── Turn Error Banner ── */
+.turn-error-banner {
+  margin: 12px 0;
+  padding: 14px 18px;
+  border-radius: 10px;
+  background: rgba(231, 76, 60, 0.1);
+  border: 1px solid rgba(231, 76, 60, 0.3);
+  border-left: 4px solid #e74c3c;
+}
+
+.turn-error-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.turn-error-message {
+  font-size: 0.9em;
+  color: #e74c3c;
+  flex: 1;
+  min-width: 200px;
+}
+
+.turn-error-retry-btn {
+  padding: 8px 20px;
+  background: #e74c3c;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-size: 0.85em;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background 0.2s;
+}
+
+.turn-error-retry-btn:hover { background: #c0392b; }
+.turn-error-retry-btn:disabled { background: #888; cursor: not-allowed; }
+
+[data-theme="light"] .turn-error-banner {
+  background: rgba(231, 76, 60, 0.06);
+}
+
 /* ── Player action bubbles ── */
 .player-actions-group {
   max-width: 740px;

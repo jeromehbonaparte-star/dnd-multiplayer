@@ -1292,6 +1292,60 @@ export async function submitAction() {
   }
 }
 
+/**
+ * Show a turn processing error with a retry button in the story area.
+ */
+export function showTurnError(errorMessage) {
+  const historyContainer = document.getElementById('story-history');
+  if (!historyContainer) return;
+
+  // Remove any existing error banner
+  const existing = document.getElementById('turn-error-banner');
+  if (existing) existing.remove();
+
+  const banner = document.createElement('div');
+  banner.id = 'turn-error-banner';
+  banner.className = 'turn-error-banner';
+  banner.innerHTML = `
+    <div class="turn-error-content">
+      <div class="turn-error-message">Narrator failed to respond: ${escapeHtml(errorMessage)}</div>
+      <button class="turn-error-retry-btn" onclick="retryTurn()">Retry Turn</button>
+    </div>
+  `;
+  historyContainer.appendChild(banner);
+
+  const container = document.getElementById('story-container');
+  if (container) container.scrollTop = container.scrollHeight;
+
+  showNotification('AI turn failed — use the Retry button to try again');
+}
+
+/**
+ * Retry the last failed turn by calling Force Process.
+ */
+export async function retryTurn() {
+  const currentSession = getState('currentSession');
+  if (!currentSession) return;
+
+  const banner = document.getElementById('turn-error-banner');
+  const btn = banner?.querySelector('.turn-error-retry-btn');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Retrying...';
+  }
+
+  try {
+    await api(`/api/sessions/${currentSession.id}/process`, 'POST');
+    // Success — banner will be removed when turn_processed fires and loadSession re-renders
+  } catch (error) {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Retry Turn';
+    }
+    showNotification('Retry failed: ' + error.message);
+  }
+}
+
 export function updateActionFormState() {
   const isTurnProcessing = getState('isTurnProcessing');
   const submitBtn = document.getElementById('submit-action-btn');

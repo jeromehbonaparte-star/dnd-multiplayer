@@ -5,7 +5,7 @@
 import { getState, setState } from './state.js';
 import { showConnectionStatus, hideConnectionStatus, showNotification, showNarratorTyping, hideNarratorTyping } from './utils/dom.js';
 import { loadCharacters } from './modules/characters.js';
-import { loadSessions, loadSession, updatePendingActions, updateActionFormState, appendStreamChunk, finalizeStreamedContent, displayChoices } from './modules/sessions.js';
+import { loadSessions, loadSession, updatePendingActions, updateActionFormState, appendStreamChunk, finalizeStreamedContent, displayChoices, showTurnError } from './modules/sessions.js';
 import { loadSessionSummary } from './modules/settings.js';
 
 /**
@@ -219,6 +219,19 @@ export function initSocket() {
       if (compacted) {
         showNotification('History was auto-compacted to save tokens!');
       }
+    }
+  });
+
+  // Turn processing error — show retry button
+  socket.off('turn_error');
+  socket.on('turn_error', ({ sessionId, error }) => {
+    const currentSession = getState('currentSession');
+    if (currentSession && currentSession.id === sessionId) {
+      setState({ isTurnProcessing: false });
+      hideNarratorTyping();
+      finalizeStreamedContent();
+      updateActionFormState();
+      showTurnError(error);
     }
   });
 
