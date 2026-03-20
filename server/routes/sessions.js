@@ -120,46 +120,54 @@ function createSessionRoutes(deps) {
             }).join('\n');
           }
 
-          const charNames = characters.map(c => c.character_name).join(', ');
-
           const openingPrompt = `Setting: ${sanitizedPrompt}${characterIntro}
 
-Write the opening scene as separate 2nd-person POV narrations — one [POV: CharacterName]...[/POV] block per character. Each character experiences the scene through their own eyes, shaped by their race, class, personality, and backstory. Make it atmospheric, vivid, and immersive.
+Write an atmospheric opening scene in 3rd person that sets the mood and introduces the world. Describe where the party finds themselves and what they see, hear, and sense around them. Make it vivid and immersive. End with something that invites the players to act.
 
-Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is just the intro.
-End each POV with something that invites that character to act.
+Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is just the intro.`;
 
-Characters: ${charNames}`;
-
-          const openingSystemPrompt = `You are the Dungeon Master for a multiplayer D&D 5e game. Write vivid, grounded prose in 2nd person ("You see...", "You feel..."). Show without telling. Use all five senses. Give NPCs distinct voices. You may use HTML/inline CSS for diegetic objects (signs, documents, etc). No code blocks.
-
-Output format: [POV: CharacterName] ... [/POV] blocks only. Nothing outside POV tags.`;
+          const openingSystemPrompt = `You are the Dungeon Master for a multiplayer D&D 5e game. Write vivid, grounded prose — show without telling. Use all five senses. Give NPCs distinct voices. You may use HTML/inline CSS for diegetic objects (signs, documents, etc). No code blocks.`;
 
           const aiConfig = { endpoint: apiConfig.api_endpoint, api_key: apiConfig.api_key, model: apiConfig.api_model };
-          const openingMessages = [
-            { role: 'system', content: openingSystemPrompt },
-            { role: 'user', content: openingPrompt }
-          ];
 
           try {
-            const data = await aiService.callAI(aiConfig, openingMessages, { maxTokens: 4096 });
+            // Step 1: Generate unified 3rd-person opening scene
+            const data = await aiService.callAI(aiConfig, [
+              { role: 'system', content: openingSystemPrompt },
+              { role: 'user', content: openingPrompt }
+            ], { maxTokens: 4096 });
             const openingScene = aiService.extractAIMessage(data);
+
             if (openingScene) {
-              // Parse POV sections from opening scene
-              const parsedPOVs = tagParser.parsePOVSections
-                ? tagParser.parsePOVSections(openingScene, characters)
-                : {};
-              const hasPOVs = Object.keys(parsedPOVs).length > 0;
+              // Step 2: Convert to per-character POVs in parallel
+              const { POV_CONVERSION_PROMPT } = aiService;
+              let parsedPOVs = {};
+              if (characters.length > 0) {
+                const povPromises = characters.map(async (c) => {
+                  try {
+                    let charContext = `${c.character_name}, ${c.race} ${c.class}`;
+                    if (c.appearance) charContext += `. Appearance: ${c.appearance}`;
+                    if (c.backstory) charContext += `. Backstory: ${c.backstory}`;
 
-              // Strip POV tags from content for clean storage
-              const cleanedContent = openingScene
-                .replace(/\[POV:\s*[^\]]*\]/gi, '')
-                .replace(/\[\/POV\]/gi, '')
-                .replace(/\n{3,}/g, '\n\n')
-                .trim();
+                    const povData = await aiService.callAI(aiConfig, [
+                      { role: 'system', content: POV_CONVERSION_PROMPT },
+                      { role: 'user', content: `CHARACTER: ${charContext}\n\nSCENE TO REWRITE:\n${openingScene}` }
+                    ], { maxTokens: 4096, temperature: 0.7 });
+                    const povText = aiService.extractAIMessage(povData);
+                    if (povText) return { name: c.character_name, pov: povText.trim() };
+                  } catch (e) {
+                    console.error(`Opening POV failed for ${c.character_name}:`, e.message);
+                  }
+                  return null;
+                });
+                const povResults = await Promise.all(povPromises);
+                for (const r of povResults) {
+                  if (r) parsedPOVs[r.name] = r.pov;
+                }
+              }
 
-              const historyEntry = { role: 'assistant', content: cleanedContent, type: 'narration' };
-              if (hasPOVs) historyEntry.povs = parsedPOVs;
+              const historyEntry = { role: 'assistant', content: openingScene, type: 'narration' };
+              if (Object.keys(parsedPOVs).length > 0) historyEntry.povs = parsedPOVs;
 
               const history = [historyEntry];
               db.prepare('UPDATE game_sessions SET full_history = ? WHERE id = ?').run(JSON.stringify(history), id);

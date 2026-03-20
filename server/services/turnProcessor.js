@@ -270,7 +270,7 @@ async function processAITurn(deps, sessionId, pendingActions, characters) {
 
   // Flush remaining user content
   if (currentUserContent.length > 0) {
-    currentUserContent.push('Narrate the outcome using [POV: CharacterName]...[/POV] blocks for each character, then [CHOICE:] tags at the end.');
+    currentUserContent.push('Narrate the outcome of these actions in 3rd person, then add [CHOICE:] tags at the end.');
     aiMessages.push({ role: 'user', content: currentUserContent.join('\n\n') });
   }
 
@@ -311,18 +311,46 @@ async function processAITurn(deps, sessionId, pendingActions, characters) {
   // Parse choices before stripping them from the response
   const parsedChoices = tagParser.parseChoices ? tagParser.parseChoices(aiResponse, characters) : [];
 
-  // Parse POV sections from AI response
-  const parsedPOVs = tagParser.parsePOVSections ? tagParser.parsePOVSections(aiResponse, characters) : {};
-  const hasPOVs = Object.keys(parsedPOVs).length > 0;
-  console.log(`POV sections found: ${Object.keys(parsedPOVs).length}`, Object.keys(parsedPOVs));
-
-  // Strip CHOICE and POV tags from the narration stored in history (they're stored separately)
-  let cleanedResponse = aiResponse
+  // Strip CHOICE tags from the narration stored in history
+  const cleanedResponse = aiResponse
     .replace(/\[CHOICE:\s*[^\]]+\]/gi, '')
-    .replace(/\[POV:\s*[^\]]*\]/gi, '')
-    .replace(/\[\/POV\]/gi, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+
+  // === POV CONVERSION: Convert 3rd-person scene to per-character 2nd-person POVs ===
+  const { POV_CONVERSION_PROMPT } = require('./aiService');
+  let parsedPOVs = {};
+  if (characters.length > 0) {
+    console.log(`Converting scene to POV for ${characters.length} characters...`);
+    const povPromises = characters.map(async (c) => {
+      try {
+        let charContext = `${c.character_name}, ${c.race} ${c.class}`;
+        if (c.appearance) charContext += `. Appearance: ${c.appearance}`;
+        if (c.backstory) charContext += `. Backstory: ${c.backstory}`;
+
+        const povMessages = [
+          { role: 'system', content: POV_CONVERSION_PROMPT },
+          { role: 'user', content: `CHARACTER: ${charContext}\n\nSCENE TO REWRITE:\n${cleanedResponse}` }
+        ];
+        const povData = await callAI(aiCallConfig, povMessages, { maxTokens: 8192, temperature: 0.7 });
+        const povText = extractAIMessage(povData);
+        if (povText) {
+          console.log(`POV for ${c.character_name}: ${povText.length} chars`);
+          return { name: c.character_name, pov: povText.trim() };
+        }
+      } catch (povError) {
+        console.error(`POV conversion failed for ${c.character_name}:`, povError.message);
+      }
+      return null;
+    });
+
+    const povResults = await Promise.all(povPromises);
+    for (const result of povResults) {
+      if (result) parsedPOVs[result.name] = result.pov;
+    }
+    console.log(`POV conversion complete: ${Object.keys(parsedPOVs).length}/${characters.length} characters`);
+  }
+  const hasPOVs = Object.keys(parsedPOVs).length > 0;
 
   // Build history entry with POVs attached
   const historyEntry = { role: 'assistant', content: cleanedResponse, type: 'narration' };
@@ -348,7 +376,7 @@ async function processAITurn(deps, sessionId, pendingActions, characters) {
     console.error('Failed to save game snapshot:', snapshotError.message);
   }
 
-  // Apply all tags from the AI response
+  // Apply all tags from the AI response (from the original 3rd-person narration)
   console.log('=== AI Response received ===');
   console.log('Looking for tags in response...');
 
@@ -566,7 +594,7 @@ async function streamAITurn(deps, sessionId, pendingActions, characters) {
 
   // Flush remaining user content
   if (currentUserContent.length > 0) {
-    currentUserContent.push('Narrate the outcome using [POV: CharacterName]...[/POV] blocks for each character, then [CHOICE:] tags at the end.');
+    currentUserContent.push('Narrate the outcome of these actions in 3rd person, then add [CHOICE:] tags at the end.');
     aiMessages.push({ role: 'user', content: currentUserContent.join('\n\n') });
   }
 
@@ -614,18 +642,55 @@ async function streamAITurn(deps, sessionId, pendingActions, characters) {
   // Parse choices before stripping them from the response
   const parsedChoices = tagParser.parseChoices ? tagParser.parseChoices(aiResponse, characters) : [];
 
-  // Parse POV sections from AI response
-  const parsedPOVs = tagParser.parsePOVSections ? tagParser.parsePOVSections(aiResponse, characters) : {};
-  const hasPOVs = Object.keys(parsedPOVs).length > 0;
-  console.log(`POV sections found: ${Object.keys(parsedPOVs).length}`, Object.keys(parsedPOVs));
-
-  // Strip CHOICE and POV tags from the narration stored in history
-  let cleanedResponse = aiResponse
+  // Strip CHOICE tags from the narration stored in history
+  const cleanedResponse = aiResponse
     .replace(/\[CHOICE:\s*[^\]]+\]/gi, '')
-    .replace(/\[POV:\s*[^\]]*\]/gi, '')
-    .replace(/\[\/POV\]/gi, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+
+  // === POV CONVERSION: Convert 3rd-person scene to per-character 2nd-person POVs ===
+  const { POV_CONVERSION_PROMPT } = require('./aiService');
+  let parsedPOVs = {};
+  if (characters.length > 0) {
+    console.log(`Converting streamed scene to POV for ${characters.length} characters...`);
+    io.emit('turn_chunk', { sessionId, text: '\n\n[Converting to POV...]' });
+
+    const povConfig = {
+      endpoint: apiConfig.api_endpoint,
+      api_key: apiConfig.api_key,
+      model: apiConfig.api_model
+    };
+    const povPromises = characters.map(async (c) => {
+      try {
+        let charContext = `${c.character_name}, ${c.race} ${c.class}`;
+        if (c.appearance) charContext += `. Appearance: ${c.appearance}`;
+        if (c.backstory) charContext += `. Backstory: ${c.backstory}`;
+
+        const povMessages = [
+          { role: 'system', content: POV_CONVERSION_PROMPT },
+          { role: 'user', content: `CHARACTER: ${charContext}\n\nSCENE TO REWRITE:\n${cleanedResponse}` }
+        ];
+        const { callAI: callAIForPOV } = require('./aiService');
+        const povData = await callAIForPOV(povConfig, povMessages, { maxTokens: 8192, temperature: 0.7 });
+        const { extractAIMessage: extractPOV } = require('./aiService');
+        const povText = extractPOV(povData);
+        if (povText) {
+          console.log(`POV for ${c.character_name}: ${povText.length} chars`);
+          return { name: c.character_name, pov: povText.trim() };
+        }
+      } catch (povError) {
+        console.error(`POV conversion failed for ${c.character_name}:`, povError.message);
+      }
+      return null;
+    });
+
+    const povResults = await Promise.all(povPromises);
+    for (const result of povResults) {
+      if (result) parsedPOVs[result.name] = result.pov;
+    }
+    console.log(`POV conversion complete: ${Object.keys(parsedPOVs).length}/${characters.length} characters`);
+  }
+  const hasPOVs = Object.keys(parsedPOVs).length > 0;
 
   // Build history entry with POVs attached
   const historyEntry = { role: 'assistant', content: cleanedResponse, type: 'narration' };
