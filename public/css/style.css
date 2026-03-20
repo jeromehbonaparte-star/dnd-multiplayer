@@ -257,14 +257,13 @@
 html {
   height: 100%;
   -webkit-text-size-adjust: 100%;
-  background: var(--bg-deep);
 }
 
 body {
   font-family: var(--font-body);
   font-size: var(--step-0);
   color: var(--text);
-  background: transparent;
+  background: var(--bg-deep);
   min-height: 100%;
   overflow: hidden;
   line-height: 1.6;
@@ -272,33 +271,36 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* App-wide background scenery */
-body::before {
-  content: '';
+/* Background scenery — real divs, no pseudo-element stacking issues */
+.app-bg {
   position: fixed;
   inset: 0;
-  z-index: -2;
-  background: url('/assets/bg-night.jpg') center center / cover no-repeat fixed;
+  z-index: 0;
+  background: url('/assets/bg-night.jpg') center center / cover no-repeat;
 }
 
-/* Dark overlay to keep UI readable */
-body::after {
-  content: '';
+.app-bg-overlay {
   position: fixed;
   inset: 0;
-  z-index: -1;
+  z-index: 0;
   background: var(--bg-deep);
-  opacity: 0.88;
+  opacity: 0.82;
 }
 
-/* Light theme: switch to day background */
-[data-theme="light"] body::before {
+/* Light theme: day background */
+[data-theme="light"] .app-bg {
   background-image: url('/assets/bg-day.jpg');
 }
 
-[data-theme="light"] body::after {
-  background: var(--bg-deep);
-  opacity: 0.85;
+[data-theme="light"] .app-bg-overlay {
+  opacity: 0.78;
+}
+
+/* All app content sits above background */
+.screen,
+#app-screen {
+  position: relative;
+  z-index: 1;
 }
 
 h1, h2, h3 {
