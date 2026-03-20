@@ -55,6 +55,7 @@
   --accent: #d4a832;
   --accent-hover: #e8c04a;
   --accent-dim: #a88520;
+  --bg-medium-rgb: 19, 19, 31;
   --accent-rgb: 212, 168, 50;
   --accent-glow: rgba(var(--accent-rgb), 0.25);
   --accent-glow-strong: rgba(var(--accent-rgb), 0.45);
@@ -125,6 +126,7 @@
   --accent: #8b4513;
   --accent-hover: #a0522d;
   --accent-dim: #6d3410;
+  --bg-medium-rgb: 240, 235, 224;
   --accent-rgb: 139, 69, 19;
   --accent-glow: rgba(var(--accent-rgb), 0.2);
   --accent-glow-strong: rgba(var(--accent-rgb), 0.35);
@@ -262,13 +264,40 @@ body {
   font-size: var(--step-0);
   color: var(--text);
   background: var(--bg-deep);
-  background-image: var(--noise-texture);
-  background-attachment: fixed;
   min-height: 100%;
   overflow: hidden;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* App-wide background scenery */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  background: url('/assets/bg-night.jpg') center center / cover no-repeat fixed;
+}
+
+/* Dark overlay to keep UI readable */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: var(--bg-deep);
+  opacity: 0.88;
+}
+
+/* Light theme: switch to day background */
+[data-theme="light"] body::before {
+  background-image: url('/assets/bg-day.jpg');
+}
+
+[data-theme="light"] body::after {
+  background: var(--bg-deep);
+  opacity: 0.85;
 }
 
 h1, h2, h3 {
@@ -445,11 +474,23 @@ h1, h2, h3 {
   align-items: center;
   justify-content: space-between;
   padding: var(--safe-top) 16px 0;
-  background: var(--gradient-header);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--border-color);
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
+  background: rgba(var(--bg-medium-rgb), 0.88);
+  backdrop-filter: blur(20px) saturate(1.3);
+  -webkit-backdrop-filter: blur(20px) saturate(1.3);
+  border-bottom: 1px solid var(--border-accent);
+  box-shadow: 0 1px 0 var(--border-subtle), 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+/* Subtle golden accent line at bottom of top bar */
+.top-bar::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 10%;
+  right: 10%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent-dim), transparent);
+  opacity: 0.4;
 }
 
 .top-bar-left {
@@ -463,8 +504,8 @@ h1, h2, h3 {
   font-weight: 700;
   color: var(--accent);
   font-size: 1.05rem;
-  letter-spacing: 0.04em;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  letter-spacing: 0.05em;
+  text-shadow: 0 0 12px rgba(var(--accent-rgb), 0.25), 0 1px 3px rgba(0, 0, 0, 0.5);
 }
 
 .drawer-toggle {
@@ -514,11 +555,23 @@ h1, h2, h3 {
   padding-bottom: var(--safe-bottom);
   z-index: 100;
   display: flex;
-  background: var(--gradient-header);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border-top: 1px solid var(--border-color);
-  box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.2);
+  background: rgba(var(--bg-medium-rgb), 0.88);
+  backdrop-filter: blur(20px) saturate(1.3);
+  -webkit-backdrop-filter: blur(20px) saturate(1.3);
+  border-top: 1px solid var(--border-accent);
+  box-shadow: 0 -1px 0 var(--border-subtle), 0 -4px 20px rgba(0, 0, 0, 0.3);
+}
+
+/* Subtle golden accent line at top of bottom nav */
+.bottom-nav::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 10%;
+  right: 10%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent-dim), transparent);
+  opacity: 0.3;
 }
 
 .bottom-nav-btn {
@@ -595,9 +648,11 @@ h1, h2, h3 {
   left: 0;
   width: 85vw;
   max-width: 320px;
-  background: var(--bg-medium);
+  background: rgba(var(--bg-medium-rgb), 0.95);
   background-image: var(--noise-texture);
-  border-right: 1px solid var(--border-color);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-right: 1px solid var(--border-accent);
   transform: translateX(-100%);
   transition: transform 0.3s var(--ease-out);
   z-index: 200;
@@ -726,13 +781,29 @@ details.drawer-section.utility-menu > summary:hover { color: var(--accent-hover)
   background: var(--gradient-parchment);
   border: 1px solid var(--border-accent);
   border-left: 3px solid var(--accent);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-sm), inset 0 1px 0 rgba(var(--accent-rgb), 0.06);
+  position: relative;
+}
+
+/* Faint inner glow on DM narrations */
+.story-entry.narration::after,
+.story-entry.assistant::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 40px;
+  background: linear-gradient(180deg, rgba(var(--accent-rgb), 0.04), transparent);
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  pointer-events: none;
 }
 
 .story-entry.user {
   background: var(--bg-light);
   border: 1px solid var(--border-subtle);
   border-left: 3px solid var(--success);
+  box-shadow: var(--shadow-sm);
 }
 
 .story-entry .role {
@@ -968,13 +1039,16 @@ details.drawer-section.utility-menu > summary:hover { color: var(--accent-hover)
 .typing-indicator {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 12px 16px;
+  gap: 10px;
+  padding: 14px 20px;
   max-width: 740px;
   margin: 0 auto;
-  color: var(--text-muted);
+  color: var(--accent);
   font-family: var(--font-display);
   font-size: 0.85rem;
+  font-style: italic;
+  opacity: 0.8;
+  animation: fadeIn 0.3s var(--ease-out);
 }
 
 .typing-indicator.hidden { display: none; }
@@ -1143,11 +1217,26 @@ details.drawer-section.utility-menu > summary:hover { color: var(--accent-hover)
 
 .action-bar {
   padding: 10px 14px;
-  background: var(--bg-medium);
-  border-top: 1px solid var(--border-color);
+  background: rgba(var(--bg-medium-rgb), 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-top: 1px solid var(--border-accent);
   display: flex;
   flex-direction: column;
   gap: 8px;
+  position: relative;
+}
+
+/* Golden accent line at top of action bar */
+.action-bar::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 15%;
+  right: 15%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent-dim), transparent);
+  opacity: 0.3;
 }
 
 .action-bar-top {
@@ -1212,10 +1301,16 @@ details.drawer-section.utility-menu > summary:hover { color: var(--accent-hover)
 
 .btn-submit:hover {
   background: linear-gradient(135deg, var(--accent-hover) 0%, var(--accent) 100%);
-  box-shadow: 0 4px 12px rgba(var(--accent-rgb), 0.3);
+  box-shadow: 0 4px 16px rgba(var(--accent-rgb), 0.35), 0 0 0 1px rgba(var(--accent-rgb), 0.1);
+  transform: translateY(-1px);
 }
 
-.btn-submit:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
+.btn-submit:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 6px rgba(var(--accent-rgb), 0.2);
+}
+
+.btn-submit:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; transform: none; }
 
 /* ---------------------------------------------------------------
    13. DICE ROLLER
@@ -1239,11 +1334,11 @@ details.drawer-section.utility-menu > summary:hover { color: var(--accent-hover)
 }
 
 .dice-roll-btn {
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  background: var(--bg-light);
-  border: 2px solid var(--accent);
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-md);
+  background: transparent;
+  border: none;
   color: var(--accent);
   cursor: pointer;
   transition: all var(--transition-fast);
@@ -1251,12 +1346,13 @@ details.drawer-section.utility-menu > summary:hover { color: var(--accent-hover)
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  box-shadow: 0 0 8px var(--accent-glow);
+  position: relative;
+  filter: drop-shadow(0 0 6px rgba(var(--accent-rgb), 0.3));
 }
 
 .dice-roll-btn:hover {
-  background: var(--bg-elevated);
-  box-shadow: 0 0 16px var(--accent-glow);
+  filter: drop-shadow(0 0 12px rgba(var(--accent-rgb), 0.5));
+  transform: scale(1.08);
 }
 
 .dice-roll-btn:active { transform: scale(0.9); }
@@ -1287,6 +1383,53 @@ details.drawer-section.utility-menu > summary:hover { color: var(--accent-hover)
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
+}
+
+.dice-face .d20-icon {
+  border-radius: var(--radius-sm);
+  object-fit: contain;
+  display: block;
+  transition: filter var(--transition-fast);
+}
+
+.dice-roll-btn:hover .d20-icon {
+  filter: brightness(1.15) contrast(1.05);
+}
+
+.dice-face-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display-decorative);
+  font-weight: 900;
+  font-size: 15px;
+  color: var(--accent);
+  text-shadow: 0 0 8px rgba(var(--accent-rgb), 0.6), 0 1px 4px rgba(0, 0, 0, 0.9);
+  pointer-events: none;
+  z-index: 1;
+  transition: all var(--transition-fast);
+}
+
+/* Roll result number glows more */
+.dice-roller.rolled .dice-face-label {
+  color: var(--accent-hover);
+  text-shadow: 0 0 12px rgba(var(--accent-rgb), 0.8), 0 0 24px rgba(var(--accent-rgb), 0.4), 0 1px 4px rgba(0, 0, 0, 0.9);
+}
+
+/* Nat 20: the label goes GOLD and bright */
+.dice-roller.nat20 .dice-face-label {
+  color: #ffd700;
+  font-size: 16px;
+  text-shadow: 0 0 16px rgba(255, 215, 0, 0.8), 0 0 32px rgba(255, 215, 0, 0.4);
+}
+
+/* Nat 1: label goes danger red */
+.dice-roller.nat1 .dice-face-label {
+  color: var(--danger);
+  text-shadow: 0 0 12px rgba(155, 44, 63, 0.6);
 }
 
 /* Nat 20 glow */
@@ -1386,14 +1529,14 @@ details.drawer-section.utility-menu > summary:hover { color: var(--accent-hover)
 
 .session-item:hover {
   background: var(--bg-light);
-  border-color: var(--border-subtle);
+  border-color: var(--border-accent);
 }
 
 .session-item.active {
   background: linear-gradient(135deg, var(--accent), var(--accent-dim));
   color: var(--bg-deep);
   border-color: transparent;
-  box-shadow: 0 2px 8px rgba(var(--accent-rgb), 0.2);
+  box-shadow: 0 2px 12px rgba(var(--accent-rgb), 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.15);
 }
 
 .session-item.active .session-name { color: var(--bg-deep); }
@@ -1471,14 +1614,28 @@ details.drawer-section.utility-menu > summary:hover { color: var(--accent-hover)
   backdrop-filter: blur(8px);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
-  padding: 18px;
+  padding: 20px;
   position: relative;
-  box-shadow: var(--shadow-sm);
-  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  box-shadow: var(--shadow-sm), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  transition: border-color var(--transition-normal), box-shadow var(--transition-normal), transform var(--transition-normal);
 }
 
 .character-card:hover {
   border-color: var(--border-accent);
+  box-shadow: var(--shadow-md), 0 0 20px rgba(var(--accent-rgb), 0.06);
+}
+
+@media (hover: hover) {
+  .character-card:hover {
+    transform: translateY(-2px);
+  }
+}
+
+[data-theme="light"] .character-card {
+  box-shadow: var(--shadow-sm);
+}
+
+[data-theme="light"] .character-card:hover {
   box-shadow: var(--shadow-md);
 }
 
@@ -1507,10 +1664,17 @@ details.drawer-section.utility-menu > summary:hover { color: var(--accent-hover)
 
 .stat-item,
 .stat {
-  padding: 6px 4px;
+  padding: 8px 4px;
   border-radius: var(--radius-sm);
-  background: var(--bg-light);
-  border: 1px solid var(--border-subtle);
+  background: var(--bg-deep);
+  border: 1px solid var(--border-color);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: border-color var(--transition-fast);
+}
+
+.stat-item:hover,
+.stat:hover {
+  border-color: var(--border-accent);
 }
 
 .stat-item .stat-label,
@@ -2424,7 +2588,7 @@ details.drawer-section.utility-menu > summary:hover { color: var(--accent-hover)
 .form-group textarea:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-glow);
+  box-shadow: 0 0 0 2px var(--accent-glow), 0 0 12px rgba(var(--accent-rgb), 0.08);
 }
 
 .form-group input::placeholder,
@@ -2619,16 +2783,42 @@ details.drawer-section.utility-menu > summary:hover { color: var(--accent-hover)
   overflow-y: auto;
   padding: 28px;
   position: relative;
-  transform: scale(0.95);
+  transform: scale(0.95) translateY(10px);
   opacity: 0;
-  transition: all 0.25s var(--ease-out);
+  transition: all 0.3s var(--ease-out);
   display: flex;
   flex-direction: column;
-  box-shadow: var(--shadow-lg), 0 0 40px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-lg), 0 0 60px rgba(0, 0, 0, 0.4), 0 0 1px rgba(var(--accent-rgb), 0.2);
+}
+
+/* Corner ornaments on modals */
+.modal-content::before,
+.modal-content::after {
+  content: '';
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  opacity: 0.35;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.modal-content::before {
+  top: 8px;
+  left: 8px;
+  border-top: 1.5px solid var(--accent-dim);
+  border-left: 1.5px solid var(--accent-dim);
+}
+
+.modal-content::after {
+  bottom: 8px;
+  right: 8px;
+  border-bottom: 1.5px solid var(--accent-dim);
+  border-right: 1.5px solid var(--accent-dim);
 }
 
 .modal.active .modal-content {
-  transform: scale(1);
+  transform: scale(1) translateY(0);
   opacity: 1;
 }
 
@@ -2970,6 +3160,11 @@ details.drawer-section.utility-menu > summary:hover { color: var(--accent-hover)
     max-height: 92vh;
     border-radius: var(--radius-xl) var(--radius-xl) 0 0;
     padding-bottom: calc(28px + var(--safe-bottom));
+    transform: translateY(100%);
+  }
+
+  .modal.active .modal-content {
+    transform: translateY(0);
   }
 }
 

@@ -795,7 +795,7 @@ export function rollActionDice() {
   const valueEl = document.getElementById('dice-value');
   const modEl = document.getElementById('dice-mod');
   const totalEl = document.getElementById('dice-total');
-  const diceText = btn?.querySelector('.d20-icon text');
+  const diceText = btn?.querySelector('.dice-face-label');
   const submitBtn = document.getElementById('submit-action-btn');
 
   if (!roller || !btn || !valueEl) return;
@@ -918,7 +918,7 @@ function resetDiceRoll() {
   const valueEl = document.getElementById('dice-value');
   const modEl = document.getElementById('dice-mod');
   const totalEl = document.getElementById('dice-total');
-  const diceText = document.querySelector('#dice-roll-btn .d20-icon text');
+  const diceText = document.querySelector('#dice-roll-btn .dice-face-label');
 
   if (roller) roller.classList.remove('rolled', 'nat20', 'nat1');
   if (valueEl) valueEl.textContent = '--';
