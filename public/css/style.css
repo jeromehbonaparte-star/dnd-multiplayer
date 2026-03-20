@@ -1394,9 +1394,14 @@ details.drawer-section.utility-menu > summary:hover { color: var(--accent-hover)
 .dice-face .d20-icon {
   border-radius: var(--radius-sm);
   object-fit: contain;
-  display: block;
   transition: filter var(--transition-fast);
 }
+
+/* Theme-specific dice images */
+.d20-dark { display: block; }
+.d20-light { display: none; }
+[data-theme="light"] .d20-dark { display: none; }
+[data-theme="light"] .d20-light { display: block; }
 
 .dice-roll-btn:hover .d20-icon {
   filter: brightness(1.15) contrast(1.05);
@@ -1416,6 +1421,12 @@ details.drawer-section.utility-menu > summary:hover { color: var(--accent-hover)
   pointer-events: none;
   z-index: 1;
   transition: all var(--transition-fast);
+}
+
+/* Light mode: darker label for contrast against golden die */
+[data-theme="light"] .dice-face-label {
+  color: var(--bg-deep);
+  text-shadow: 0 0 6px rgba(var(--accent-rgb), 0.4);
 }
 
 /* Roll result number glows more */
