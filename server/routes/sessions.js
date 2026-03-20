@@ -135,24 +135,14 @@ Characters: ${charNames}`;
 
 Output format: [POV: CharacterName] ... [/POV] blocks only. Nothing outside POV tags.`;
 
-          const response = await fetch(apiConfig.api_endpoint, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${apiConfig.api_key}`
-            },
-            body: JSON.stringify({
-              model: apiConfig.api_model,
-              messages: [
-                { role: 'system', content: openingSystemPrompt },
-                { role: 'user', content: openingPrompt }
-              ],
-              max_tokens: 4096
-            })
-          });
+          const aiConfig = { endpoint: apiConfig.api_endpoint, api_key: apiConfig.api_key, model: apiConfig.api_model };
+          const openingMessages = [
+            { role: 'system', content: openingSystemPrompt },
+            { role: 'user', content: openingPrompt }
+          ];
 
-          if (response.ok) {
-            const data = await response.json();
+          try {
+            const data = await aiService.callAI(aiConfig, openingMessages, { maxTokens: 4096 });
             const openingScene = aiService.extractAIMessage(data);
             if (openingScene) {
               // Parse POV sections from opening scene
@@ -174,10 +164,12 @@ Output format: [POV: CharacterName] ... [/POV] blocks only. Nothing outside POV 
               const history = [historyEntry];
               db.prepare('UPDATE game_sessions SET full_history = ? WHERE id = ?').run(JSON.stringify(history), id);
             }
+          } catch (aiError) {
+            console.error('Failed to generate opening scene:', aiError);
           }
         }
       } catch (error) {
-        console.error('Failed to generate opening scene:', error);
+        console.error('Failed to set up opening scene:', error);
       }
     }
 

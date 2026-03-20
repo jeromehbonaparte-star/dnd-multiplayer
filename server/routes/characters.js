@@ -688,24 +688,8 @@ LEVELUP_COMPLETE:{"hp_increase":N,"class_leveled":"ClassName","new_class_level":
         ...(messages || [])
       ];
 
-      const response = await fetch(apiConfig.api_endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiConfig.api_key}`
-        },
-        body: JSON.stringify({
-          model: apiConfig.api_model,
-          messages: allMessages,
-          max_tokens: 4096
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error('AI API error');
-      }
-
-      const data = await response.json();
+      const aiConfig = { endpoint: apiConfig.api_endpoint, api_key: apiConfig.api_key, model: apiConfig.api_model };
+      const data = await aiService.callAI(aiConfig, allMessages, { maxTokens: 4096 });
       const aiMessage = aiService.extractAIMessage(data);
 
       if (!aiMessage) {
@@ -859,24 +843,8 @@ IMPORTANT: Output EDIT_COMPLETE: immediately followed by the JSON on ONE line. N
         ...(messages || [])
       ];
 
-      const response = await fetch(apiConfig.api_endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiConfig.api_key}`
-        },
-        body: JSON.stringify({
-          model: apiConfig.api_model,
-          messages: allMessages,
-          max_tokens: 4096
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error('AI API error');
-      }
-
-      const data = await response.json();
+      const aiConfig = { endpoint: apiConfig.api_endpoint, api_key: apiConfig.api_key, model: apiConfig.api_model };
+      const data = await aiService.callAI(aiConfig, allMessages, { maxTokens: 4096 });
       const aiMessage = aiService.extractAIMessage(data);
 
       if (!aiMessage) {
@@ -1013,28 +981,12 @@ IMPORTANT: Output EDIT_COMPLETE: immediately followed by the JSON on ONE line. N
     const CHARACTER_CREATION_PROMPT = aiService.CHARACTER_CREATION_PROMPT;
 
     try {
-      const response = await fetch(apiConfig.api_endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiConfig.api_key}`
-        },
-        body: JSON.stringify({
-          model: apiConfig.api_model,
-          messages: [
-            { role: 'system', content: CHARACTER_CREATION_PROMPT },
-            ...(messages || [])
-          ],
-          max_tokens: 4096
-        })
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`API error: ${errorText}`);
-      }
-
-      const data = await response.json();
+      const aiConfig = { endpoint: apiConfig.api_endpoint, api_key: apiConfig.api_key, model: apiConfig.api_model };
+      const allMessages = [
+        { role: 'system', content: CHARACTER_CREATION_PROMPT },
+        ...(messages || [])
+      ];
+      const data = await aiService.callAI(aiConfig, allMessages, { maxTokens: 4096 });
       const aiMessage = aiService.extractAIMessage(data);
 
       if (!aiMessage) {
