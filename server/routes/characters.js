@@ -817,11 +817,34 @@ LEVELUP_COMPLETE:{"hp_increase":N,"class_leveled":"ClassName","new_class_level":
       }
     } catch (e) { }
 
+    // Parse inventory for display
+    let inventoryDisplay = 'None';
+    try {
+      const inv = JSON.parse(character.inventory || '[]');
+      if (inv.length > 0) {
+        inventoryDisplay = inv.map(i => i.quantity > 1 ? `${i.name} x${i.quantity}` : i.name).join(', ');
+      }
+    } catch (e) {}
+
+    // Parse AC effects for display
+    let acDisplay = `${character.ac || 10}`;
+    try {
+      const acEff = JSON.parse(character.ac_effects || '{}');
+      if (acEff.base_source) {
+        acDisplay = `${character.ac || 10} (${acEff.base_source}: ${acEff.base_value}`;
+        if (acEff.effects && acEff.effects.length > 0) {
+          acDisplay += ' + ' + acEff.effects.map(e => `${e.name}: +${e.value}`).join(', ');
+        }
+        acDisplay += ')';
+      }
+    } catch (e) {}
+
     const editPrompt = `You are a D&D 5e character editor. Help modify this character.
 
 CHARACTER: ${character.character_name} (${character.race} ${classesDisplay}, Lv${character.level})
 Stats: STR ${character.strength}, DEX ${character.dexterity}, CON ${character.constitution}, INT ${character.intelligence}, WIS ${character.wisdom}, CHA ${character.charisma}
-HP: ${character.hp}/${character.max_hp}, AC: ${character.ac || 10}, XP: ${character.xp || 0}, Gold: ${character.gold || 0}
+HP: ${character.hp}/${character.max_hp}, AC: ${acDisplay}, XP: ${character.xp || 0}, Gold: ${character.gold || 0}
+Inventory: ${inventoryDisplay}
 Spells: ${character.spells || 'None'} | Skills: ${character.skills || 'None'}
 Feats: ${character.feats || 'None'} | Features: ${character.class_features || 'None'}
 Appearance: ${character.appearance || 'Not set'} | Backstory: ${character.backstory || 'Not set'}

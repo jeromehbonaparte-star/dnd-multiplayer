@@ -181,9 +181,20 @@ async function processAITurn(deps, sessionId, pendingActions, characters) {
     }
     acDisplay += ')';
 
+    // Parse inventory for display
+    let inventoryDisplay = '';
+    try {
+      const inv = JSON.parse(c.inventory || '[]');
+      if (inv.length > 0) {
+        inventoryDisplay = inv.map(i => i.quantity > 1 ? `${i.name} x${i.quantity}` : i.name).join(', ');
+      }
+    } catch (e) {}
+
     let info = `${c.character_name} (${c.race} ${classDisplay}, played by ${c.player_name}):\n`;
     info += `  Stats: STR:${c.strength} DEX:${c.dexterity} CON:${c.constitution} INT:${c.intelligence} WIS:${c.wisdom} CHA:${c.charisma}\n`;
-    info += `  HP: ${c.hp}/${c.max_hp}, AC: ${acDisplay}`;
+    info += `  HP: ${c.hp}/${c.max_hp}, AC: ${acDisplay}, Gold: ${c.gold || 0}`;
+    if (c.inspiration_points !== undefined) info += `, Inspiration: ${c.inspiration_points}`;
+    if (inventoryDisplay) info += `\n  Inventory: ${inventoryDisplay}`;
     if (c.appearance) info += `\n  Appearance: ${c.appearance}`;
     if (c.backstory) info += `\n  Backstory: ${c.backstory}`;
     if (c.skills) info += `\n  Skills: ${c.skills}`;
@@ -479,9 +490,20 @@ async function streamAITurn(deps, sessionId, pendingActions, characters) {
     }
     acDisplay += ')';
 
+    // Parse inventory for display
+    let inventoryDisplay = '';
+    try {
+      const inv = JSON.parse(c.inventory || '[]');
+      if (inv.length > 0) {
+        inventoryDisplay = inv.map(i => i.quantity > 1 ? `${i.name} x${i.quantity}` : i.name).join(', ');
+      }
+    } catch (e) {}
+
     let info = `${c.character_name} (${c.race} ${classDisplay}, played by ${c.player_name}):\n`;
     info += `  Stats: STR:${c.strength} DEX:${c.dexterity} CON:${c.constitution} INT:${c.intelligence} WIS:${c.wisdom} CHA:${c.charisma}\n`;
-    info += `  HP: ${c.hp}/${c.max_hp}, AC: ${acDisplay}`;
+    info += `  HP: ${c.hp}/${c.max_hp}, AC: ${acDisplay}, Gold: ${c.gold || 0}`;
+    if (c.inspiration_points !== undefined) info += `, Inspiration: ${c.inspiration_points}`;
+    if (inventoryDisplay) info += `\n  Inventory: ${inventoryDisplay}`;
     if (c.appearance) info += `\n  Appearance: ${c.appearance}`;
     if (c.backstory) info += `\n  Backstory: ${c.backstory}`;
     if (c.skills) info += `\n  Skills: ${c.skills}`;
