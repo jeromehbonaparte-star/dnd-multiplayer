@@ -259,7 +259,7 @@ async function processAITurn(deps, sessionId, pendingActions, characters) {
 
   // Flush remaining user content
   if (currentUserContent.length > 0) {
-    currentUserContent.push('Please narrate the outcome of these actions and describe what happens next.');
+    currentUserContent.push('Narrate the outcome using [POV: CharacterName]...[/POV] blocks for each character, then [CHOICE:] tags at the end.');
     aiMessages.push({ role: 'user', content: currentUserContent.join('\n\n') });
   }
 
@@ -557,7 +557,7 @@ async function streamAITurn(deps, sessionId, pendingActions, characters) {
 
   // Flush remaining user content
   if (currentUserContent.length > 0) {
-    currentUserContent.push('Please narrate the outcome of these actions and describe what happens next.');
+    currentUserContent.push('Narrate the outcome using [POV: CharacterName]...[/POV] blocks for each character, then [CHOICE:] tags at the end.');
     aiMessages.push({ role: 'user', content: currentUserContent.join('\n\n') });
   }
 
