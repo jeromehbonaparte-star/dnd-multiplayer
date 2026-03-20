@@ -379,7 +379,7 @@ Your ENTIRE response must be [POV:] blocks — one per player character — foll
 - Show what THAT character perceives, thinks, experiences, and the results of their actions
 - Include internal thoughts, emotions, sensory details unique to them
 - Describe other characters' actions FROM this character's perspective (what they witness)
-- CRITICAL: Shared events (NPC dialogue, enemy actions, environmental changes, combat results) that happen near BOTH characters must appear in BOTH POVs — described through each character's senses. If an NPC speaks, every character in earshot hears it. If a door explodes, everyone nearby sees it. Don't omit key events from any POV
+- CRITICAL — ALL POVs must cover the SAME events and time span. Don't write a longer scene for one character and a shorter one for another. If dialogue happens between two PCs, BOTH POVs include that conversation. If an NPC speaks, every character in earshot hears it. If combat happens, all nearby characters witness it. The POVs are different PERSPECTIVES on the same scene — not different amounts of story
 - Only omit events a character genuinely CANNOT perceive (different room, unconscious, etc.)
 - Place tracking tags ([HP:], [XP:], etc.) INSIDE the relevant character's POV
 
