@@ -255,6 +255,9 @@ export async function loadSession(id) {
     loadSessions();
     saveAppState();
     closeGameDrawer();
+
+    // Restore persisted dice roll for the selected character (survives page refresh)
+    setTimeout(restoreDiceState, 100);
   } catch (error) {
     console.error('Failed to load session:', error);
   }
@@ -693,6 +696,97 @@ export async function cancelAction(characterId) {
 let _currentDiceRoll = null; // { value, modifier, modValue, stat, total, timestamp }
 let _rollCount = 0; // Track rolls this turn (max 2: initial + 1 reroll)
 
+/**
+ * Get a storage key scoped to current session + character.
+ */
+function _diceStorageKey() {
+  const sessionId = getState('currentSession')?.id;
+  const charId = document.getElementById('action-character')?.value;
+  if (!sessionId || !charId) return null;
+  return `dnd-dice-${sessionId}-${charId}`;
+}
+
+/**
+ * Persist dice state to sessionStorage so refreshing can't reset the roll.
+ */
+function _saveDiceState() {
+  const key = _diceStorageKey();
+  if (!key) return;
+  sessionStorage.setItem(key, JSON.stringify({ roll: _currentDiceRoll, count: _rollCount }));
+}
+
+/**
+ * Restore dice state from sessionStorage after page load or character switch.
+ */
+export function restoreDiceState() {
+  const key = _diceStorageKey();
+  if (!key) return;
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(key));
+    if (!saved || !saved.roll) return;
+
+    // Check if the roll is stale (older than 1 hour — session likely moved on)
+    if (saved.roll.timestamp && Date.now() - saved.roll.timestamp > 3600000) {
+      sessionStorage.removeItem(key);
+      return;
+    }
+
+    _currentDiceRoll = saved.roll;
+    _rollCount = saved.count || 0;
+
+    // Restore the UI to reflect the saved roll
+    const roller = document.getElementById('dice-roller');
+    const valueEl = document.getElementById('dice-value');
+    const modEl = document.getElementById('dice-mod');
+    const totalEl = document.getElementById('dice-total');
+    const diceText = document.querySelector('#dice-roll-btn .dice-face-label');
+    const submitBtn = document.getElementById('submit-action-btn');
+    const btn = document.getElementById('dice-roll-btn');
+
+    if (valueEl) valueEl.textContent = _currentDiceRoll.value;
+    if (diceText) diceText.textContent = _currentDiceRoll.value;
+    if (roller) roller.classList.add('rolled');
+
+    if (_currentDiceRoll.value === 20 && roller) roller.classList.add('nat20');
+    if (_currentDiceRoll.value === 1 && roller) roller.classList.add('nat1');
+
+    if (modEl && _currentDiceRoll.stat) {
+      const sign = _currentDiceRoll.modifier >= 0 ? '+' : '';
+      modEl.textContent = `${sign}${_currentDiceRoll.modifier} ${_currentDiceRoll.stat}`;
+    }
+    if (totalEl && _currentDiceRoll.stat) {
+      totalEl.textContent = `= ${_currentDiceRoll.total}`;
+    }
+    if (submitBtn) submitBtn.classList.remove('needs-roll');
+
+    // Restore lock state
+    if (_rollCount >= 2 && btn) {
+      const char = getSelectedCharacter();
+      const inspirationLeft = char ? (char.inspiration_points || 0) : 0;
+      if (inspirationLeft <= 0) {
+        btn.disabled = true;
+        btn.classList.add('dice-locked');
+        btn.title = 'No inspiration points — submit your action';
+        const statSelect = document.getElementById('dice-stat-select');
+        if (statSelect) statSelect.disabled = true;
+      } else {
+        btn.title = `Reroll (costs 1 inspiration, ${inspirationLeft} left)`;
+        btn.classList.add('inspiration-reroll');
+      }
+    }
+  } catch (e) {
+    // Corrupted state — ignore
+  }
+}
+
+/**
+ * Clear persisted dice state (after action submission or turn processed).
+ */
+function _clearDiceState() {
+  const key = _diceStorageKey();
+  if (key) sessionStorage.removeItem(key);
+}
+
 const STAT_LABELS = {
   strength: 'STR', dexterity: 'DEX', constitution: 'CON',
   intelligence: 'INT', wisdom: 'WIS', charisma: 'CHA'
@@ -882,6 +976,7 @@ export function rollActionDice() {
     if (submitBtn) submitBtn.classList.remove('needs-roll');
 
     _rollCount++;
+    _saveDiceState();
     updateInspirationDisplay();
 
     if (_rollCount >= 2) {
@@ -914,6 +1009,7 @@ export function rollActionDice() {
 function resetDiceRoll() {
   _currentDiceRoll = null;
   _rollCount = 0;
+  _clearDiceState();
   const roller = document.getElementById('dice-roller');
   const valueEl = document.getElementById('dice-value');
   const modEl = document.getElementById('dice-mod');

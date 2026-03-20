@@ -26,7 +26,7 @@ import {
   rollActionDice, getCurrentDiceRoll,
   updateInspirationDisplay,
   displayChoices, selectChoice, dismissChoices, toggleChoicesDrawer, generateChoices,
-  togglePOVView, reRenderStory, retryTurn
+  togglePOVView, reRenderStory, retryTurn, restoreDiceState
 } from './modules/sessions.js';
 import {
   loadSettings, saveSettings,
@@ -242,6 +242,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (pendingChoices) displayChoices(pendingChoices);
     // Re-render story locally to switch POV narration for selected character (no network fetch)
     reRenderStory();
+    // Restore any persisted dice roll for this character
+    restoreDiceState();
   });
 
   // Shared tab switching function
