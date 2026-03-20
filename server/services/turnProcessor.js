@@ -277,7 +277,7 @@ async function processAITurn(deps, sessionId, pendingActions, characters) {
   const messages = [
     { role: 'system', content: DEFAULT_SYSTEM_PROMPT + (session.story_summary ? `\n\nSTORY SO FAR:\n${session.story_summary}` : '') },
     ...aiMessages,
-    { role: 'assistant', content: AI_RESPONSE_PREFIX }
+    // No assistant prefill — Anthropic rejects trailing whitespace and it adds unnecessary tokens
   ];
 
   // Debug logging
@@ -304,19 +304,6 @@ async function processAITurn(deps, sessionId, pendingActions, characters) {
   if (!aiResponse) {
     console.log('Failed to extract AI response:', JSON.stringify(data, null, 2));
     throw new Error('Could not parse AI response. Check server logs.');
-  }
-
-  // Strip the response prefix
-  const prefixTrimmed = AI_RESPONSE_PREFIX.trim();
-  const responseTrimmed = aiResponse.trimStart();
-  if (aiResponse.startsWith(AI_RESPONSE_PREFIX)) {
-    aiResponse = aiResponse.slice(AI_RESPONSE_PREFIX.length);
-  } else if (aiResponse.startsWith(prefixTrimmed)) {
-    aiResponse = aiResponse.slice(prefixTrimmed.length).trimStart();
-  } else if (responseTrimmed.startsWith(prefixTrimmed)) {
-    aiResponse = responseTrimmed.slice(prefixTrimmed.length).trimStart();
-  } else if (responseTrimmed.toLowerCase().startsWith(prefixTrimmed.toLowerCase())) {
-    aiResponse = responseTrimmed.slice(prefixTrimmed.length).trimStart();
   }
 
   const tokensUsed = data.usage?.total_tokens || estimateTokens(JSON.stringify(messages) + aiResponse);
@@ -586,7 +573,7 @@ async function streamAITurn(deps, sessionId, pendingActions, characters) {
   const messages = [
     { role: 'system', content: DEFAULT_SYSTEM_PROMPT + (session.story_summary ? `\n\nSTORY SO FAR:\n${session.story_summary}` : '') },
     ...aiMessages,
-    { role: 'assistant', content: AI_RESPONSE_PREFIX }
+    // No assistant prefill — Anthropic rejects trailing whitespace and it adds unnecessary tokens
   ];
 
   // Debug logging
@@ -620,18 +607,7 @@ async function streamAITurn(deps, sessionId, pendingActions, characters) {
     throw new Error('AI returned empty streaming response.');
   }
 
-  // Strip the response prefix (same logic as processAITurn)
-  const prefixTrimmed = AI_RESPONSE_PREFIX.trim();
-  const responseTrimmed = aiResponse.trimStart();
-  if (aiResponse.startsWith(AI_RESPONSE_PREFIX)) {
-    aiResponse = aiResponse.slice(AI_RESPONSE_PREFIX.length);
-  } else if (aiResponse.startsWith(prefixTrimmed)) {
-    aiResponse = aiResponse.slice(prefixTrimmed.length).trimStart();
-  } else if (responseTrimmed.startsWith(prefixTrimmed)) {
-    aiResponse = responseTrimmed.slice(prefixTrimmed.length).trimStart();
-  } else if (responseTrimmed.toLowerCase().startsWith(prefixTrimmed.toLowerCase())) {
-    aiResponse = responseTrimmed.slice(prefixTrimmed.length).trimStart();
-  }
+  // No prefix stripping needed — prefill removed
 
   const tokensUsed = estimateTokens(JSON.stringify(messages) + aiResponse);
 
