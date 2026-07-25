@@ -102,7 +102,7 @@ export function renderTacticalCombat(combat) {
     const isMove = moves.has(`${x},${y}`);
     const isTarget = occupant && (targets.has(occupant.id) || powerTargets.has(occupant.id));
     const unitHtml = occupant
-      ? `<span class="tactical-token ${occupant.side} ${occupant.id === unit?.id ? 'active' : ''}" data-unit-id="${escapeHtml(occupant.id)}" title="${escapeHtml(`${occupant.name}: ${occupant.hp}/${occupant.maxHp} HP, AC ${occupant.ac}`)}"${occupant.imageUrl ? ` style="--token-image:url(&quot;${escapeHtml(occupant.imageUrl)}&quot;)"` : ''}><span class="tactical-token-name">${escapeHtml(occupant.name.slice(0, 2).toUpperCase())}</span>${healthBar(occupant)}</span>`
+      ? `<span class="tactical-token ${occupant.side} ${occupant.id === unit?.id ? 'active' : ''}" data-unit-id="${escapeHtml(occupant.id)}" title="${escapeHtml(`${occupant.name}: ${occupant.hp}/${occupant.maxHp} HP, AC ${occupant.ac}`)}"${occupant.imageUrl ? ` style="--token-image:url(&quot;${escapeHtml(occupant.imageUrl)}&quot;)"` : ''}>${occupant.imageUrl ? '' : `<span class="tactical-token-name">${escapeHtml(occupant.name.slice(0, 2).toUpperCase())}</span>`}${healthBar(occupant)}</span>`
       : '';
     return `<button class="tactical-tile terrain-${terrain} ${isMove ? 'move-target' : ''} ${isTarget ? 'attack-target' : ''}" data-x="${x}" data-y="${y}" onclick="tacticalTileClick(${x}, ${y})" aria-label="${escapeHtml(terrain)}${occupant ? `, ${occupant.name}` : ''}">${unitHtml}</button>`;
   }).join('')).join('');
