@@ -57,7 +57,7 @@ import { initWeather, cycleWeather, setWeather } from './modules/weather.js';
 import { initCharacterBuilder, saveNewCharacter, resetBuilder } from './modules/characterBuilder.js';
 import {
   openTacticalCombatSetup, closeTacticalCombatSetup, startTacticalCombat,
-  selectTacticalAction, tacticalTileClick, tacticalDefend, tacticalEndTurn, endTacticalCombat
+  selectTacticalAction, selectTacticalPower, tacticalTileClick, tacticalDefend, tacticalEndTurn, endTacticalCombat
 } from './modules/tacticalCombat.js';
 import { toggleDJPlayback, muteDJPlayback, setDJVolume, setDJTrack, stopDJTrack } from './modules/youtubeDj.js';
 
@@ -129,6 +129,7 @@ window.openTacticalCombatSetup = openTacticalCombatSetup;
 window.closeTacticalCombatSetup = closeTacticalCombatSetup;
 window.startTacticalCombat = startTacticalCombat;
 window.selectTacticalAction = selectTacticalAction;
+window.selectTacticalPower = selectTacticalPower;
 window.tacticalTileClick = tacticalTileClick;
 window.tacticalDefend = tacticalDefend;
 window.tacticalEndTurn = tacticalEndTurn;

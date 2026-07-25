@@ -19,7 +19,14 @@ const { formatAIConfig, getApiConfigForRole: resolveApiConfigForRole } = require
 const tagParser = require('./services/tagParser');
 const { parseAcEffects, calculateTotalAC, updateCharacterAC, getSessionCharacters } = require('./services/characterService');
 const { applyAllTags } = require('./services/tagApplicator');
-const { processAITurn: processAITurnCore, streamAITurn: streamAITurnCore, compactHistory, estimateTokens, didTurnCommit } = require('./services/turnProcessor');
+const {
+  processAITurn: processAITurnCore,
+  streamAITurn: streamAITurnCore,
+  completeCombatTurn: completeCombatTurnCore,
+  compactHistory,
+  estimateTokens,
+  didTurnCommit
+} = require('./services/turnProcessor');
 
 // Import auth middleware factory
 const { createAuthHelpers, parseCookie, SESSION_COOKIE } = require('./middleware/auth');
@@ -156,6 +163,17 @@ function processAITurn(sessionId, pendingActions, characters) {
       const session = turnDeps.db.prepare('SELECT current_turn, full_history, total_tokens FROM game_sessions WHERE id = ?').get(sessionId);
       const history = JSON.parse(session?.full_history || '[]');
       const lastEntry = history[history.length - 1];
+      const activeCombat = turnDeps.db.prepare('SELECT * FROM combats WHERE session_id = ? AND is_active = 1 ORDER BY created_at DESC LIMIT 1').get(sessionId);
+      if (activeCombat) {
+        logger.error('Post-handoff work failed after tactical combat started', { sessionId, error: streamError.message });
+        return {
+          response: '',
+          tokensUsed: Number(session?.total_tokens || 0),
+          combat: { ...activeCombat, state: JSON.parse(activeCombat.combatants || '{}') },
+          deferredNarration: true,
+          degraded: true
+        };
+      }
       if (didTurnCommit(before, session)) {
         // The turn is already committed; optional failures must not trigger a reroll.
         logger.error('Post-turn work failed after narration was committed', { sessionId, error: streamError.message });
@@ -167,6 +185,26 @@ function processAITurn(sessionId, pendingActions, characters) {
       }
       console.warn('Streaming failed before processing, falling back to non-streaming:', streamError.message);
       return processAITurnCore(turnDeps, sessionId, pendingActions, characters);
+    });
+}
+
+function completeCombatTurn(sessionId, characters, combatConclusion) {
+  const before = turnDeps.db.prepare('SELECT current_turn, full_history FROM game_sessions WHERE id = ?').get(sessionId);
+  return completeCombatTurnCore(turnDeps, sessionId, characters, combatConclusion, { stream: true })
+    .catch(streamError => {
+      const session = turnDeps.db.prepare('SELECT current_turn, full_history, total_tokens FROM game_sessions WHERE id = ?').get(sessionId);
+      const history = JSON.parse(session?.full_history || '[]');
+      const lastEntry = history[history.length - 1];
+      if (didTurnCommit(before, session)) {
+        logger.error('Post-combat work failed after narration was committed', { sessionId, error: streamError.message });
+        return {
+          response: lastEntry?.content || '',
+          tokensUsed: Number(session?.total_tokens || 0),
+          degraded: true
+        };
+      }
+      logger.warn('Streaming combat conclusion failed; retrying without streaming', { sessionId, error: streamError.message });
+      return completeCombatTurnCore(turnDeps, sessionId, characters, combatConclusion, { stream: false });
     });
 }
 
@@ -189,6 +227,7 @@ const routes = initializeRoutes({
   getActiveApiConfig,
   getApiConfigForRole,
   processAITurn,
+  completeCombatTurn,
   DEFAULT_SYSTEM_PROMPT: aiService.DEFAULT_SYSTEM_PROMPT,
   getOpenAIApiKey,
   parseAcEffects, calculateTotalAC, updateCharacterAC,

@@ -66,6 +66,7 @@ export function scrollStoryToBottom() {
   if (!container) return;
 
   const doScroll = () => {
+    if (container.classList.contains('logs-open')) return;
     container.scrollTop = container.scrollHeight;
 
     const historyContainer = document.getElementById('story-history');

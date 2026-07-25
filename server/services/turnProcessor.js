@@ -360,18 +360,27 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
     hidden: true
   });
 
-  // Store each player action as a separate entry for display
-  for (const pa of pendingActions) {
-    const char = characters.find(c => c.id === pa.character_id);
-    if (char) {
-      fullHistory.push({
-        role: 'user',
-        content: pa.action,
-        type: 'action',
-        character_id: char.id,
-        character_name: char.character_name,
-        player_name: char.player_name
-      });
+  if (options.combatConclusion) {
+    fullHistory.push({
+      role: 'user',
+      content: `AUTHORITATIVE TACTICAL COMBAT RESULT:\n${options.combatConclusion.summary}`,
+      type: 'combat_result',
+      hidden: true
+    });
+  } else {
+    // Store each player action as a separate entry for display
+    for (const pa of pendingActions) {
+      const char = characters.find(c => c.id === pa.character_id);
+      if (char) {
+        fullHistory.push({
+          role: 'user',
+          content: pa.action,
+          type: 'action',
+          character_id: char.id,
+          character_name: char.character_name,
+          player_name: char.player_name
+        });
+      }
     }
   }
 
@@ -385,16 +394,103 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
     console.warn(`Safety fallback: compacted_count (${compactedCount}) exceeded history length (${fullHistory.length}). Using last ${fallbackCount} messages.`);
   }
 
-  const recentResolverContext = buildConversationMessages(recentHistory.slice(-12))
-    .map(message => `${message.role.toUpperCase()}: ${message.content}`)
-    .join('\n\n');
-  const turnResolution = await aiService.generateTurnResolution(agentConfig, {
-    actions: actionSummary,
-    partyState: resolverPartyState,
-    storySummary: session.story_summary || '',
-    recentContext: recentResolverContext
-  });
+  let turnResolution;
+  if (options.combatConclusion) {
+    turnResolution = {
+      resolution: [
+        options.combatConclusion.openingResolution,
+        options.combatConclusion.summary,
+        'Portray the submitted player actions as the cause of the encounter and the tactical result as authoritative. Do not replay the battle blow by blow; narrate its decisive ending and immediate aftermath.'
+      ].filter(Boolean).join('\n\n'),
+      stateTags: '',
+      combat: null
+    };
+  } else {
+    const recentResolverContext = buildConversationMessages(recentHistory.slice(-12))
+      .map(message => `${message.role.toUpperCase()}: ${message.content}`)
+      .join('\n\n');
+    turnResolution = await aiService.generateTurnResolution(agentConfig, {
+      actions: actionSummary,
+      partyState: resolverPartyState,
+      storySummary: session.story_summary || '',
+      recentContext: recentResolverContext
+    });
+  }
   const automaticCombatSetup = normalizeAutoCombatSetup(turnResolution?.combat);
+
+  if (automaticCombatSetup) {
+    try {
+      const characterStates = characters.map(character => ({
+        id: character.id,
+        hp: character.hp,
+        max_hp: character.max_hp,
+        ac: character.ac,
+        xp: character.xp,
+        gold: character.gold,
+        inventory: character.inventory,
+        spell_slots: character.spell_slots,
+        ac_effects: character.ac_effects,
+        inspiration_points: character.inspiration_points
+      }));
+      db.prepare('INSERT INTO game_snapshots (id, session_id, turn_number, character_states) VALUES (?, ?, ?, ?)')
+        .run(uuidv4(), sessionId, session.current_turn, JSON.stringify(characterStates));
+    } catch (snapshotError) {
+      logger.warn('Unable to snapshot the pre-combat turn', { sessionId, error: snapshotError.message });
+    }
+
+    applyAllTags({
+      db, io, tagParser, parseAcEffects, calculateTotalAC, updateCharacterAC, emitCharacterUpdate
+    }, turnResolution?.stateTags || '', characters, sessionId);
+
+    const currentCharacters = db.prepare(`
+      SELECT c.* FROM characters c
+      INNER JOIN session_characters sc ON sc.character_id = c.id
+      WHERE sc.session_id = ? AND c.hp > 0
+      ORDER BY c.created_at DESC
+    `).all(sessionId);
+    if (!currentCharacters.length) throw new Error('The party has no conscious combatants.');
+
+    const state = createTacticalCombat(currentCharacters, automaticCombatSetup.enemies, { environment: automaticCombatSetup.environment });
+    state.deferredTurn = {
+      openingResolution: turnResolution?.resolution || '',
+      startedAt: new Date().toISOString()
+    };
+    const combat = {
+      id: uuidv4(),
+      session_id: sessionId,
+      name: automaticCombatSetup.name,
+      is_active: 1,
+      current_turn: state.turnIndex,
+      round: state.round
+    };
+    db.prepare('INSERT INTO combats (id, session_id, name, is_active, current_turn, round, combatants) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(combat.id, sessionId, combat.name, 1, state.turnIndex, state.round, JSON.stringify(state));
+    const updateCombatHp = db.prepare('UPDATE characters SET hp = ? WHERE id = ?');
+    for (const unit of state.units) {
+      if (unit.side !== 'party' || !unit.sourceCharacterId) continue;
+      updateCombatHp.run(unit.hp, unit.sourceCharacterId);
+      const updatedCharacter = db.prepare('SELECT * FROM characters WHERE id = ?').get(unit.sourceCharacterId);
+      if (updatedCharacter) emitCharacterUpdate(unit.sourceCharacterId, 'character_updated', updatedCharacter);
+    }
+    const promptTokens = estimatePromptTokens(fullHistory.slice(compactedCount), session.story_summary || '');
+    db.prepare('UPDATE game_sessions SET full_history = ?, total_tokens = ? WHERE id = ?')
+      .run(JSON.stringify(fullHistory), promptTokens, sessionId);
+    db.prepare('DELETE FROM pending_actions WHERE session_id = ?').run(sessionId);
+
+    const payload = { ...combat, state };
+    sendToSession(sessionId, 'turn_processed', {
+      sessionId,
+      response: '',
+      turn: session.current_turn,
+      tokensUsed: promptTokens,
+      compacted: false,
+      choices: [],
+      combatPending: true
+    });
+    sendToSession(sessionId, 'combat_updated', { sessionId, combat: payload, automatic: true, events: state.log, version: state.version });
+    logger.info('Deferred narration and started tactical combat', { sessionId, combatId: combat.id, enemies: automaticCombatSetup.enemies.length });
+    return { response: '', tokensUsed: promptTokens, combat: payload, deferredNarration: true };
+  }
 
   // Convert stored history to AI-compatible format (single source of truth shared with the
   // compaction token count, so the trigger measures the same payload we actually send).
@@ -595,22 +691,25 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
   }
   fullHistory.push(historyEntry);
 
-  // Snapshot character states BEFORE applying tags (for reroll restore)
-  try {
-    const characterStates = characters.map(c => ({
-      id: c.id,
-      hp: c.hp, max_hp: c.max_hp, ac: c.ac,
-      xp: c.xp, gold: c.gold,
-      inventory: c.inventory,
-      spell_slots: c.spell_slots,
-      ac_effects: c.ac_effects,
-      inspiration_points: c.inspiration_points
-    }));
-    db.prepare('INSERT INTO game_snapshots (id, session_id, turn_number, character_states) VALUES (?, ?, ?, ?)')
-      .run(uuidv4(), sessionId, session.current_turn, JSON.stringify(characterStates));
-    console.log(`Snapshot saved for session ${sessionId}, turn ${session.current_turn}`);
-  } catch (snapshotError) {
-    console.error('Failed to save game snapshot:', snapshotError.message);
+  // The combat-trigger branch already saved the pre-turn snapshot. Preserve that
+  // snapshot so rerolling an aftermath restores the state from before initiative.
+  if (!options.combatConclusion) {
+    try {
+      const characterStates = characters.map(c => ({
+        id: c.id,
+        hp: c.hp, max_hp: c.max_hp, ac: c.ac,
+        xp: c.xp, gold: c.gold,
+        inventory: c.inventory,
+        spell_slots: c.spell_slots,
+        ac_effects: c.ac_effects,
+        inspiration_points: c.inspiration_points
+      }));
+      db.prepare('INSERT INTO game_snapshots (id, session_id, turn_number, character_states) VALUES (?, ?, ?, ?)')
+        .run(uuidv4(), sessionId, session.current_turn, JSON.stringify(characterStates));
+      console.log(`Snapshot saved for session ${sessionId}, turn ${session.current_turn}`);
+    } catch (snapshotError) {
+      console.error('Failed to save game snapshot:', snapshotError.message);
+    }
   }
 
   // Apply the rules agent's state-change tags (the narrator never emits them inline).
@@ -656,43 +755,6 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
       .run(JSON.stringify(fullHistory), recentHistoryTokens, JSON.stringify(musicState), sessionId);
   }
 
-  let automaticCombat = null;
-  if (automaticCombatSetup) {
-    try {
-      const existingCombat = db.prepare('SELECT id FROM combats WHERE session_id = ? AND is_active = 1 LIMIT 1').get(sessionId);
-      const currentCharacters = db.prepare(`
-        SELECT c.* FROM characters c
-        INNER JOIN session_characters sc ON sc.character_id = c.id
-        WHERE sc.session_id = ? AND c.hp > 0
-        ORDER BY c.created_at DESC
-      `).all(sessionId);
-      if (!existingCombat && currentCharacters.length > 0) {
-        const state = createTacticalCombat(currentCharacters, automaticCombatSetup.enemies, { environment: automaticCombatSetup.environment });
-        const combat = {
-          id: uuidv4(),
-          session_id: sessionId,
-          name: automaticCombatSetup.name,
-          is_active: 1,
-          current_turn: state.turnIndex,
-          round: state.round
-        };
-        db.prepare('INSERT INTO combats (id, session_id, name, is_active, current_turn, round, combatants) VALUES (?, ?, ?, ?, ?, ?, ?)')
-          .run(combat.id, sessionId, combat.name, 1, state.turnIndex, state.round, JSON.stringify(state));
-        const updateHp = db.prepare('UPDATE characters SET hp = ? WHERE id = ?');
-        for (const unit of state.units) {
-          if (unit.side !== 'party' || !unit.sourceCharacterId) continue;
-          updateHp.run(unit.hp, unit.sourceCharacterId);
-          const updatedCharacter = db.prepare('SELECT * FROM characters WHERE id = ?').get(unit.sourceCharacterId);
-          if (updatedCharacter) emitCharacterUpdate(unit.sourceCharacterId, 'character_updated', updatedCharacter);
-        }
-        automaticCombat = { ...combat, state };
-        logger.info('Started tactical combat from agent resolution', { sessionId, combatId: combat.id, enemies: automaticCombatSetup.enemies.length });
-      }
-    } catch (error) {
-      logger.error('Automatic tactical combat handoff failed', { sessionId, error: error.message });
-    }
-  }
-
   // Clear pending actions
   db.prepare('DELETE FROM pending_actions WHERE session_id = ?').run(sessionId);
 
@@ -706,9 +768,6 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
     choices: parsedChoices,
     povs: hasPOVs ? parsedPOVs : null
   });
-  if (automaticCombat) {
-    sendToSession(sessionId, 'combat_updated', { sessionId, combat: automaticCombat, automatic: true });
-  }
   try {
     queueAutoPOVScenes({
       db,
@@ -726,7 +785,7 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
     logger.error('Optional post-turn work failed after narration was committed', { sessionId, error: error.message });
   }
 
-  return { response: cleanedResponse, tokensUsed: recentHistoryTokens, combat: automaticCombat };
+  return { response: cleanedResponse, tokensUsed: recentHistoryTokens, combat: null };
 }
 
 /**
@@ -756,9 +815,17 @@ function streamAITurn(deps, sessionId, pendingActions, characters) {
   return runAITurn(deps, sessionId, pendingActions, characters, { stream: true });
 }
 
+function completeCombatTurn(deps, sessionId, characters, combatConclusion, options = {}) {
+  return runAITurn(deps, sessionId, [], characters, {
+    stream: options.stream === true,
+    combatConclusion
+  });
+}
+
 module.exports = {
   processAITurn,
   streamAITurn,
+  completeCombatTurn,
   compactHistory,
   estimateTokens,
   // Pure, testable compaction helpers (U2.2)

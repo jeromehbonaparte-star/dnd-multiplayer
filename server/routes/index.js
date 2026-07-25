@@ -18,7 +18,7 @@ function initializeRoutes(deps) {
   const {
     db, io, auth, aiService, emitToSession,
     emitCharacterUpdate, emitToUser,
-    processingSessions, getActiveApiConfig, getApiConfigForRole, processAITurn,
+    processingSessions, getActiveApiConfig, getApiConfigForRole, processAITurn, completeCombatTurn,
     DEFAULT_SYSTEM_PROMPT, getOpenAIApiKey,
     parseAcEffects, calculateTotalAC, updateCharacterAC,
     compactHistory, getSessionCharacters
@@ -34,6 +34,7 @@ function initializeRoutes(deps) {
       getActiveApiConfig,
       getApiConfigForRole,
       processAITurn,
+      completeCombatTurn,
       DEFAULT_SYSTEM_PROMPT,
       parseAcEffects,
       calculateTotalAC,

@@ -67,3 +67,48 @@ test('rejects automatic combat without enemies', () => {
   assert.equal(normalizeAutoCombatSetup({ name: 'False alarm', enemies: [] }), null);
   assert.equal(normalizeAutoCombatSetup(null), null);
 });
+
+test('party spell actions use stored slots and resolve on the server', () => {
+  const spellParty = [{
+    ...party[1],
+    spells: 'Fire Bolt, Magic Missile, Cure Wounds',
+    spell_slots: JSON.stringify({ 1: { current: 2, max: 2 } })
+  }];
+  const state = createTacticalCombat(spellParty, [{ ...enemies[0], range: 8 }], { seed: 77 });
+  const unit = activeUnit(state);
+  const magicMissile = unit.powers.find(power => power.name === 'Magic Missile');
+  const target = state.units.find(candidate => candidate.side === 'enemy');
+  target.x = Math.min(state.grid.width - 1, unit.x + magicMissile.range);
+  target.y = unit.y;
+  const result = applyTacticalAction(state, { type: 'power', powerId: magicMissile.id, targetId: target.id });
+  assert.equal(result.ok, true);
+  assert.equal(result.state.units.find(candidate => candidate.id === unit.id).spellSlots['1'].current, 1);
+  assert.ok(result.events.some(event => event.powerName === 'Magic Missile'));
+});
+
+test('combat powers cannot be used without their required resource', () => {
+  const spellParty = [{
+    ...party[1],
+    spells: 'Magic Missile',
+    spell_slots: JSON.stringify({ 1: { current: 0, max: 2 } })
+  }];
+  const state = createTacticalCombat(spellParty, enemies, { seed: 77 });
+  const unit = activeUnit(state);
+  const power = unit.powers.find(candidate => candidate.name === 'Magic Missile');
+  const target = state.units.find(candidate => candidate.side === 'enemy');
+  const result = applyTacticalAction(state, { type: 'power', powerId: power.id, targetId: target.id });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /no uses remaining/i);
+});
+
+test('core class abilities are available and tracked by the combat state', () => {
+  const state = createTacticalCombat([party[0]], enemies, { seed: 77 });
+  const unit = activeUnit(state);
+  unit.hp = 10;
+  const secondWind = unit.powers.find(power => power.name === 'Second Wind');
+  const result = applyTacticalAction(state, { type: 'power', powerId: secondWind.id, targetId: unit.id });
+  assert.equal(result.ok, true);
+  const updated = result.state.units.find(candidate => candidate.id === unit.id);
+  assert.ok(updated.hp > 10);
+  assert.equal(updated.powerUses[secondWind.id], 1);
+});

@@ -2,6 +2,37 @@ const GRID_WIDTH = 10;
 const GRID_HEIGHT = 8;
 const MAX_COMBATANTS_PER_SIDE = 12;
 const MAX_LOG_ENTRIES = 80;
+const MAX_POWERS_PER_UNIT = 20;
+
+const CANTRIPS = new Set([
+  'acid splash', 'blade ward', 'chill touch', 'dancing lights', 'druidcraft', 'eldritch blast',
+  'fire bolt', 'guidance', 'light', 'mage hand', 'magic stone', 'mending', 'message',
+  'minor illusion', 'poison spray', 'prestidigitation', 'produce flame', 'ray of frost',
+  'resistance', 'sacred flame', 'shillelagh', 'shocking grasp', 'spare the dying',
+  'thaumaturgy', 'thorn whip', 'true strike', 'vicious mockery'
+]);
+
+const SPELL_LEVELS = {
+  'armor of agathys': 1, 'bane': 1, 'bless': 1, 'burning hands': 1, 'charm person': 1,
+  'chromatic orb': 1, 'command': 1, 'cure wounds': 1, 'detect magic': 1, 'divine favor': 1,
+  'entangle': 1, 'faerie fire': 1, 'false life': 1, 'feather fall': 1, 'guiding bolt': 1,
+  'healing word': 1, 'hellish rebuke': 1, 'heroism': 1, 'hex': 1, 'hunter\'s mark': 1,
+  'inflict wounds': 1, 'magic missile': 1, 'shield': 1, 'sleep': 1, 'thunderwave': 1,
+  'aid': 2, 'blur': 2, 'branding smite': 2, 'darkness': 2, 'flaming sphere': 2,
+  'hold person': 2, 'lesser restoration': 2, 'magic weapon': 2, 'mirror image': 2,
+  'misty step': 2, 'moonbeam': 2, 'prayer of healing': 2, 'scorching ray': 2,
+  'shatter': 2, 'spiritual weapon': 2, 'web': 2,
+  'call lightning': 3, 'counterspell': 3, 'dispel magic': 3, 'fireball': 3, 'fly': 3,
+  'haste': 3, 'lightning bolt': 3, 'mass healing word': 3, 'revivify': 3, 'spirit guardians': 3,
+  'banishment': 4, 'blight': 4, 'dimension door': 4, 'greater invisibility': 4, 'ice storm': 4,
+  'polymorph': 4, 'wall of fire': 4,
+  'cloudkill': 5, 'cone of cold': 5, 'flame strike': 5, 'greater restoration': 5,
+  'hold monster': 5, 'mass cure wounds': 5, 'wall of force': 5,
+  'chain lightning': 6, 'disintegrate': 6, 'harm': 6, 'heal': 6, 'sunbeam': 6,
+  'finger of death': 7, 'fire storm': 7, 'resurrection': 7,
+  'dominate monster': 8, 'earthquake': 8, 'holy aura': 8, 'sunburst': 8,
+  'mass heal': 9, 'meteor swarm': 9, 'power word kill': 9, 'time stop': 9, 'wish': 9
+};
 
 const TERRAIN = {
   plains: { moveCost: 1, label: 'Plains' },
@@ -25,6 +56,80 @@ function proficiencyBonus(level) {
 
 function normalizedClass(value) {
   return String(value || '').toLowerCase();
+}
+
+function splitNames(value) {
+  return [...new Set(String(value || '')
+    .split(/[,;\n]/)
+    .map(name => name.replace(/\s*\([^)]*\)\s*$/g, '').trim())
+    .filter(Boolean))];
+}
+
+function parseSpellSlots(value) {
+  let parsed = value;
+  if (typeof parsed === 'string') {
+    try { parsed = JSON.parse(parsed || '{}'); } catch (error) { parsed = {}; }
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+  return Object.fromEntries(Object.entries(parsed).map(([level, slot]) => [String(level), {
+    current: clamp(Number(slot?.current) || 0, 0, 20),
+    max: clamp(Number(slot?.max) || 0, 0, 20)
+  }]));
+}
+
+function lowestAvailableSlot(spellSlots) {
+  return Object.keys(spellSlots).map(Number).filter(level => level > 0 && spellSlots[level]?.max > 0).sort((a, b) => a - b)[0] || 1;
+}
+
+function classifyPower(name) {
+  const normalized = name.toLowerCase();
+  if (/heal|cure|restoration|lay on hands|second wind|prayer/.test(normalized)) return 'heal';
+  if (/shield|ward|blur|mirror image|sanctuary|rage|wild shape|defen[cs]e|inspiration/.test(normalized)) return 'support';
+  return 'attack';
+}
+
+function buildPowers(character, profile, spellSlots) {
+  const castingBonus = proficiencyBonus(character.level) + profile.castingStat;
+  const fallbackSlot = lowestAvailableSlot(spellSlots);
+  const powers = splitNames(character.spells).slice(0, MAX_POWERS_PER_UNIT).map((name, index) => {
+    const normalized = name.toLowerCase();
+    const slotLevel = CANTRIPS.has(normalized) ? 0 : (SPELL_LEVELS[normalized] || fallbackSlot);
+    const kind = classifyPower(name);
+    return {
+      id: `spell:${index}`,
+      name,
+      source: 'spell',
+      kind,
+      slotLevel,
+      range: kind === 'heal' ? 3 : kind === 'support' ? 2 : 4,
+      attackBonus: castingBonus,
+      damageDie: clamp(6 + slotLevel * 2, 6, 12),
+      bonus: Math.max(0, profile.castingStat)
+    };
+  });
+
+  const className = normalizedClass(character.class);
+  const classPower = className.includes('fighter') ? { name: 'Second Wind', kind: 'heal', range: 0, maxUses: 1 }
+    : className.includes('barbarian') ? { name: 'Rage', kind: 'support', range: 0, maxUses: 2 }
+    : className.includes('rogue') ? { name: 'Sneak Attack', kind: 'attack', range: profile.range, maxUses: null }
+    : className.includes('paladin') && Number(character.level) >= 2 ? { name: 'Divine Smite', kind: 'attack', range: 1, maxUses: null, usesSlot: true }
+    : className.includes('monk') && Number(character.level) >= 2 ? { name: 'Flurry of Blows', kind: 'attack', range: 1, maxUses: 2 }
+    : className.includes('cleric') && Number(character.level) >= 2 ? { name: 'Channel Divinity', kind: 'heal', range: 3, maxUses: 1 }
+    : className.includes('druid') && Number(character.level) >= 2 ? { name: 'Wild Shape', kind: 'support', range: 0, maxUses: 2 }
+    : className.includes('bard') ? { name: 'Bardic Inspiration', kind: 'support', range: 3, maxUses: proficiencyBonus(character.level) }
+    : null;
+  if (classPower && !powers.some(power => power.name.toLowerCase() === classPower.name.toLowerCase())) {
+    powers.push({
+      id: 'ability:class',
+      source: 'ability',
+      slotLevel: classPower.usesSlot ? fallbackSlot : 0,
+      attackBonus: proficiencyBonus(character.level) + profile.attackStat,
+      damageDie: classPower.name === 'Divine Smite' ? 10 : 8,
+      bonus: Math.max(0, profile.attackStat),
+      ...classPower
+    });
+  }
+  return powers.slice(0, MAX_POWERS_PER_UNIT);
 }
 
 function normalizeAutoCombatSetup(value) {
@@ -56,11 +161,13 @@ function classProfile(character) {
   const ranged = /artificer|bard|cleric|druid|ranger|sorcerer|warlock|wizard/.test(className);
   const heavy = /barbarian|fighter|paladin/.test(className);
   const agile = /monk|rogue|ranger/.test(className);
+  const castingStat = Math.max(abilityModifier(character.intelligence), abilityModifier(character.wisdom), abilityModifier(character.charisma));
   return {
     range: ranged ? 3 : 1,
     movement: agile ? 7 : heavy ? 5 : 6,
     damageDie: heavy ? 10 : agile ? 6 : 8,
-    attackStat: ranged ? Math.max(abilityModifier(character.intelligence), abilityModifier(character.wisdom), abilityModifier(character.charisma), abilityModifier(character.dexterity)) : Math.max(abilityModifier(character.strength), abilityModifier(character.dexterity))
+    attackStat: ranged ? Math.max(castingStat, abilityModifier(character.dexterity)) : Math.max(abilityModifier(character.strength), abilityModifier(character.dexterity)),
+    castingStat
   };
 }
 
@@ -136,11 +243,13 @@ function createGrid(environment) {
 function partyUnit(character, index) {
   const profile = classProfile(character);
   const dexterity = abilityModifier(character.dexterity);
+  const spellSlots = parseSpellSlots(character.spell_slots);
   return {
     id: `pc:${character.id}`,
     sourceCharacterId: character.id,
     name: character.character_name || 'Adventurer',
     side: 'party',
+    imageUrl: String(character.image_url || '').slice(0, 500),
     hp: Math.max(0, Number(character.hp) || 0),
     maxHp: Math.max(1, Number(character.max_hp) || Number(character.hp) || 1),
     ac: clamp(Number(character.ac) || 10, 1, 30),
@@ -150,6 +259,9 @@ function partyUnit(character, index) {
     damageDie: profile.damageDie,
     range: profile.range,
     movement: profile.movement,
+    spellSlots,
+    powers: buildPowers(character, profile, spellSlots),
+    powerUses: {},
     x: 0,
     y: clamp(Math.round(((index + 1) * GRID_HEIGHT) / 5) - 1, 0, GRID_HEIGHT - 1),
     hasMoved: false,
@@ -237,6 +349,77 @@ function attack(state, attacker, target) {
   if (target.defending) damage = Math.max(1, Math.floor(damage / 2));
   target.hp = Math.max(0, target.hp - damage);
   events.push({ type: d20 === 20 ? 'critical' : 'attack', text: `${attacker.name} ${d20 === 20 ? 'critically hits' : 'hits'} ${target.name} for ${damage}.`, attackerId: attacker.id, targetId: target.id, amount: damage, roll: d20 });
+  if (!target.hp) events.push({ type: 'defeat', text: `${target.name} is defeated.`, targetId: target.id });
+  return events;
+}
+
+function availablePower(unit, power) {
+  if (!power) return false;
+  if (power.slotLevel > 0 && Number(unit.spellSlots?.[power.slotLevel]?.current || 0) <= 0) return false;
+  if (power.maxUses != null && Number(unit.powerUses?.[power.id] || 0) >= power.maxUses) return false;
+  return true;
+}
+
+function usePowerResource(unit, power) {
+  if (power.slotLevel > 0) {
+    unit.spellSlots[power.slotLevel].current = Math.max(0, unit.spellSlots[power.slotLevel].current - 1);
+  }
+  if (power.maxUses != null) unit.powerUses[power.id] = Number(unit.powerUses[power.id] || 0) + 1;
+}
+
+function resolvePower(state, unit, power, target) {
+  const events = [];
+  usePowerResource(unit, power);
+  if (power.kind === 'heal') {
+    const amount = Math.max(1, roll(state, power.damageDie) + power.bonus + Math.max(0, Number(power.slotLevel) - 1) * 2);
+    const healed = Math.min(amount, target.maxHp - target.hp);
+    target.hp += healed;
+    events.push({
+      type: power.source,
+      effect: 'heal',
+      text: `${unit.name} uses ${power.name}, restoring ${healed} HP to ${target.name}.`,
+      attackerId: unit.id,
+      targetId: target.id,
+      amount: healed,
+      powerName: power.name
+    });
+    return events;
+  }
+  if (power.kind === 'support') {
+    target.defending = true;
+    events.push({
+      type: power.source,
+      effect: 'support',
+      text: `${unit.name} uses ${power.name} on ${target.name}.`,
+      attackerId: unit.id,
+      targetId: target.id,
+      powerName: power.name
+    });
+    return events;
+  }
+
+  const d20 = roll(state, 20);
+  const total = d20 + power.attackBonus;
+  const hit = d20 === 20 || (d20 !== 1 && total >= target.ac);
+  if (!hit) {
+    events.push({ type: power.source, effect: 'miss', text: `${unit.name}'s ${power.name} misses ${target.name}.`, attackerId: unit.id, targetId: target.id, powerName: power.name, roll: d20 });
+    return events;
+  }
+  let damage = roll(state, power.damageDie) + power.bonus + Math.max(0, Number(power.slotLevel) - 1) * 2;
+  if (d20 === 20) damage += roll(state, power.damageDie);
+  damage = Math.max(1, damage);
+  if (target.defending) damage = Math.max(1, Math.floor(damage / 2));
+  target.hp = Math.max(0, target.hp - damage);
+  events.push({
+    type: power.source,
+    effect: d20 === 20 ? 'critical' : 'attack',
+    text: `${unit.name} uses ${power.name} and ${d20 === 20 ? 'critically hits' : 'hits'} ${target.name} for ${damage}.`,
+    attackerId: unit.id,
+    targetId: target.id,
+    amount: damage,
+    powerName: power.name,
+    roll: d20
+  });
   if (!target.hp) events.push({ type: 'defeat', text: `${target.name} is defeated.`, targetId: target.id });
   return events;
 }
@@ -365,6 +548,17 @@ function applyTacticalAction(currentState, action) {
     unit.defending = true;
     unit.hasActed = true;
     events.push({ type: 'defend', text: `${unit.name} takes a defensive stance.`, unitId: unit.id });
+  } else if (action.type === 'power') {
+    if (unit.hasActed) return { ok: false, error: 'This character has already acted.' };
+    const power = unit.powers?.find(candidate => candidate.id === action.powerId);
+    if (!power) return { ok: false, error: 'That spell or ability is not available.' };
+    if (!availablePower(unit, power)) return { ok: false, error: `${power.name} has no uses remaining.` };
+    const desiredSide = power.kind === 'attack' ? 'enemy' : 'party';
+    const target = state.units.find(other => other.id === action.targetId && other.side === desiredSide && isAlive(other));
+    if (!target) return { ok: false, error: `Choose a living ${desiredSide === 'enemy' ? 'enemy' : 'ally'}.` };
+    if (manhattan(unit, target) > power.range) return { ok: false, error: 'That target is out of range.' };
+    events.push(...resolvePower(state, unit, power, target));
+    unit.hasActed = true;
   } else if (action.type === 'endTurn') {
     unit.hasActed = true;
     events.push({ type: 'wait', text: `${unit.name} ends their turn.`, unitId: unit.id });

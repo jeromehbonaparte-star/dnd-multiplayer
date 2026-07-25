@@ -25,6 +25,7 @@ let _fullRenderedHistory = [];
 let _renderedCount = 0;
 let _scrollObserver = null;
 let _sentinelEl = null;
+let _storyMinimized = false;
 
 // ============================================
 // Scenario definitions
@@ -229,6 +230,13 @@ export async function createSession() {
 export async function loadSession(id) {
   try {
     const previousSession = getState('currentSession');
+    const storyContainer = document.getElementById('story-container');
+    const sameSession = previousSession?.id === id;
+    const preserveLogViewport = sameSession && storyContainer?.classList.contains('logs-open');
+    const previousScrollTop = storyContainer?.scrollTop || 0;
+    const wasNearBottom = storyContainer
+      ? storyContainer.scrollHeight - storyContainer.scrollTop - storyContainer.clientHeight < 48
+      : true;
     const socket = getState('socket');
     if (socket && previousSession && previousSession.id !== id) {
       socket.emit('leave_session', { sessionId: previousSession.id });
@@ -236,7 +244,8 @@ export async function loadSession(id) {
 
     const data = await api(`/api/sessions/${id}`);
     if (!previousSession || previousSession.id !== id) {
-      document.getElementById('story-container')?.classList.remove('logs-open', 'story-expanded');
+      storyContainer?.classList.remove('logs-open', 'story-expanded');
+      _storyMinimized = false;
     }
     setState({
       currentSession: data.session,
@@ -260,12 +269,18 @@ export async function loadSession(id) {
 
     const history = JSON.parse(currentSession.full_history || '[]');
 
-    // Use virtual scrolling: render only the last N messages initially
+    // Keep the same virtualized window on live refreshes so a reader never loses
+    // the older paragraph currently under their finger.
+    const previousHistoryLength = _fullRenderedHistory.length;
+    const appendedEntries = sameSession ? Math.max(0, history.length - previousHistoryLength) : 0;
+    const desiredRenderedCount = sameSession
+      ? Math.max(INITIAL_MESSAGE_COUNT, _renderedCount + appendedEntries)
+      : INITIAL_MESSAGE_COUNT;
     _fullRenderedHistory = history;
     const historyContainer = document.getElementById('story-history');
     if (historyContainer) {
       // Render only the tail portion initially
-      const startIndex = Math.max(0, history.length - INITIAL_MESSAGE_COUNT);
+      const startIndex = Math.max(0, history.length - desiredRenderedCount);
       _renderedCount = history.length - startIndex;
       const visibleHistory = history.slice(startIndex);
       historyContainer.innerHTML = renderStoryHistory(visibleHistory, startIndex);
@@ -275,7 +290,12 @@ export async function loadSession(id) {
       setupScrollObserver(historyContainer);
     }
 
-    scrollStoryToBottom();
+    if (preserveLogViewport && !wasNearBottom && storyContainer) {
+      storyContainer.scrollTop = previousScrollTop;
+      requestAnimationFrame(() => { storyContainer.scrollTop = previousScrollTop; });
+    } else {
+      scrollStoryToBottom();
+    }
     updatePendingActions(data.pendingActions);
 
     if (socket) {
@@ -528,7 +548,7 @@ export function renderStoryHistory(history, indexOffset = 0) {
       ));
       const povMissing = hasPOVs && selectedCharName && !entry.povs[selectedCharName];
       const isActiveScene = globalIndex === activeNarrationIndex;
-      const activeSceneClass = isActiveScene ? ' active-scene-entry' : '';
+      const activeSceneClass = isActiveScene ? ` active-scene-entry${_storyMinimized ? ' story-minimized' : ''}` : '';
       const sceneControls = renderSceneControls(entry, globalIndex, selectedChar, canRerollSelectedPOV && getState('povImageEnabled'), isActiveScene);
       const historicalScene = renderHistoricalScene(entry, selectedChar, isActiveScene);
 
@@ -684,6 +704,7 @@ export function toggleStoryLogs(triggerButton = null) {
   if (!container) return;
   const opening = !container.classList.contains('logs-open');
   container.classList.toggle('logs-open', opening);
+  if (opening) _storyMinimized = false;
   const button = triggerButton || container.querySelector('.story-logs-btn');
   if (button) button.textContent = opening ? 'Close Logs' : 'Logs';
   if (!opening) container.scrollTop = container.scrollHeight;
@@ -692,7 +713,13 @@ export function toggleStoryLogs(triggerButton = null) {
 export function toggleStoryMinimize(triggerButton) {
   const entry = triggerButton?.closest('.active-scene-entry');
   if (!entry) return;
+  const container = document.getElementById('story-container');
+  if (container?.classList.contains('logs-open')) {
+    container.classList.remove('logs-open');
+    container.querySelector('.story-logs-btn')?.replaceChildren(document.createTextNode('Logs'));
+  }
   const minimized = entry.classList.toggle('story-minimized');
+  _storyMinimized = minimized;
   triggerButton.textContent = minimized ? 'Restore' : 'Minimize';
   triggerButton.setAttribute('aria-expanded', minimized ? 'false' : 'true');
   triggerButton.title = minimized ? 'Restore the narration panel' : 'Minimize the narration panel';
@@ -703,6 +730,7 @@ export function toggleStoryExpand(triggerButton = null) {
   if (!container) return;
   const expanded = container.classList.toggle('story-expanded');
   container.querySelector('.active-scene-entry')?.classList.remove('story-minimized');
+  _storyMinimized = false;
   const button = triggerButton || container.querySelector('.story-expand-btn');
   if (button) {
     button.textContent = expanded ? 'Restore' : 'Expand';

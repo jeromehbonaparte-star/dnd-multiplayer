@@ -779,7 +779,7 @@ details.drawer-section.utility-menu > summary:hover { color: var(--accent-hover)
 .tactical-tile.move-target { cursor: pointer; box-shadow: inset 0 0 0 3px rgba(71, 177, 111, 0.9); }
 .tactical-tile.attack-target { cursor: crosshair; box-shadow: inset 0 0 0 3px rgba(202, 65, 79, 0.95); }
 .tactical-tile:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; z-index: 2; }
-.tactical-token { position: absolute; inset: 14% 11%; display: flex; flex-direction: column; justify-content: center; align-items: center; border-radius: 50%; border: 2px solid #e6edf3; box-shadow: 0 2px 5px rgba(0,0,0,0.65); color: #fff; font-weight: 800; font-family: var(--font-mono); text-shadow: 0 1px 2px #000; }
+.tactical-token { position: absolute; inset: 14% 11%; display: flex; flex-direction: column; justify-content: center; align-items: center; border-radius: 50%; border: 2px solid #e6edf3; box-shadow: 0 2px 5px rgba(0,0,0,0.65); color: #fff; font-weight: 800; font-family: var(--font-mono); text-shadow: 0 1px 2px #000; background-image: var(--token-image); background-position: center; background-size: cover; }
 .tactical-token.party { background: #2c6b9f; }
 .tactical-token.enemy { background: #992f3c; }
 .tactical-token.active { box-shadow: 0 0 0 3px var(--accent), 0 2px 5px rgba(0,0,0,0.65); }
@@ -796,6 +796,22 @@ details.drawer-section.utility-menu > summary:hover { color: var(--accent-hover)
 .tactical-gm-actions { margin-left: auto; }
 .tactical-gm-actions button:last-child { color: var(--danger); }
 .tactical-log { max-width: 780px; margin: 8px auto 0; color: var(--text-muted); font-size: 11px; line-height: 1.45; }
+.tactical-power-menu { max-width: 780px; max-height: 180px; margin: 8px auto 0; padding: 7px; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 5px; overflow-y: auto; border: 1px solid var(--border-color); background: var(--bg-medium); }
+.tactical-power-menu button { min-width: 0; padding: 7px 8px; display: flex; flex-direction: column; gap: 2px; text-align: left; border: 1px solid var(--border-color); border-radius: 3px; color: var(--text); background: var(--bg-light); cursor: pointer; }
+.tactical-power-menu button:hover:not(:disabled) { border-color: var(--spell-color); color: var(--spell-color); }
+.tactical-power-menu button:disabled { opacity: 0.42; cursor: not-allowed; }
+.tactical-power-menu button span { color: var(--text-muted); font-size: 10px; text-transform: capitalize; }
+.tactical-moving-token { position: fixed !important; inset: auto !important; z-index: 9999; pointer-events: none; }
+.tactical-lunge { animation: tactical-lunge 340ms ease-in-out; z-index: 5; }
+.tactical-cast { animation: tactical-cast 460ms ease-out; z-index: 5; }
+.tactical-hit { animation: tactical-hit 300ms ease-out; }
+.tactical-heal { animation: tactical-heal 420ms ease-out; }
+.tactical-projectile { position: fixed; z-index: 10000; width: 15px; height: 15px; border-radius: 50%; pointer-events: none; background: #c59cff; box-shadow: 0 0 8px #fff, 0 0 20px #9d7bea, 0 0 34px #5d44b4; }
+
+@keyframes tactical-lunge { 0%, 100% { transform: scale(1); } 45% { transform: scale(1.2) translateX(10%); filter: brightness(1.35); } }
+@keyframes tactical-cast { 0%, 100% { transform: scale(1); } 45% { transform: scale(1.12); filter: brightness(1.65) drop-shadow(0 0 8px #c59cff); } }
+@keyframes tactical-hit { 0%, 100% { transform: translateX(0); filter: none; } 25% { transform: translateX(-9%); filter: brightness(2); } 55% { transform: translateX(7%); filter: saturate(2) brightness(1.45); } }
+@keyframes tactical-heal { 0%, 100% { filter: none; } 45% { filter: brightness(1.7) drop-shadow(0 0 9px #54d68a); box-shadow: 0 0 0 5px rgba(84, 214, 138, 0.42); } }
 
 .music-dj-player { margin-left: auto; min-width: 0; max-width: 440px; font-size: 11px; }
 .music-dj-now { display: flex; gap: 6px; min-width: 0; align-items: center; }
@@ -815,6 +831,7 @@ details.drawer-section.utility-menu > summary:hover { color: var(--accent-hover)
   .tactical-combat-panel { padding: 10px; }
   .tactical-board { grid-template-columns: repeat(var(--tactical-columns), minmax(29px, 1fr)); width: 100%; }
   .tactical-controls { align-items: stretch; }
+  .tactical-power-menu { grid-template-columns: repeat(2, minmax(0, 1fr)); max-height: 150px; }
   .tactical-gm-actions { margin-left: 0; }
 }
 

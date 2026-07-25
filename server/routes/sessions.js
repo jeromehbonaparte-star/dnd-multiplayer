@@ -34,6 +34,7 @@ const {
  * @param {Set} deps.processingSessions - Set tracking sessions being processed
  * @param {Function} deps.getApiConfigForRole - Function to get narrator or agent API config
  * @param {Function} deps.processAITurn - Function to process AI turn
+ * @param {Function} deps.completeCombatTurn - Function to narrate a resolved tactical encounter
  * @param {string} deps.DEFAULT_SYSTEM_PROMPT - Default DM system prompt
  * @param {Function} deps.parseAcEffects - AC effects parser
  * @param {Function} deps.calculateTotalAC - AC calculator
@@ -49,6 +50,7 @@ function createSessionRoutes(deps) {
     getActiveApiConfig,
     getApiConfigForRole,
     processAITurn,
+    completeCombatTurn,
     DEFAULT_SYSTEM_PROMPT,
     parseAcEffects,
     calculateTotalAC,
@@ -120,9 +122,11 @@ function createSessionRoutes(deps) {
   }
 
   function persistPartyHealth(state) {
-    const updateHp = db.prepare('UPDATE characters SET hp = ? WHERE id = ?');
+    const updateCharacter = db.prepare('UPDATE characters SET hp = ?, spell_slots = ? WHERE id = ?');
     for (const unit of state.units) {
-      if (unit.side === 'party' && unit.sourceCharacterId) updateHp.run(unit.hp, unit.sourceCharacterId);
+      if (unit.side === 'party' && unit.sourceCharacterId) {
+        updateCharacter.run(unit.hp, JSON.stringify(unit.spellSlots || {}), unit.sourceCharacterId);
+      }
     }
   }
 
@@ -134,11 +138,11 @@ function createSessionRoutes(deps) {
     try { history = JSON.parse(session.full_history || '[]'); } catch (error) { history = []; }
     history.push({
       role: 'assistant',
-      type: 'combat',
+      type: 'narration',
       content: getCombatSummary(state, events),
       timestamp: new Date().toISOString()
     });
-    db.prepare('UPDATE game_sessions SET full_history = ? WHERE id = ?').run(JSON.stringify(history), sessionId);
+    db.prepare('UPDATE game_sessions SET full_history = ?, current_turn = current_turn + 1 WHERE id = ?').run(JSON.stringify(history), sessionId);
   }
 
   /**
@@ -356,7 +360,7 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
   });
 
   /** POST /api/sessions/:id/combat/action - execute the current owner's tactical action. */
-  router.post('/:id/combat/action', requireUser, (req, res) => {
+  router.post('/:id/combat/action', requireUser, async (req, res) => {
     const sessionId = req.params.id;
     if (!userCanViewSession(req.user, sessionId)) return res.status(403).json({ error: 'You do not have a character in this session' });
     const combat = getActiveCombat(sessionId);
@@ -372,10 +376,49 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
     if (!result.ok) return res.status(400).json({ error: result.error, combat });
     saveCombat(combat, result.state);
     persistPartyHealth(result.state);
-    recordCombatOutcome(sessionId, result.state, result.events);
     const payload = { ...combat, is_active: result.state.outcome ? 0 : 1, round: result.state.round, state: result.state };
-    sendToSession(sessionId, 'combat_updated', { sessionId, combat: result.state.outcome ? null : payload, events: result.events });
-    res.json({ combat: result.state.outcome ? null : payload, events: result.events, outcome: result.state.outcome || null });
+    sendToSession(sessionId, 'combat_updated', {
+      sessionId,
+      combat: result.state.outcome ? null : payload,
+      events: result.events,
+      version: result.state.version
+    });
+
+    if (!result.state.outcome) {
+      return res.json({ combat: payload, events: result.events, version: result.state.version, outcome: null });
+    }
+
+    const summary = getCombatSummary(result.state, result.events);
+    if (processingSessions.has(sessionId)) {
+      recordCombatOutcome(sessionId, result.state, result.events);
+      sendToSession(sessionId, 'turn_processed', { sessionId, response: summary, choices: [], compacted: false });
+      return res.json({ combat: null, events: result.events, version: result.state.version, outcome: result.state.outcome, narrationPending: false });
+    }
+
+    processingSessions.add(sessionId);
+    sendToSession(sessionId, 'turn_processing', { sessionId, combatConclusion: true });
+    try {
+      const characters = getSessionCharacters(sessionId);
+      const narration = await completeCombatTurn(sessionId, characters, {
+        summary,
+        openingResolution: result.state.deferredTurn?.openingResolution || ''
+      });
+      return res.json({
+        combat: null,
+        events: result.events,
+        version: result.state.version,
+        outcome: result.state.outcome,
+        narrationPending: false,
+        narration
+      });
+    } catch (error) {
+      logger.error('Combat ended but aftermath narration failed', { sessionId, error: error.message });
+      recordCombatOutcome(sessionId, result.state, result.events);
+      sendToSession(sessionId, 'turn_processed', { sessionId, response: summary, choices: [], compacted: false, degraded: true });
+      return res.json({ combat: null, events: result.events, version: result.state.version, outcome: result.state.outcome, narrationPending: false, narrationError: error.message });
+    } finally {
+      processingSessions.delete(sessionId);
+    }
   });
 
   /** POST /api/sessions/:id/combat/end - GM can end an encounter early. */

@@ -230,10 +230,10 @@ export function initSocket() {
   });
 
   socket.off('combat_updated');
-  socket.on('combat_updated', ({ sessionId, combat, automatic }) => {
+  socket.on('combat_updated', ({ sessionId, combat, automatic, events, version }) => {
     const currentSession = getState('currentSession');
     if (currentSession && currentSession.id === sessionId) {
-      handleCombatUpdate(sessionId, combat);
+      handleCombatUpdate(sessionId, combat, events, version);
       updateActionFormState();
       if (automatic && combat) showNotification(`Tactical combat begins: ${combat.name}`);
     }
