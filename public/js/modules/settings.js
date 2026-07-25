@@ -12,6 +12,11 @@ import { loadCharacters } from './characters.js';
 import { refreshSessionCharacters, loadSession } from './sessions.js';
 import { saveAppState } from './auth.js';
 
+let roleAssignments = {
+  narrator_api_config_id: '',
+  agent_api_config_id: ''
+};
+
 // ============================================
 // Load settings
 // ============================================
@@ -33,6 +38,10 @@ export async function loadSettings() {
     document.getElementById('pov-image-status').textContent = settings.pov_image_configured
       ? 'Image API key saved. Leave the field blank to keep it.'
       : 'Add an image API key, endpoint, and model to enable illustrations.';
+    roleAssignments = {
+      narrator_api_config_id: settings.narrator_api_config_id || '',
+      agent_api_config_id: settings.agent_api_config_id || ''
+    };
     await loadApiConfigs();
 
     // Restore TTS settings from localStorage
@@ -54,6 +63,8 @@ export async function loadSettings() {
 export async function saveSettings() {
   const settings = {
     max_tokens_before_compact: document.getElementById('max-tokens').value,
+    narrator_api_config_id: document.getElementById('narrator-api-config').value,
+    agent_api_config_id: document.getElementById('agent-api-config').value,
     youtube_dj_enabled: document.getElementById('youtube-dj-enabled').checked,
     youtube_api_key: document.getElementById('youtube-api-key').value,
     pov_image_enabled: document.getElementById('pov-image-enabled').checked,
@@ -67,8 +78,11 @@ export async function saveSettings() {
 
   try {
     await api('/api/settings', 'POST', settings);
+    roleAssignments.narrator_api_config_id = settings.narrator_api_config_id;
+    roleAssignments.agent_api_config_id = settings.agent_api_config_id;
     document.getElementById('youtube-api-key').value = '';
     document.getElementById('pov-image-api-key').value = '';
+    await loadApiConfigs();
     document.getElementById('settings-status').textContent = 'Settings saved successfully!';
     setTimeout(() => { document.getElementById('settings-status').textContent = ''; }, 3000);
   } catch (error) {
@@ -110,6 +124,7 @@ export async function loadApiConfigs() {
 
     if (!configs || configs.length === 0) {
       listEl.innerHTML = '<div class="no-configs-message">No API configurations yet. Add one below to get started.</div>';
+      renderRoleSelectors([]);
       return;
     }
 
@@ -120,7 +135,7 @@ export async function loadApiConfigs() {
            data-model="${escapeHtml(config.model)}"
            data-reasoning-effort="${escapeHtml(config.reasoning_effort || '')}">
         <div class="config-header">
-          <span class="config-name">${escapeHtml(config.name)}</span>
+          <span class="config-name">${escapeHtml(config.name)}${renderRoleBadges(config.id)}</span>
         </div>
         <div class="config-details">
           <span><span class="label">Endpoint:</span> <span class="value">${escapeHtml(config.endpoint)}</span></span>
@@ -136,8 +151,34 @@ export async function loadApiConfigs() {
         </div>
       </div>
     `).join('');
+    renderRoleSelectors(configs);
   } catch (error) {
     console.error('Failed to load API configs:', error);
+  }
+}
+
+function renderRoleBadges(configId) {
+  const badges = [];
+  if (roleAssignments.narrator_api_config_id === configId) badges.push('Narrator');
+  if (roleAssignments.agent_api_config_id === configId) badges.push('Agents');
+  return badges.map(role => ` <span class="config-role-badge">${role}</span>`).join('');
+}
+
+function renderRoleSelectors(configs) {
+  const options = '<option value="">Use active configuration (fallback)</option>' + configs.map(config =>
+    `<option value="${escapeHtml(config.id)}">${escapeHtml(config.name)} - ${escapeHtml(config.model)}</option>`
+  ).join('');
+  const narratorSelect = document.getElementById('narrator-api-config');
+  const agentSelect = document.getElementById('agent-api-config');
+  if (narratorSelect) {
+    narratorSelect.innerHTML = options;
+    narratorSelect.value = configs.some(config => config.id === roleAssignments.narrator_api_config_id)
+      ? roleAssignments.narrator_api_config_id : '';
+  }
+  if (agentSelect) {
+    agentSelect.innerHTML = options;
+    agentSelect.value = configs.some(config => config.id === roleAssignments.agent_api_config_id)
+      ? roleAssignments.agent_api_config_id : '';
   }
 }
 

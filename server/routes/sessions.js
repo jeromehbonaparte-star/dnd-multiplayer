@@ -32,7 +32,7 @@ const {
  * @param {Object} deps.auth - Auth middleware
  * @param {Object} deps.aiService - AI service
  * @param {Set} deps.processingSessions - Set tracking sessions being processed
- * @param {Function} deps.getActiveApiConfig - Function to get active API config
+ * @param {Function} deps.getApiConfigForRole - Function to get narrator or agent API config
  * @param {Function} deps.processAITurn - Function to process AI turn
  * @param {string} deps.DEFAULT_SYSTEM_PROMPT - Default DM system prompt
  * @param {Function} deps.parseAcEffects - AC effects parser
@@ -47,6 +47,7 @@ function createSessionRoutes(deps) {
     db, io, auth, aiService, emitToSession,
     processingSessions,
     getActiveApiConfig,
+    getApiConfigForRole,
     processAITurn,
     DEFAULT_SYSTEM_PROMPT,
     parseAcEffects,
@@ -62,6 +63,7 @@ function createSessionRoutes(deps) {
   const sendToSession = typeof emitToSession === 'function'
     ? emitToSession
     : (sessionId, event, payload) => io.emit(event, payload);
+  const getRoleApiConfig = role => getApiConfigForRole ? getApiConfigForRole(role) : getActiveApiConfig();
 
   // Helper to get session characters
   function getSessionCharacters(sessionId) {
@@ -202,8 +204,9 @@ function createSessionRoutes(deps) {
     // Generate opening scene with AI
     if (sanitizedPrompt) {
       try {
-        const apiConfig = getActiveApiConfig();
-        if (apiConfig && apiConfig.api_key) {
+        const narratorConfig = getRoleApiConfig('narrator');
+        const agentConfig = getRoleApiConfig('agent');
+        if (narratorConfig?.api_key && agentConfig?.api_key) {
           const characters = validCharIds.length > 0
             ? db.prepare(`SELECT * FROM characters WHERE id IN (${validCharIds.map(() => '?').join(',')})`).all(...validCharIds)
             : [];
@@ -233,11 +236,9 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
 
           const openingSystemPrompt = `You are the Dungeon Master for a multiplayer D&D 5e game, writing the opening scene. Set the mood and the world through vivid, grounded prose — concrete sensory detail (sound, smell, texture, temperature), not just sight. Show more than you tell. Give any NPCs distinct voices and their own wants. Vary how you name people with meaningful epithets rather than a repeated appearance tag. Match register to the setting. Never narrate the game as a game — no stats, DCs, or numbers in the prose. Avoid lifeless AI tics (delve, tapestry, palpable, "sent shivers down her spine," reflexive "not X but Y"). A blank line between every paragraph. You may use HTML/inline CSS for diegetic objects (signs, documents) — never code blocks.`;
 
-          const aiConfig = { endpoint: apiConfig.endpoint, api_key: apiConfig.api_key, model: apiConfig.model };
-
           try {
             // Step 1: Generate unified 3rd-person opening scene
-            const data = await aiService.callAI(aiConfig, [
+            const data = await aiService.callAI(narratorConfig, [
               { role: 'system', content: openingSystemPrompt },
               { role: 'user', content: openingPrompt }
             ], { maxTokens: aiService.OPENING_SCENE_MAX_TOKENS || 2800 });
@@ -251,7 +252,7 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
                   const partyRoster = aiService.buildPOVPartyRoster
                     ? aiService.buildPOVPartyRoster(characters, c)
                     : characters.map(char => `- ${char.character_name}, ${char.race} ${char.class}`).join('\n');
-                  const pov = await aiService.generateCharacterPOV(aiConfig, c, openingScene, partyRoster);
+                  const pov = await aiService.generateCharacterPOV(agentConfig, c, openingScene, partyRoster);
                   return pov ? { name: c.character_name, pov } : null;
                 }));
                 for (const r of povResults) {
@@ -270,7 +271,7 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
                 sessionId: id,
                 index: 0,
                 characters,
-                aiConfig,
+                aiConfig: agentConfig,
                 sendToSession
               });
             }
@@ -632,7 +633,7 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
       return res.status(403).json({ error: 'You can only reroll POVs for characters you own' });
     }
 
-    const apiConfig = getActiveApiConfig();
+    const apiConfig = getRoleApiConfig('agent');
     if (!apiConfig || !apiConfig.api_key) {
       return res.status(400).json({ error: 'No active API configuration' });
     }
@@ -645,11 +646,7 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
       ? aiService.buildPOVCampaignContext(history.slice(0, index))
       : '';
 
-    const aiConfig = {
-      endpoint: apiConfig.endpoint,
-      api_key: apiConfig.api_key,
-      model: apiConfig.model
-    };
+    const aiConfig = apiConfig;
 
     try {
       const pov = await aiService.generateCharacterPOV(
@@ -718,8 +715,8 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
       return res.status(400).json({ error: 'POV image generation is not fully configured in Admin Settings' });
     }
 
-    const aiConfig = getActiveApiConfig();
-    if (!aiConfig?.api_key) return res.status(400).json({ error: 'No active narration API configuration' });
+    const aiConfig = getRoleApiConfig('agent');
+    if (!aiConfig?.api_key) return res.status(400).json({ error: 'No agent API configuration' });
     const job = queuePOVSceneGeneration({
       db,
       aiService,
@@ -754,14 +751,9 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
       return res.status(403).json({ error: 'You do not have a character in this session' });
     }
 
-    const rawConfig = getActiveApiConfig();
+    const rawConfig = getRoleApiConfig('agent');
     if (!rawConfig) return res.status(400).json({ error: 'No active API configuration' });
-    // Map to the format callAI expects
-    const config = {
-      endpoint: rawConfig.endpoint,
-      api_key: rawConfig.api_key,
-      model: rawConfig.model
-    };
+    const config = rawConfig;
 
     const characters = getSessionCharacters(sessionId);
     if (characters.length === 0) return res.status(400).json({ error: 'No characters in session' });
@@ -1084,15 +1076,11 @@ DON'T:
 Generate ONLY a brief action description.`;
 
     try {
-      const rawConfig = getActiveApiConfig();
+      const rawConfig = getRoleApiConfig('agent');
       if (!rawConfig) {
         return res.status(500).json({ error: 'No active API configuration' });
       }
-      const config = {
-        endpoint: rawConfig.endpoint,
-        api_key: rawConfig.api_key,
-        model: rawConfig.model
-      };
+      const config = rawConfig;
 
       const aiData = await aiService.callAI(config, [{ role: 'user', content: prompt }], { maxTokens: 300, temperature: 0.7 });
       const generatedAction = (aiService.extractAIMessage(aiData) || '').trim();
@@ -1205,7 +1193,7 @@ Generate ONLY a brief action description.`;
       return res.status(404).json({ error: 'Session not found' });
     }
 
-    const apiConfig = getActiveApiConfig();
+    const apiConfig = getRoleApiConfig('agent');
     if (!apiConfig || !apiConfig.api_key) {
       return res.status(400).json({ error: 'No active API configuration.' });
     }

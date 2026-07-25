@@ -27,6 +27,16 @@ const MIN_MESSAGES_BEFORE_COMPACT = 14;
 const DEFAULT_MAX_TOKENS_BEFORE_COMPACT = 16000;
 const MAX_SUMMARY_CHARS = 8000;
 
+function didTurnCommit(before, after) {
+  let beforeLength = 0;
+  let afterHistory = [];
+  try { beforeLength = JSON.parse(before?.full_history || '[]').length; } catch (error) { beforeLength = 0; }
+  try { afterHistory = JSON.parse(after?.full_history || '[]'); } catch (error) { afterHistory = []; }
+  const lastEntry = afterHistory[afterHistory.length - 1];
+  return Number(after?.current_turn || 0) > Number(before?.current_turn || 0)
+    || (afterHistory.length > beforeLength && lastEntry?.type === 'narration');
+}
+
 /**
  * Compact history into a structured summary using AI
  * @param {Object} apiConfig - Active API config {endpoint, api_key, model}
@@ -165,7 +175,7 @@ function buildConversationMessages(recentHistory) {
 
   // Flush remaining user content
   if (currentUserContent.length > 0) {
-    currentUserContent.push(`Narrate the outcome of these actions in 3rd person in no more than ${NARRATION_WORD_LIMIT} words, then add [CHOICE:] tags at the end.`);
+    currentUserContent.push(`Narrate the outcome of these actions in 3rd person in no more than ${NARRATION_WORD_LIMIT} words. Output story prose only and end cleanly at the next player decision point.`);
     aiMessages.push({ role: 'user', content: currentUserContent.join('\n\n') });
   }
 
@@ -244,7 +254,7 @@ function planCompaction(fullHistory, compactedCount, storySummary, maxTokens) {
  * @param {Object} deps.io - Socket.IO instance
  * @param {Object} deps.aiService - AI service (extractAIMessage; callAIStream + detectProvider for streaming)
  * @param {Object} deps.tagParser - Tag parser service
- * @param {Function} deps.getActiveApiConfig - Get active API config
+ * @param {Function} deps.getApiConfigForRole - Get narrator or agent API config
  * @param {string} deps.DEFAULT_SYSTEM_PROMPT - Default DM system prompt
  * @param {Set} deps.processingSessions - Sessions currently being processed
  * @param {Function} deps.parseAcEffects - AC effects parser
@@ -262,7 +272,7 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
   const stream = options.stream === true;
   const {
     db, io, aiService, tagParser,
-    getActiveApiConfig, DEFAULT_SYSTEM_PROMPT,
+    getActiveApiConfig, getApiConfigForRole, DEFAULT_SYSTEM_PROMPT,
     processingSessions, parseAcEffects, calculateTotalAC, updateCharacterAC,
     emitToSession,
     emitCharacterUpdate,
@@ -275,10 +285,10 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
     : (id, event, payload) => io.emit(event, payload);
 
   const session = db.prepare('SELECT * FROM game_sessions WHERE id = ?').get(sessionId);
-  const apiConfig = getActiveApiConfig();
-  if (!apiConfig || !apiConfig.api_key) {
-    throw new Error('No active API configuration. Please add and activate one in Settings.');
-  }
+  const narratorConfig = getApiConfigForRole ? getApiConfigForRole('narrator') : getActiveApiConfig();
+  const agentConfig = getApiConfigForRole ? getApiConfigForRole('agent') : getActiveApiConfig();
+  if (!narratorConfig?.api_key) throw new Error('No narrator API configuration. Choose one in Settings.');
+  if (!agentConfig?.api_key) throw new Error('No agent API configuration. Choose one in Settings.');
 
   // Get general settings
   const settings = {};
@@ -335,6 +345,9 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
     const char = characters.find(c => c.id === pa.character_id);
     return `${char ? char.character_name : 'Unknown'}: ${pa.action}`;
   }).join('\n');
+  const resolverPartyState = `${characterInfo}\n\nCURRENT MECHANICAL RESOURCES:\n${characters.map(character =>
+    `- ${character.character_name}: XP ${character.xp || 0}, Spell slots ${character.spell_slots || '{}'}, Inspiration ${character.inspiration_points ?? 0}`
+  ).join('\n')}`;
 
   // Store character context as hidden system context
   fullHistory.push({
@@ -369,9 +382,22 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
     console.warn(`Safety fallback: compacted_count (${compactedCount}) exceeded history length (${fullHistory.length}). Using last ${fallbackCount} messages.`);
   }
 
+  const recentResolverContext = buildConversationMessages(recentHistory.slice(-12))
+    .map(message => `${message.role.toUpperCase()}: ${message.content}`)
+    .join('\n\n');
+  const turnResolution = await aiService.generateTurnResolution(agentConfig, {
+    actions: actionSummary,
+    partyState: resolverPartyState,
+    storySummary: session.story_summary || '',
+    recentContext: recentResolverContext
+  });
+
   // Convert stored history to AI-compatible format (single source of truth shared with the
   // compaction token count, so the trigger measures the same payload we actually send).
   const aiMessages = buildConversationMessages(recentHistory);
+  if (turnResolution?.resolution && aiMessages.length > 0) {
+    aiMessages[aiMessages.length - 1].content += `\n\nAUTHORITATIVE TURN RESOLUTION FROM THE RULES AGENT:\n${turnResolution.resolution}\n\nRender this resolution faithfully as story prose. Do not alter its outcomes or add mechanical tags.`;
+  }
 
   const messages = [
     { role: 'system', content: DEFAULT_SYSTEM_PROMPT + (session.story_summary ? `\n\nSTORY SO FAR:\n${session.story_summary}` : '') },
@@ -383,7 +409,7 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
   if (stream) {
     // Check if the provider/endpoint supports streaming
     // For now, we assume all providers support streaming
-    const provider = detectProvider ? detectProvider(apiConfig.endpoint) : 'openai';
+    const provider = detectProvider ? detectProvider(narratorConfig.endpoint) : 'openai';
     console.log('=== AI Stream Request Debug ===');
     console.log(`Provider: ${provider}`);
     console.log(`Compacted count: ${compactedCount}`);
@@ -409,19 +435,19 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
     aiResponse = '';
     try {
       const meta = {};
-      for await (const chunk of callAIStream(apiConfig, messages, { maxTokens: NARRATION_MAX_TOKENS, meta })) {
+      for await (const chunk of callAIStream(narratorConfig, messages, { maxTokens: NARRATION_MAX_TOKENS, meta })) {
         aiResponse += chunk;
         // Emit each chunk to clients for real-time display
         sendToSession(sessionId, 'turn_chunk', { sessionId, text: chunk });
       }
 
       let guard = 0;
-      const provider = detectProvider ? detectProvider(apiConfig.endpoint) : 'openai';
+      const provider = detectProvider ? detectProvider(narratorConfig.endpoint) : 'openai';
       while (isLengthFinish(meta.finishReason) && aiResponse && guard < 2) {
         guard++;
         console.warn(`Narration hit token cap (finish_reason=${meta.finishReason}); continuing (${guard}/2)...`);
         const contMeta = {};
-        for await (const chunk of callAIStream(apiConfig, buildContinuationMessages(messages, aiResponse, provider), { maxTokens: NARRATION_CONTINUATION_MAX_TOKENS, meta: contMeta })) {
+        for await (const chunk of callAIStream(narratorConfig, buildContinuationMessages(messages, aiResponse, provider), { maxTokens: NARRATION_CONTINUATION_MAX_TOKENS, meta: contMeta })) {
           aiResponse += chunk;
           sendToSession(sessionId, 'turn_chunk', { sessionId, text: chunk });
         }
@@ -440,7 +466,7 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
   } else {
     // Call AI API (supports both OpenAI and Anthropic via aiService)
     const { callAI } = require('./aiService');
-    const data = await callAI(apiConfig, messages, { maxTokens: NARRATION_MAX_TOKENS, timeoutMs: 300000 });
+    const data = await callAI(narratorConfig, messages, { maxTokens: NARRATION_MAX_TOKENS, timeoutMs: 300000 });
     aiResponse = extractAIMessage(data);
 
     if (!aiResponse) {
@@ -450,11 +476,11 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
 
     let finish = extractFinishReason(data);
     let guard = 0;
-    const provider = detectProvider ? detectProvider(apiConfig.endpoint) : 'openai';
+    const provider = detectProvider ? detectProvider(narratorConfig.endpoint) : 'openai';
     while (isLengthFinish(finish) && aiResponse && guard < 2) {
       guard++;
       console.warn(`Narration hit token cap (finish_reason=${finish}); continuing (${guard}/2)...`);
-      const contData = await callAI(apiConfig, buildContinuationMessages(messages, aiResponse, provider), { maxTokens: NARRATION_CONTINUATION_MAX_TOKENS, timeoutMs: 300000 });
+      const contData = await callAI(narratorConfig, buildContinuationMessages(messages, aiResponse, provider), { maxTokens: NARRATION_CONTINUATION_MAX_TOKENS, timeoutMs: 300000 });
       const contText = extractAIMessage(contData);
       if (!contText || !contText.trim()) break;
       aiResponse += contText;
@@ -462,8 +488,8 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
     }
   }
 
-  // Parse choices before stripping them from the response
-  const parsedChoices = tagParser.parseChoices ? tagParser.parseChoices(aiResponse, characters) : [];
+  // Choices come from the agent pass; keep this empty unless that pass succeeds.
+  let parsedChoices = [];
 
   // Strip CHOICE tags from the narration stored in history. The narrator no longer emits
   // tracking tags (the bookkeeper does), but defensively strip any stray ones too so a model
@@ -474,23 +500,23 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
-  // === BOOKKEEPER + POV: derive state-change tags and per-character POVs from the scene ===
-  // Both passes read the same finished scene, so run them together — the bookkeeper (a small,
-  // focused extraction call) adds no extra wall-clock latency beyond the POV fan-out.
+  // Generate suggested actions and per-character POVs from the finished narration. If the
+  // pre-narration resolver failed, the legacy bookkeeper pass recovers state tags here.
   const {
     generateCharacterPOV,
     generateStateTags,
     buildPOVPartyRoster,
     buildPOVCampaignContext,
-    generateYoutubeDJPick
+    generateYoutubeDJPick,
+    generateSceneChoices
   } = require('./aiService');
   let parsedPOVs = {};
-  let stateTags = '';
+  let stateTags = turnResolution?.stateTags || '';
   let previousMusic = {};
   try { previousMusic = JSON.parse(session.music_state || '{}'); } catch (error) { previousMusic = {}; }
   const musicEnabled = settings.youtube_dj_enabled === 'true' && settings.youtube_api_key;
   const musicPickPromise = musicEnabled
-    ? generateYoutubeDJPick(apiConfig, cleanedResponse, previousMusic.query || '')
+    ? generateYoutubeDJPick(agentConfig, cleanedResponse, previousMusic.query || '')
     : Promise.resolve(null);
   if (characters.length > 0) {
     if (stream) {
@@ -502,8 +528,7 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
     const storySummary = session.story_summary || '';
     const povCampaignContext = buildPOVCampaignContext(fullHistory);
 
-    // Compact party-state line the bookkeeper needs to reason about deltas (clean names + the
-    // current values it must respect: HP for damage bounds, gold for spend limits, inventory).
+    // Compact party-state line used only by the fallback post-scene bookkeeper.
     const bookkeeperState = characters.map(c => {
       let inv = '';
       try {
@@ -513,21 +538,23 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
       return `- ${c.character_name}: HP ${c.hp}/${c.max_hp}, Gold ${c.gold || 0}${inv ? `, Inventory: ${inv}` : ''}`;
     }).join('\n');
 
-    const [tagResult, povResults] = await Promise.all([
-      generateStateTags(apiConfig, cleanedResponse, bookkeeperState),
+    const [tagResult, choiceResult, povResults] = await Promise.all([
+      turnResolution ? Promise.resolve(turnResolution.stateTags) : generateStateTags(agentConfig, cleanedResponse, bookkeeperState),
+      generateSceneChoices(agentConfig, cleanedResponse, characters),
       Promise.all(characters.map(async (c) => {
         const partyRoster = buildPOVPartyRoster(characters, c);
-        const pov = await generateCharacterPOV(apiConfig, c, cleanedResponse, partyRoster, storySummary, povCampaignContext);
+        const pov = await generateCharacterPOV(agentConfig, c, cleanedResponse, partyRoster, storySummary, povCampaignContext);
         return pov ? { name: c.character_name, pov } : null;
       }))
     ]);
 
     stateTags = tagResult || '';
+    parsedChoices = tagParser.parseChoices ? tagParser.parseChoices(choiceResult || '', characters) : [];
     for (const result of povResults) {
       if (result) parsedPOVs[result.name] = result.pov;
     }
     console.log(`POV conversion complete: ${Object.keys(parsedPOVs).length}/${characters.length} characters`);
-    console.log(`Bookkeeper tags: ${stateTags ? stateTags.replace(/\n/g, ' | ') : '(none)'}`);
+    console.log(`State tags: ${stateTags ? stateTags.replace(/\n/g, ' | ') : '(none)'}`);
   }
   const hasPOVs = Object.keys(parsedPOVs).length > 0;
   let musicState = previousMusic;
@@ -582,7 +609,7 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
     console.error('Failed to save game snapshot:', snapshotError.message);
   }
 
-  // Apply the bookkeeper's state-change tags (the narrator no longer emits them inline).
+  // Apply the rules agent's state-change tags (the narrator never emits them inline).
   console.log(stream ? '=== AI Stream Response complete ===' : '=== AI Response received ===');
   console.log('Applying bookkeeper state tags...');
 
@@ -604,17 +631,17 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
   if (plan.shouldCompact) {
     console.log(`Compacting history (mode=${plan.mode}, keeping tail of ${COMPACT_TAIL})...`);
     if (plan.mode === 'progressive') {
-      const chunkSummary = await compactHistory(apiConfig, '', plan.toCompact, characters, extractAIMessage);
-      newSummary = await compactHistory(apiConfig, session.story_summary,
+      const chunkSummary = await compactHistory(agentConfig, '', plan.toCompact, characters, extractAIMessage);
+      newSummary = await compactHistory(agentConfig, session.story_summary,
         [{ role: 'assistant', content: chunkSummary }], characters, extractAIMessage);
     } else {
-      newSummary = await compactHistory(apiConfig, session.story_summary, plan.toCompact, characters, extractAIMessage);
+      newSummary = await compactHistory(agentConfig, session.story_summary, plan.toCompact, characters, extractAIMessage);
     }
     newCompactedCount = plan.newCompactedCount;
 
     if (newSummary && newSummary.length > MAX_SUMMARY_CHARS) {
       console.log(`Summary too long (${newSummary.length} chars), performing recursive summarization`);
-      newSummary = await compactHistory(apiConfig, '',
+      newSummary = await compactHistory(agentConfig, '',
         [{ role: 'assistant', content: newSummary }], characters, extractAIMessage);
     }
 
@@ -638,17 +665,21 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
     choices: parsedChoices,
     povs: hasPOVs ? parsedPOVs : null
   });
-  queueAutoPOVScenes({
-    db,
-    aiService,
-    sessionId,
-    index: fullHistory.length - 1,
-    characters,
-    aiConfig,
-    sendToSession
-  });
-  if (musicPick && musicState.videoId) {
-    sendToSession(sessionId, 'music_updated', { sessionId, music: musicState });
+  try {
+    queueAutoPOVScenes({
+      db,
+      aiService,
+      sessionId,
+      index: fullHistory.length - 1,
+      characters,
+      aiConfig: agentConfig,
+      sendToSession
+    });
+    if (musicPick && musicState.videoId) {
+      sendToSession(sessionId, 'music_updated', { sessionId, music: musicState });
+    }
+  } catch (error) {
+    logger.error('Optional post-turn work failed after narration was committed', { sessionId, error: error.message });
   }
 
   return { response: cleanedResponse, tokensUsed: recentHistoryTokens };
@@ -689,6 +720,7 @@ module.exports = {
   // Pure, testable compaction helpers (U2.2)
   buildConversationMessages,
   estimatePromptTokens,
+  didTurnCommit,
   planCompaction,
   // Tuning constants (exported for tests)
   COMPACT_TAIL,

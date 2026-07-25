@@ -5,6 +5,7 @@ A real-time multiplayer D&D (Dungeons & Dragons 5e) web application with an AI-p
 ## Features
 
 - **AI Dungeon Master** - Uses OpenAI-compatible APIs (OpenAI, DeepSeek, OpenRouter, etc.)
+- **Split AI Roles** - Assign a premium narrator model for prose and a separate agent model for rules resolution, POVs, bookkeeping, summaries, choices, and DJ picks
 - **Real-time Multiplayer** - Socket.IO powered live updates
 - **AI-Guided Character Creation** - Chat-based Level 1 character creation
 - **Turn-Based Gameplay** - All players submit actions, then AI narrates the outcome
@@ -74,10 +75,11 @@ docker run -p 3000:3000 -v ./data:/app/data -e GAME_PASSWORD=secret -e ADMIN_PAS
 ### First Time Setup
 1. Login with the game password
 2. Go to **Settings** (requires admin password)
-3. Configure your AI API endpoint, key, and model
-4. Test the connection
-5. Optional: add a YouTube Data API v3 key in Settings and enable YouTube DJ
-6. Optional: configure an OpenAI Images, NanoGPT, or compatible chat image API and enable POV Scene Images
+3. Add and test the API configurations you want to use
+4. Select a **Narrator Model** and an **Agents and POV Model** under Model Roles
+5. Leaving either role on the active-configuration fallback preserves the previous single-model behavior
+6. Optional: add a YouTube Data API v3 key in Settings and enable YouTube DJ
+7. Optional: configure an OpenAI Images, NanoGPT, or compatible chat image API and enable POV Scene Images
 
 Note: if EasyPanel/Traefik basic auth is enabled, users will authenticate twice (proxy layer + in-app game password).
 

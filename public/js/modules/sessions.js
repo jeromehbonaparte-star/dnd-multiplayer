@@ -236,7 +236,7 @@ export async function loadSession(id) {
 
     const data = await api(`/api/sessions/${id}`);
     if (!previousSession || previousSession.id !== id) {
-      document.getElementById('story-container')?.classList.remove('logs-open');
+      document.getElementById('story-container')?.classList.remove('logs-open', 'story-expanded');
     }
     setState({
       currentSession: data.session,
@@ -448,7 +448,9 @@ function renderSceneControls(entry, globalIndex, selectedChar, canIllustrate, is
   const controls = [];
   if (isActiveScene) {
     const logsOpen = document.getElementById('story-container')?.classList.contains('logs-open');
+    const expanded = document.getElementById('story-container')?.classList.contains('story-expanded');
     controls.push(`<button class="story-logs-btn" onclick="toggleStoryLogs(this)" title="Show or hide story logs">${logsOpen ? 'Close Logs' : 'Logs'}</button>`);
+    controls.push(`<button class="story-expand-btn" onclick="toggleStoryExpand(this)" aria-expanded="${expanded ? 'true' : 'false'}" title="${expanded ? 'Restore the compact story window' : 'Expand the story window'}">${expanded ? 'Restore' : 'Expand'}</button>`);
   }
   if (selectedChar && canIllustrate) {
     const label = sceneUrl ? 'Reroll Image' : 'Illustrate';
@@ -694,6 +696,19 @@ export function toggleStoryMinimize(triggerButton) {
   triggerButton.textContent = minimized ? 'Restore' : 'Minimize';
   triggerButton.setAttribute('aria-expanded', minimized ? 'false' : 'true');
   triggerButton.title = minimized ? 'Restore the narration panel' : 'Minimize the narration panel';
+}
+
+export function toggleStoryExpand(triggerButton = null) {
+  const container = document.getElementById('story-container');
+  if (!container) return;
+  const expanded = container.classList.toggle('story-expanded');
+  container.querySelector('.active-scene-entry')?.classList.remove('story-minimized');
+  const button = triggerButton || container.querySelector('.story-expand-btn');
+  if (button) {
+    button.textContent = expanded ? 'Restore' : 'Expand';
+    button.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    button.title = expanded ? 'Restore the compact story window' : 'Expand the story window';
+  }
 }
 
 export async function generatePOVImage(index, characterId, triggerButton = null) {

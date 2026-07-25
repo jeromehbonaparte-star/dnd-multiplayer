@@ -30,16 +30,17 @@ const {
  * @param {Object} deps.io - Socket.IO instance
  * @param {Object} deps.auth - Auth middleware {requireUser, requireAdmin}
  * @param {Object} deps.aiService - AI service module
- * @param {Function} deps.getActiveApiConfig - Function to get active API config
+ * @param {Function} deps.getApiConfigForRole - Function to get agent API config
  * @returns {express.Router} Configured router
  */
 function createCharacterRoutes(deps) {
-  const { db, io, auth, aiService, getActiveApiConfig, emitCharacterUpdate } = deps;
+  const { db, io, auth, aiService, getActiveApiConfig, getApiConfigForRole, emitCharacterUpdate } = deps;
   const router = express.Router();
   const { requireUser, requireAdmin } = auth;
   const { upload } = require('../middleware/upload');
   const fs = require('fs');
   const path = require('path');
+  const getAgentApiConfig = () => getApiConfigForRole ? getApiConfigForRole('agent') : getActiveApiConfig();
 
   // Ownership guard: admin bypass, else character.user_id must equal req.user.id.
   // Returns the character on success, or sends a response and returns null.
@@ -300,7 +301,7 @@ function createCharacterRoutes(deps) {
       return res.status(400).json({ error: 'Invalid field. Must be "appearance" or "backstory".' });
     }
 
-    const apiConfig = getActiveApiConfig();
+    const apiConfig = getAgentApiConfig();
     if (!apiConfig || !apiConfig.api_key) {
       return res.status(400).json({ error: 'No active API configuration. Please add and activate one in Settings.' });
     }
@@ -310,7 +311,7 @@ function createCharacterRoutes(deps) {
       : `Generate a brief backstory (3-4 sentences) for a D&D character: ${context.character_name || 'unnamed'}, a ${context.race || 'human'} ${context.class || 'adventurer'} with the ${context.background || 'folk hero'} background. Include motivations and a key formative event. Be creative.`;
 
     try {
-      const config = { endpoint: apiConfig.endpoint, api_key: apiConfig.api_key, model: apiConfig.model };
+      const config = apiConfig;
       const data = await aiService.callAI(config, [
         { role: 'system', content: 'You are a creative D&D character description writer. Write concise, evocative descriptions. Output ONLY the description text, no labels or formatting.' },
         { role: 'user', content: prompt }
@@ -866,7 +867,7 @@ function createCharacterRoutes(deps) {
       });
     }
 
-    const apiConfig = getActiveApiConfig();
+    const apiConfig = getAgentApiConfig();
     if (!apiConfig || !apiConfig.api_key) {
       return res.status(400).json({ error: 'No active API configuration. Please add and activate one in Settings.' });
     }
@@ -925,7 +926,7 @@ LEVELUP_COMPLETE:{"hp_increase":N,"class_leveled":"ClassName","new_class_level":
         ...(messages || [])
       ];
 
-      const aiConfig = { endpoint: apiConfig.endpoint, api_key: apiConfig.api_key, model: apiConfig.model };
+      const aiConfig = apiConfig;
       const data = await aiService.callAI(aiConfig, allMessages, { maxTokens: 4096 });
       const aiMessage = aiService.extractAIMessage(data);
 
@@ -1007,7 +1008,7 @@ LEVELUP_COMPLETE:{"hp_increase":N,"class_leveled":"ClassName","new_class_level":
     const character = loadOwnedCharacter(req, res);
     if (!character) return;
 
-    const apiConfig = getActiveApiConfig();
+    const apiConfig = getAgentApiConfig();
     if (!apiConfig || !apiConfig.api_key) {
       return res.status(400).json({ error: 'No active API configuration. Please add and activate one in Settings.' });
     }
@@ -1084,7 +1085,7 @@ IMPORTANT: Output EDIT_COMPLETE: immediately followed by the JSON on ONE line. N
         ...(messages || [])
       ];
 
-      const aiConfig = { endpoint: apiConfig.endpoint, api_key: apiConfig.api_key, model: apiConfig.model };
+      const aiConfig = apiConfig;
       const data = await aiService.callAI(aiConfig, allMessages, { maxTokens: 4096 });
       const aiMessage = aiService.extractAIMessage(data);
 
@@ -1198,7 +1199,7 @@ IMPORTANT: Output EDIT_COMPLETE: immediately followed by the JSON on ONE line. N
   router.post('/ai-create', requireUser, async (req, res) => {
     const { messages } = req.body;
 
-    const apiConfig = getActiveApiConfig();
+    const apiConfig = getAgentApiConfig();
     if (!apiConfig || !apiConfig.api_key) {
       return res.status(400).json({ error: 'No active API configuration. Please add and activate one in Settings.' });
     }
@@ -1206,7 +1207,7 @@ IMPORTANT: Output EDIT_COMPLETE: immediately followed by the JSON on ONE line. N
     const CHARACTER_CREATION_PROMPT = aiService.CHARACTER_CREATION_PROMPT;
 
     try {
-      const aiConfig = { endpoint: apiConfig.endpoint, api_key: apiConfig.api_key, model: apiConfig.model };
+      const aiConfig = apiConfig;
       const allMessages = [
         { role: 'system', content: CHARACTER_CREATION_PROMPT },
         ...(messages || [])

@@ -118,6 +118,14 @@ function createApiConfigRoutes(db, auth) {
     if (existing.is_active) {
       return res.status(400).json({ error: 'Cannot delete active configuration. Activate another configuration first.' });
     }
+    const assignedRole = db.prepare(`
+      SELECT key FROM settings
+      WHERE key IN ('narrator_api_config_id', 'agent_api_config_id') AND value = ?
+      LIMIT 1
+    `).get(id);
+    if (assignedRole) {
+      return res.status(400).json({ error: 'Cannot delete a configuration assigned to an AI role. Change the Narrator or Agents selection first.' });
+    }
 
     db.prepare('DELETE FROM api_configs WHERE id = ?').run(id);
     res.json({ success: true });

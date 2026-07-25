@@ -6,6 +6,7 @@ const assert = require('node:assert/strict');
 const {
   buildConversationMessages,
   estimatePromptTokens,
+  didTurnCommit,
   planCompaction,
   estimateTokens,
   COMPACT_TAIL,
@@ -13,7 +14,23 @@ const {
 } = require('../server/services/turnProcessor.js');
 
 const NARRATE_INSTRUCTION =
-  'Narrate the outcome of these actions in 3rd person in no more than 650 words, then add [CHOICE:] tags at the end.';
+  'Narrate the outcome of these actions in 3rd person in no more than 650 words. Output story prose only and end cleanly at the next player decision point.';
+
+describe('didTurnCommit', () => {
+  test('distinguishes an existing narration from a newly committed turn', () => {
+    const oldHistory = JSON.stringify([{ type: 'narration', content: 'Previous turn' }]);
+    const before = { current_turn: 8, full_history: oldHistory };
+    assert.equal(didTurnCommit(before, { current_turn: 8, full_history: oldHistory }), false);
+    assert.equal(didTurnCommit(before, {
+      current_turn: 9,
+      full_history: JSON.stringify([
+        { type: 'narration', content: 'Previous turn' },
+        { type: 'action', content: 'Advance' },
+        { type: 'narration', content: 'New turn' }
+      ])
+    }), true);
+  });
+});
 
 describe('buildConversationMessages', () => {
   test('groups roles and formats context / action / gm_nudge; appends Narrate when window ends on user content', () => {

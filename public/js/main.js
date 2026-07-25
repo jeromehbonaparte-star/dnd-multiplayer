@@ -28,7 +28,7 @@ import {
   rollActionDice, getCurrentDiceRoll,
   updateInspirationDisplay,
   displayChoices, selectChoice, dismissChoices, toggleChoicesDrawer, generateChoices,
-  togglePOVView, regeneratePOV, generatePOVImage, toggleStoryLogs, toggleStoryMinimize, reRenderStory, retryTurn, restoreDiceState
+  togglePOVView, regeneratePOV, generatePOVImage, toggleStoryLogs, toggleStoryMinimize, toggleStoryExpand, reRenderStory, retryTurn, restoreDiceState
 } from './modules/sessions.js';
 import {
   loadSettings, saveSettings, cleanupPOVImages,
@@ -123,6 +123,7 @@ window.regeneratePOV = regeneratePOV;
 window.generatePOVImage = generatePOVImage;
 window.toggleStoryLogs = toggleStoryLogs;
 window.toggleStoryMinimize = toggleStoryMinimize;
+window.toggleStoryExpand = toggleStoryExpand;
 window.retryTurn = retryTurn;
 window.openTacticalCombatSetup = openTacticalCombatSetup;
 window.closeTacticalCombatSetup = closeTacticalCombatSetup;

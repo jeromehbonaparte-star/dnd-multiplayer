@@ -15,10 +15,11 @@ const { db } = require('./config/database');
 
 // Import services
 const aiService = require('./services/aiService');
+const { formatAIConfig, getApiConfigForRole: resolveApiConfigForRole } = require('./services/aiConfigService');
 const tagParser = require('./services/tagParser');
 const { parseAcEffects, calculateTotalAC, updateCharacterAC, getSessionCharacters } = require('./services/characterService');
 const { applyAllTags } = require('./services/tagApplicator');
-const { processAITurn: processAITurnCore, streamAITurn: streamAITurnCore, compactHistory, estimateTokens } = require('./services/turnProcessor');
+const { processAITurn: processAITurnCore, streamAITurn: streamAITurnCore, compactHistory, estimateTokens, didTurnCommit } = require('./services/turnProcessor');
 
 // Import auth middleware factory
 const { createAuthHelpers, parseCookie, SESSION_COOKIE } = require('./middleware/auth');
@@ -123,13 +124,11 @@ function emitToUser(userId, event, payload) {
 // ============================================
 function getActiveApiConfig() {
   const config = db.prepare('SELECT * FROM api_configs WHERE is_active = 1').get();
-  if (!config) return null;
-  return {
-    endpoint: config.endpoint,
-    api_key: config.api_key,
-    model: config.model,
-    reasoning_effort: config.reasoning_effort || ''
-  };
+  return formatAIConfig(config);
+}
+
+function getApiConfigForRole(role) {
+  return resolveApiConfigForRole(db, role);
 }
 
 // ============================================
@@ -138,6 +137,7 @@ function getActiveApiConfig() {
 const turnDeps = {
   db, io, aiService, tagParser,
   getActiveApiConfig,
+  getApiConfigForRole,
   DEFAULT_SYSTEM_PROMPT: aiService.DEFAULT_SYSTEM_PROMPT,
   processingSessions,
   parseAcEffects, calculateTotalAC, updateCharacterAC,
@@ -147,17 +147,23 @@ const turnDeps = {
 };
 
 function processAITurn(sessionId, pendingActions, characters) {
+  const before = turnDeps.db.prepare('SELECT current_turn, full_history FROM game_sessions WHERE id = ?').get(sessionId);
   // Use streaming by default, fall back to non-streaming only if stream fails BEFORE any state mutation
   return streamAITurnCore(turnDeps, sessionId, pendingActions, characters)
     .catch(streamError => {
       // Only safe to fallback if the error is a connection/setup error (before history was mutated)
       // Check if history was already modified by re-reading session
-      const session = turnDeps.db.prepare('SELECT full_history FROM game_sessions WHERE id = ?').get(sessionId);
+      const session = turnDeps.db.prepare('SELECT current_turn, full_history, total_tokens FROM game_sessions WHERE id = ?').get(sessionId);
       const history = JSON.parse(session?.full_history || '[]');
       const lastEntry = history[history.length - 1];
-      if (lastEntry && lastEntry.type === 'narration') {
-        // Stream already wrote a narration — don't double-process
-        throw new Error('Streaming failed after partial processing: ' + streamError.message);
+      if (didTurnCommit(before, session)) {
+        // The turn is already committed; optional failures must not trigger a reroll.
+        logger.error('Post-turn work failed after narration was committed', { sessionId, error: streamError.message });
+        return {
+          response: lastEntry?.content || '',
+          tokensUsed: Number(session?.total_tokens || 0),
+          degraded: true
+        };
       }
       console.warn('Streaming failed before processing, falling back to non-streaming:', streamError.message);
       return processAITurnCore(turnDeps, sessionId, pendingActions, characters);
@@ -181,6 +187,7 @@ const routes = initializeRoutes({
   emitToUser,
   processingSessions,
   getActiveApiConfig,
+  getApiConfigForRole,
   processAITurn,
   DEFAULT_SYSTEM_PROMPT: aiService.DEFAULT_SYSTEM_PROMPT,
   getOpenAIApiKey,

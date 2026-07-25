@@ -201,6 +201,7 @@ describe('generation length budgets', () => {
     assert.equal(NARRATION_WORD_LIMIT, 650);
     assert.equal(POV_WORD_LIMIT, 450);
     assert.match(DEFAULT_SYSTEM_PROMPT, /650 words or fewer/);
+    assert.match(DEFAULT_SYSTEM_PROMPT, /do not list, suggest, or format possible actions/);
     assert.match(POV_CONVERSION_PROMPT, /450 words/);
   });
 

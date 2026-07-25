@@ -78,6 +78,66 @@ async function generateYoutubeDJPick(aiConfig, sceneContent, previousTrack = '')
   }
 }
 
+async function generateSceneChoices(aiConfig, sceneContent, characters) {
+  const characterDetails = (characters || []).map(character =>
+    `${character.character_name} (${character.race} ${character.class} Lv${character.level})`
+  ).join(', ');
+  if (!characterDetails || !String(sceneContent || '').trim()) return '';
+  const messages = [
+    {
+      role: 'system',
+      content: `You generate immediate suggested actions for a multiplayer D&D 5e scene. Output only tags in this format:
+[CHOICE: CharacterName | STAT | DIFFICULTY | Short action description]
+STAT is STR, DEX, CON, INT, WIS, or CHA. DIFFICULTY is EASY, MEDIUM, or HARD. Generate 2-4 specific choices per character and at most 2 choices for ALL. Every choice must react directly to named people, objects, threats, or opportunities in the scene. Tailor options to each character's class and capabilities, mix difficulties, and never narrate outcomes.`
+    },
+    {
+      role: 'user',
+      content: `PARTY: ${characterDetails}\n\nCURRENT SCENE:\n${truncatePromptText(sceneContent, 6000)}`
+    }
+  ];
+  try {
+    const data = await callAI(aiConfig, messages, { maxTokens: 1200, temperature: 0.75, timeoutMs: 60000 });
+    return extractAIMessage(data).trim();
+  } catch (error) {
+    logger.warn('Suggested action generation failed', { error: error.message });
+    return '';
+  }
+}
+
+async function generateTurnResolution(aiConfig, { actions, partyState, storySummary = '', recentContext = '' }) {
+  const messages = [
+    {
+      role: 'system',
+      content: `You are the rules resolver for a multiplayer D&D 5e game. Resolve the submitted actions before a separate narrator writes the scene. Respect every supplied dice roll, character capability, current resource, established fact, and knowledge boundary. Never choose extra actions, dialogue, thoughts, or decisions for player characters. Determine concrete outcomes, NPC/world reactions, and mechanical consequences.
+
+Return JSON only:
+{"resolution":"Concise, concrete facts the narrator must portray","state_tags":"zero or more newline-separated tags"}
+
+Allowed state tags: [HP: Name +/-N], [XP: Name +N], [GOLD: Name +/-N], [ITEM: Name +item], [ITEM: Name -item], [SPELL: Name -1st], [SPELL: Name +1st], [AC: Name N], [REST: Name SHORT], [REST: Name LONG]. Use an empty string when no state changes occur. Do not wrap the JSON in markdown.`
+    },
+    {
+      role: 'user',
+      content: `PARTY STATE:\n${truncatePromptText(partyState, 6000)}\n\nSTORY SUMMARY:\n${truncatePromptText(storySummary, 5000) || 'None'}\n\nRECENT CONTEXT:\n${truncatePromptText(recentContext, 6000) || 'None'}\n\nSUBMITTED ACTIONS:\n${truncatePromptText(actions, 5000)}`
+    }
+  ];
+  try {
+    const data = await callAI(aiConfig, messages, { maxTokens: 2400, temperature: 0.2, timeoutMs: 120000 });
+    const raw = extractAIMessage(data).trim();
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('Resolver returned no JSON object');
+    const parsed = JSON.parse(match[0]);
+    const resolution = truncatePromptText(parsed.resolution, 7000);
+    if (!resolution) throw new Error('Resolver returned no resolution');
+    return {
+      resolution,
+      stateTags: String(parsed.state_tags || '').trim()
+    };
+  } catch (error) {
+    logger.warn('Turn resolution failed; narrator will use the submitted actions directly', { error: error.message });
+    return null;
+  }
+}
+
 function compactPromptText(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
 }
@@ -716,7 +776,7 @@ const DEFAULT_SYSTEM_PROMPT = `You are the Dungeon Master for a multiplayer D&D 
 - Every NPC owns a distinct voice — vocabulary, rhythm, dialect — shaped by who they are. Speech is action: a character wants something in every line. Favor subtext, but let people say the true thing when the scene earns it.
 - Dialogue tags may carry emotion and body language; vary them, avoid the lazy or mechanical.
 - Realism: interruptions, hesitations, silences filled with a gesture or a flicker of thought. NPCs may refuse, deflect, lie, or walk away — their agenda outranks convenience.
-- Color each MAJOR NPC's spoken lines by wrapping the quoted words only in an inline <font color="#HEX"> tag — pick a distinct hue drawn from a defining trait and reuse the same one for that NPC every time. Choose by HUE alone; don't worry about how light or dark the color is, the interface automatically adjusts every dialogue color to stay readable in both light and dark mode. Color only the spoken words — never narration, action, inner thought, or the [CHOICE:] tags. Minor or unnamed characters get no color.
+- Color each MAJOR NPC's spoken lines by wrapping the quoted words only in an inline <font color="#HEX"> tag — pick a distinct hue drawn from a defining trait and reuse the same one for that NPC every time. Choose by HUE alone; don't worry about how light or dark the color is, the interface automatically adjusts every dialogue color to stay readable in both light and dark mode. Color only the spoken words — never narration, action, or inner thought. Minor or unnamed characters get no color.
 
 ## NPCs & CHARACTER INTEGRITY
 - Portray every NPC EXACTLY as established — including the ugly parts. If someone is cruel, selfish, cowardly, arrogant, or malicious, write them that way in full; do not default the world to niceness or quietly redeem a villain.
@@ -740,7 +800,7 @@ Dark, disturbing, taboo, tragic, and morally ugly material is on the table and i
 - Still craft, not shock. Darkness is grounded in character, consequence, and the truth of the scene — vivid and unflinching, never gratuitous noise. Tone, limits, and direction come from the setting and the players.
 
 ## DICTION — NO STAT-SPEAK IN PROSE
-Never narrate the game as a game. Outside the sanctioned dice line and tracking tags below, keep numbers and mechanics out of the flowing prose — no "DC", "modifier", "the check", "hit points", "AC", "damage roll", "proficiency", "output". Render everything through the body and the world: not "he failed the STR check," but "the portcullis didn't give, iron biting into his palms." Also avoid clinical or corporate jargon unless a character genuinely talks that way.
+Never narrate the game as a game. Keep numbers and mechanics out of the flowing prose — no "DC", "modifier", "the check", "hit points", "AC", "damage roll", "proficiency", "output". Render everything through the body and the world: not "he failed the STR check," but "the portcullis didn't give, iron biting into his palms." Also avoid clinical or corporate jargon unless a character genuinely talks that way.
 
 ## CONTINUITY & KNOWLEDGE
 - Continuity is law. Track who is present, where they stand, what they hold, the time of day, and what was just said and done. Positions, injuries, and objects persist between beats.
@@ -750,7 +810,7 @@ Never narrate the game as a game. Outside the sanctioned dice line and tracking 
 - A blank line between every paragraph — never run two together. Start a new paragraph when the speaker, actor, or focus changes; never bury two characters' dialogue in one block. Alternate description, action, and dialogue so the scene breathes.
 
 ## LENGTH BUDGET
-- Keep the shared narration to ${NARRATION_WORD_LIMIT} words or fewer before [CHOICE:] tags. Complete the scene cleanly inside that limit; do not trail off mid-sentence.
+- Keep the shared narration to ${NARRATION_WORD_LIMIT} words or fewer. Complete the scene cleanly inside that limit; do not trail off mid-sentence.
 - Spend words on character actions, consequences, and immediate sensory detail. Condense transitions, repeated atmosphere, and restated setup.
 
 ## ANTI-SLOP
@@ -780,18 +840,10 @@ Combat is a set-piece, not a summary. Choreograph it in real space: distance, fo
 Draw on the full range of what each character is — every class they carry, their spells, and their notable feats — when you narrate what they can attempt and how the world and its enemies answer.
 
 ## RECORD-KEEPING IS NOT YOUR JOB
-A separate system reads your finished scene and tracks every wound, coin, item, spell slot, reward, and rest on its own. You do not annotate any of it. Therefore:
-- NEVER write bracketed tracking tags of any kind — no [HP:], [XP:], [MONEY:], [ITEM:], [SPELL:], [AC:], [REST:]. If you feel the urge to type one, write the story instead.
+A separate rules agent resolves actions and tracks every wound, coin, item, spell slot, reward, and rest. You receive its authoritative outcome and write only the scene. Therefore:
+- NEVER write bracketed tags of any kind — no [HP:], [XP:], [MONEY:], [ITEM:], [SPELL:], [AC:], [REST:], or [CHOICE:]. If you feel the urge to type one, write the story instead.
 - NEVER state hit points, gold totals, experience, or armor as numbers. A wound is felt, not counted; a purse grows heavier or lighter, never "42 gold."
-- The ONLY brackets you ever output are the [CHOICE:] tags at the very end, described next.
-
-## PLAYER CHOICES
-After your narration, offer 2-4 suggested actions per character using CHOICE tags.
-[CHOICE: CharacterName | STAT | DIFFICULTY | Short action description]
-- STAT = STR/DEX/CON/INT/WIS/CHA | DIFFICULTY = EASY/MEDIUM/HARD
-- "ALL" for universal options (limit 1-2)
-- Choices must be immediate, specific responses to the current situation — reference named NPCs, objects, threats
-- Never generic ("look around") — each choice leads to a different outcome. Mix difficulties
+- End at a concrete moment where the players can decide what to do next, but do not list, suggest, or format possible actions.
 
 ## MULTIPLAYER RULES
 - Multiple human players each control their own character. You NEVER act, speak, or think for player characters
@@ -1041,6 +1093,8 @@ module.exports = {
   buildPOVCampaignContext,
   buildPOVIdentityNotes,
   generateYoutubeDJPick,
+  generateSceneChoices,
+  generateTurnResolution,
   generatePOVImagePrompt,
   generateStateTags,
   DEFAULT_SYSTEM_PROMPT,

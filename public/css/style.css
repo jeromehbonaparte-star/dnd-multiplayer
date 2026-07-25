@@ -2825,6 +2825,21 @@ details.drawer-section.utility-menu > summary:hover { color: var(--accent-hover)
   color: var(--text-bright);
 }
 
+.config-role-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  padding: 2px 5px;
+  border: 1px solid rgba(var(--accent-rgb), 0.34);
+  border-radius: 4px;
+  color: var(--accent);
+  background: rgba(var(--accent-rgb), 0.08);
+  font-family: var(--font-body);
+  font-size: 0.68rem;
+  font-weight: 600;
+  vertical-align: middle;
+}
+
 .api-config-card.active-config .config-name::after {
   content: ' \2714';
   color: var(--success);
@@ -4365,6 +4380,15 @@ button { cursor: pointer; }
   display: none;
 }
 
+#story-container.story-expanded:not(.logs-open) #story-history {
+  height: 100%;
+}
+
+#story-container.story-expanded:not(.logs-open) .active-scene-entry {
+  height: 100%;
+  max-height: 100%;
+}
+
 #story-container.logs-open {
   justify-content: flex-start;
   overflow-y: auto;
@@ -4437,6 +4461,7 @@ button { cursor: pointer; }
 }
 
 [data-theme="light"] #story-container.logs-open .story-logs-btn,
+[data-theme="light"] #story-container.logs-open .story-expand-btn,
 [data-theme="light"] #story-container.logs-open .pov-image-btn,
 [data-theme="light"] #story-container.logs-open .story-minimize-btn,
 [data-theme="light"] #story-container.logs-open .story-scene-view {
@@ -4446,6 +4471,7 @@ button { cursor: pointer; }
 }
 
 [data-theme="light"] #story-container:not(.logs-open) .story-logs-btn,
+[data-theme="light"] #story-container:not(.logs-open) .story-expand-btn,
 [data-theme="light"] #story-container:not(.logs-open) .pov-image-btn,
 [data-theme="light"] #story-container:not(.logs-open) .story-minimize-btn,
 [data-theme="light"] #story-container:not(.logs-open) .story-scene-view {
@@ -4460,6 +4486,7 @@ button { cursor: pointer; }
 }
 
 [data-theme="light"] #story-container:not(.logs-open) .story-logs-btn:hover,
+[data-theme="light"] #story-container:not(.logs-open) .story-expand-btn:hover,
 [data-theme="light"] #story-container:not(.logs-open) .pov-image-btn:hover,
 [data-theme="light"] #story-container:not(.logs-open) .story-minimize-btn:hover,
 [data-theme="light"] #story-container:not(.logs-open) .story-scene-view:hover {
@@ -4467,6 +4494,7 @@ button { cursor: pointer; }
 }
 
 .story-logs-btn,
+.story-expand-btn,
 .pov-image-btn,
 .story-minimize-btn,
 .story-scene-view {
@@ -4488,6 +4516,7 @@ button { cursor: pointer; }
 
 .pov-image-btn { border-color: rgba(var(--accent-rgb), 0.58) !important; color: #f3cf67 !important; }
 .story-logs-btn:hover,
+.story-expand-btn:hover,
 .pov-image-btn:hover,
 .story-minimize-btn:hover,
 .story-scene-view:hover { background: rgba(255, 255, 255, 0.14) !important; }
@@ -4716,6 +4745,7 @@ button { cursor: pointer; }
   }
 
   .story-logs-btn,
+  .story-expand-btn,
   .pov-image-btn,
   .story-minimize-btn,
   .story-scene-view { min-height: 30px; }

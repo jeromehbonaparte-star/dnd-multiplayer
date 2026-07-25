@@ -18,7 +18,7 @@ function initializeRoutes(deps) {
   const {
     db, io, auth, aiService, emitToSession,
     emitCharacterUpdate, emitToUser,
-    processingSessions, getActiveApiConfig, processAITurn,
+    processingSessions, getActiveApiConfig, getApiConfigForRole, processAITurn,
     DEFAULT_SYSTEM_PROMPT, getOpenAIApiKey,
     parseAcEffects, calculateTotalAC, updateCharacterAC,
     compactHistory, getSessionCharacters
@@ -26,12 +26,13 @@ function initializeRoutes(deps) {
 
   return {
     auth: createAuthRoutes(db, auth),
-    characters: createCharacterRoutes({ db, io, auth, aiService, getActiveApiConfig, emitCharacterUpdate }),
+    characters: createCharacterRoutes({ db, io, auth, aiService, getActiveApiConfig, getApiConfigForRole, emitCharacterUpdate }),
     apiConfig: createApiConfigRoutes(db, auth),
     sessions: createSessionRoutes({
       db, io, auth, aiService, emitToSession,
       processingSessions,
       getActiveApiConfig,
+      getApiConfigForRole,
       processAITurn,
       DEFAULT_SYSTEM_PROMPT,
       parseAcEffects,

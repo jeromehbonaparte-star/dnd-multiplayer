@@ -125,6 +125,8 @@ function createAuthRoutes(db, auth) {
   router.post('/settings', requireAdmin, (req, res) => {
     const {
       max_tokens_before_compact,
+      narrator_api_config_id,
+      agent_api_config_id,
       youtube_dj_enabled,
       youtube_api_key,
       pov_image_enabled,
@@ -136,8 +138,22 @@ function createAuthRoutes(db, auth) {
       pov_image_style_prompt
     } = req.body;
     const updateSetting = db.prepare('UPDATE settings SET value = ? WHERE key = ?');
+    const roleAssignments = [
+      ['narrator_api_config_id', narrator_api_config_id],
+      ['agent_api_config_id', agent_api_config_id]
+    ];
+    for (const [key, value] of roleAssignments) {
+      if (value === undefined) continue;
+      const configId = String(value || '').trim();
+      if (configId && !db.prepare('SELECT 1 FROM api_configs WHERE id = ?').get(configId)) {
+        return res.status(400).json({ error: `The selected ${key === 'narrator_api_config_id' ? 'narrator' : 'agent'} configuration no longer exists.` });
+      }
+    }
     if (max_tokens_before_compact !== undefined) {
       updateSetting.run(String(max_tokens_before_compact), 'max_tokens_before_compact');
+    }
+    for (const [key, value] of roleAssignments) {
+      if (value !== undefined) updateSetting.run(String(value || '').trim(), key);
     }
     if (youtube_dj_enabled !== undefined) {
       updateSetting.run(youtube_dj_enabled ? 'true' : 'false', 'youtube_dj_enabled');
