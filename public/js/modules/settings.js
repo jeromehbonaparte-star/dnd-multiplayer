@@ -14,7 +14,8 @@ import { saveAppState } from './auth.js';
 
 let roleAssignments = {
   narrator_api_config_id: '',
-  agent_api_config_id: ''
+  agent_api_config_id: '',
+  pov_api_config_id: ''
 };
 
 // ============================================
@@ -40,7 +41,8 @@ export async function loadSettings() {
       : 'Add an image API key, endpoint, and model to enable illustrations.';
     roleAssignments = {
       narrator_api_config_id: settings.narrator_api_config_id || '',
-      agent_api_config_id: settings.agent_api_config_id || ''
+      agent_api_config_id: settings.agent_api_config_id || '',
+      pov_api_config_id: settings.pov_api_config_id || ''
     };
     await loadApiConfigs();
 
@@ -65,6 +67,7 @@ export async function saveSettings() {
     max_tokens_before_compact: document.getElementById('max-tokens').value,
     narrator_api_config_id: document.getElementById('narrator-api-config').value,
     agent_api_config_id: document.getElementById('agent-api-config').value,
+    pov_api_config_id: document.getElementById('pov-api-config').value,
     youtube_dj_enabled: document.getElementById('youtube-dj-enabled').checked,
     youtube_api_key: document.getElementById('youtube-api-key').value,
     pov_image_enabled: document.getElementById('pov-image-enabled').checked,
@@ -80,6 +83,7 @@ export async function saveSettings() {
     await api('/api/settings', 'POST', settings);
     roleAssignments.narrator_api_config_id = settings.narrator_api_config_id;
     roleAssignments.agent_api_config_id = settings.agent_api_config_id;
+    roleAssignments.pov_api_config_id = settings.pov_api_config_id;
     document.getElementById('youtube-api-key').value = '';
     document.getElementById('pov-image-api-key').value = '';
     await loadApiConfigs();
@@ -160,7 +164,8 @@ export async function loadApiConfigs() {
 function renderRoleBadges(configId) {
   const badges = [];
   if (roleAssignments.narrator_api_config_id === configId) badges.push('Narrator');
-  if (roleAssignments.agent_api_config_id === configId) badges.push('Agents');
+  if (roleAssignments.agent_api_config_id === configId) badges.push('Agent');
+  if (roleAssignments.pov_api_config_id === configId) badges.push('POV');
   return badges.map(role => ` <span class="config-role-badge">${role}</span>`).join('');
 }
 
@@ -170,6 +175,7 @@ function renderRoleSelectors(configs) {
   ).join('');
   const narratorSelect = document.getElementById('narrator-api-config');
   const agentSelect = document.getElementById('agent-api-config');
+  const povSelect = document.getElementById('pov-api-config');
   if (narratorSelect) {
     narratorSelect.innerHTML = options;
     narratorSelect.value = configs.some(config => config.id === roleAssignments.narrator_api_config_id)
@@ -179,6 +185,11 @@ function renderRoleSelectors(configs) {
     agentSelect.innerHTML = options;
     agentSelect.value = configs.some(config => config.id === roleAssignments.agent_api_config_id)
       ? roleAssignments.agent_api_config_id : '';
+  }
+  if (povSelect) {
+    povSelect.innerHTML = options;
+    povSelect.value = configs.some(config => config.id === roleAssignments.pov_api_config_id)
+      ? roleAssignments.pov_api_config_id : '';
   }
 }
 

@@ -4,7 +4,8 @@ const {
   activeUnit,
   applyTacticalAction,
   createTacticalCombat,
-  getReachableTiles
+  getReachableTiles,
+  normalizeAutoCombatSetup
 } = require('../server/services/tacticalCombatService');
 
 const party = [
@@ -46,4 +47,23 @@ test('rejects actions outside the active character turn', () => {
   const state = createTacticalCombat(party, enemies, { seed: 77 });
   const result = applyTacticalAction(state, { type: 'attack', targetId: 'npc:missing' });
   assert.equal(result.ok, false);
+});
+
+test('normalizes an AI combat handoff into bounded tactical enemies', () => {
+  const setup = normalizeAutoCombatSetup({
+    name: 'Ambush\u0000 at Delphi',
+    environment: 'RUINS!!!',
+    enemies: [{ name: 'Cultist', hp: 9999, ac: -4, attackBonus: 80, damageDie: 100 }]
+  });
+  assert.equal(setup.name, 'Ambush at Delphi');
+  assert.equal(setup.environment, 'ruins');
+  assert.equal(setup.enemies[0].hp, 500);
+  assert.equal(setup.enemies[0].ac, 1);
+  assert.equal(setup.enemies[0].attackBonus, 25);
+  assert.equal(setup.enemies[0].damageDie, 20);
+});
+
+test('rejects automatic combat without enemies', () => {
+  assert.equal(normalizeAutoCombatSetup({ name: 'False alarm', enemies: [] }), null);
+  assert.equal(normalizeAutoCombatSetup(null), null);
 });

@@ -127,6 +127,7 @@ function createAuthRoutes(db, auth) {
       max_tokens_before_compact,
       narrator_api_config_id,
       agent_api_config_id,
+      pov_api_config_id,
       youtube_dj_enabled,
       youtube_api_key,
       pov_image_enabled,
@@ -140,13 +141,15 @@ function createAuthRoutes(db, auth) {
     const updateSetting = db.prepare('UPDATE settings SET value = ? WHERE key = ?');
     const roleAssignments = [
       ['narrator_api_config_id', narrator_api_config_id],
-      ['agent_api_config_id', agent_api_config_id]
+      ['agent_api_config_id', agent_api_config_id],
+      ['pov_api_config_id', pov_api_config_id]
     ];
     for (const [key, value] of roleAssignments) {
       if (value === undefined) continue;
       const configId = String(value || '').trim();
       if (configId && !db.prepare('SELECT 1 FROM api_configs WHERE id = ?').get(configId)) {
-        return res.status(400).json({ error: `The selected ${key === 'narrator_api_config_id' ? 'narrator' : 'agent'} configuration no longer exists.` });
+        const roleName = key === 'narrator_api_config_id' ? 'narrator' : key === 'pov_api_config_id' ? 'POV' : 'agent';
+        return res.status(400).json({ error: `The selected ${roleName} configuration no longer exists.` });
       }
     }
     if (max_tokens_before_compact !== undefined) {

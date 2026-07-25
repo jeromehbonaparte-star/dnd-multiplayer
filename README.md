@@ -5,12 +5,12 @@ A real-time multiplayer D&D (Dungeons & Dragons 5e) web application with an AI-p
 ## Features
 
 - **AI Dungeon Master** - Uses OpenAI-compatible APIs (OpenAI, DeepSeek, OpenRouter, etc.)
-- **Split AI Roles** - Assign a premium narrator model for prose and a separate agent model for rules resolution, POVs, bookkeeping, summaries, choices, and DJ picks
+- **Split AI Roles** - Independently assign models for narration, POV prose, and backend rules/bookkeeping work
 - **Real-time Multiplayer** - Socket.IO powered live updates
 - **AI-Guided Character Creation** - Chat-based Level 1 character creation
 - **Turn-Based Gameplay** - All players submit actions, then AI narrates the outcome
 - **Automatic Dice Rolling** - AI rolls dice and calculates results using character stats
-- **Tactical Combat** - Server-authoritative grid encounters with initiative, movement, attacks, defense, and real-time enemy turns
+- **Tactical Combat** - Automatically enters server-authoritative grid encounters when active hostilities begin, with initiative, movement, attacks, defense, ownership controls, and real-time enemy turns
 - **YouTube DJ** - Optional shared, scene-matched music that changes with every narrated turn
 - **Illustrated POV Stage** - Players can generate avatar-referenced scene art for their own POV, shared live across devices
 - **XP Tracking** - Automatic XP parsing from AI responses with D&D 5e leveling
@@ -76,8 +76,8 @@ docker run -p 3000:3000 -v ./data:/app/data -e GAME_PASSWORD=secret -e ADMIN_PAS
 1. Login with the game password
 2. Go to **Settings** (requires admin password)
 3. Add and test the API configurations you want to use
-4. Select a **Narrator Model** and an **Agents and POV Model** under Model Roles
-5. Leaving either role on the active-configuration fallback preserves the previous single-model behavior
+4. Select a **Narrator Model**, **POV Model**, and **Agent Model** under Model Roles
+5. Leaving any role on the active-configuration fallback preserves the previous single-model behavior
 6. Optional: add a YouTube Data API v3 key in Settings and enable YouTube DJ
 7. Optional: configure an OpenAI Images, NanoGPT, or compatible chat image API and enable POV Scene Images
 

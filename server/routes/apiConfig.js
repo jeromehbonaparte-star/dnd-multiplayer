@@ -120,11 +120,11 @@ function createApiConfigRoutes(db, auth) {
     }
     const assignedRole = db.prepare(`
       SELECT key FROM settings
-      WHERE key IN ('narrator_api_config_id', 'agent_api_config_id') AND value = ?
+      WHERE key IN ('narrator_api_config_id', 'agent_api_config_id', 'pov_api_config_id') AND value = ?
       LIMIT 1
     `).get(id);
     if (assignedRole) {
-      return res.status(400).json({ error: 'Cannot delete a configuration assigned to an AI role. Change the Narrator or Agents selection first.' });
+      return res.status(400).json({ error: 'Cannot delete a configuration assigned to an AI role. Change the Narrator, POV, or Agent selection first.' });
     }
 
     db.prepare('DELETE FROM api_configs WHERE id = ?').run(id);

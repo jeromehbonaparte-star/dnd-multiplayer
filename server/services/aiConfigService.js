@@ -1,6 +1,7 @@
 const ROLE_SETTING_KEYS = {
   narrator: 'narrator_api_config_id',
-  agent: 'agent_api_config_id'
+  agent: 'agent_api_config_id',
+  pov: 'pov_api_config_id'
 };
 
 function formatAIConfig(config) {

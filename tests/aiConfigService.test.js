@@ -42,6 +42,7 @@ test('falls back to the active configuration for unassigned or stale roles', () 
   assert.equal(getApiConfigForRole(unassigned, 'agent').id, 'fallback');
   assert.equal(getApiConfigForRole(stale, 'agent').id, 'fallback');
   assert.equal(getApiConfigForRole(stale, 'agent').reasoning_effort, 'low');
+  assert.equal(getApiConfigForRole(createDb({ settings: { pov_api_config_id: '' }, configs: [fallback] }), 'pov').id, 'fallback');
 });
 
 test('rejects unknown AI roles', () => {

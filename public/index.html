@@ -454,13 +454,17 @@
 
         <div class="add-api-config">
           <h3>Model Roles</h3>
-          <p class="settings-note">The narrator writes shared story prose. Agents handle rules resolution, POVs, state bookkeeping, summaries, suggested actions, and DJ choices. Leaving a role on the fallback preserves the previous single-model behavior.</p>
+          <p class="settings-note">Choose models independently for shared narration, player POV prose, and backend agent work. Agents handle rules resolution, state bookkeeping, summaries, suggested actions, DJ choices, and utility prompts. Leaving a role on the fallback preserves the previous single-model behavior.</p>
           <div class="form-group">
             <label for="narrator-api-config">Narrator Model</label>
             <select id="narrator-api-config"></select>
           </div>
           <div class="form-group">
-            <label for="agent-api-config">Agents and POV Model</label>
+            <label for="pov-api-config">POV Model</label>
+            <select id="pov-api-config"></select>
+          </div>
+          <div class="form-group">
+            <label for="agent-api-config">Agent Model</label>
             <select id="agent-api-config"></select>
           </div>
         </div>

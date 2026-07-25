@@ -206,7 +206,8 @@ function createSessionRoutes(deps) {
       try {
         const narratorConfig = getRoleApiConfig('narrator');
         const agentConfig = getRoleApiConfig('agent');
-        if (narratorConfig?.api_key && agentConfig?.api_key) {
+        const povConfig = getRoleApiConfig('pov');
+        if (narratorConfig?.api_key && agentConfig?.api_key && povConfig?.api_key) {
           const characters = validCharIds.length > 0
             ? db.prepare(`SELECT * FROM characters WHERE id IN (${validCharIds.map(() => '?').join(',')})`).all(...validCharIds)
             : [];
@@ -252,7 +253,7 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
                   const partyRoster = aiService.buildPOVPartyRoster
                     ? aiService.buildPOVPartyRoster(characters, c)
                     : characters.map(char => `- ${char.character_name}, ${char.race} ${char.class}`).join('\n');
-                  const pov = await aiService.generateCharacterPOV(agentConfig, c, openingScene, partyRoster);
+                  const pov = await aiService.generateCharacterPOV(povConfig, c, openingScene, partyRoster);
                   return pov ? { name: c.character_name, pov } : null;
                 }));
                 for (const r of povResults) {
@@ -343,6 +344,7 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
       const combat = { id: uuidv4(), session_id: sessionId, name, is_active: 1, current_turn: state.turnIndex, round: state.round };
       db.prepare('INSERT INTO combats (id, session_id, name, is_active, current_turn, round, combatants) VALUES (?, ?, ?, ?, ?, ?, ?)')
         .run(combat.id, sessionId, name, 1, state.turnIndex, state.round, JSON.stringify(state));
+      persistPartyHealth(state);
       db.prepare('DELETE FROM pending_actions WHERE session_id = ?').run(sessionId);
       const payload = { ...combat, state };
       sendToSession(sessionId, 'combat_updated', { sessionId, combat: payload });
@@ -633,9 +635,9 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
       return res.status(403).json({ error: 'You can only reroll POVs for characters you own' });
     }
 
-    const apiConfig = getRoleApiConfig('agent');
+    const apiConfig = getRoleApiConfig('pov');
     if (!apiConfig || !apiConfig.api_key) {
-      return res.status(400).json({ error: 'No active API configuration' });
+      return res.status(400).json({ error: 'No POV API configuration' });
     }
 
     const sessionChars = getSessionCharacters(sessionId);

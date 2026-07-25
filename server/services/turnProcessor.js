@@ -8,6 +8,7 @@ const logger = require('../lib/logger');
 const { estimateTokens } = require('../lib/tokens');
 const { searchYoutubeMusic } = require('./youtubeService');
 const { queueAutoPOVScenes } = require('./imageGenerationService');
+const { createTacticalCombat, normalizeAutoCombatSetup } = require('./tacticalCombatService');
 const {
   NARRATION_WORD_LIMIT,
   NARRATION_MAX_TOKENS,
@@ -287,8 +288,10 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
   const session = db.prepare('SELECT * FROM game_sessions WHERE id = ?').get(sessionId);
   const narratorConfig = getApiConfigForRole ? getApiConfigForRole('narrator') : getActiveApiConfig();
   const agentConfig = getApiConfigForRole ? getApiConfigForRole('agent') : getActiveApiConfig();
+  const povConfig = getApiConfigForRole ? getApiConfigForRole('pov') : getActiveApiConfig();
   if (!narratorConfig?.api_key) throw new Error('No narrator API configuration. Choose one in Settings.');
   if (!agentConfig?.api_key) throw new Error('No agent API configuration. Choose one in Settings.');
+  if (!povConfig?.api_key) throw new Error('No POV API configuration. Choose one in Settings.');
 
   // Get general settings
   const settings = {};
@@ -391,6 +394,7 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
     storySummary: session.story_summary || '',
     recentContext: recentResolverContext
   });
+  const automaticCombatSetup = normalizeAutoCombatSetup(turnResolution?.combat);
 
   // Convert stored history to AI-compatible format (single source of truth shared with the
   // compaction token count, so the trigger measures the same payload we actually send).
@@ -540,10 +544,10 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
 
     const [tagResult, choiceResult, povResults] = await Promise.all([
       turnResolution ? Promise.resolve(turnResolution.stateTags) : generateStateTags(agentConfig, cleanedResponse, bookkeeperState),
-      generateSceneChoices(agentConfig, cleanedResponse, characters),
+      automaticCombatSetup ? Promise.resolve('') : generateSceneChoices(agentConfig, cleanedResponse, characters),
       Promise.all(characters.map(async (c) => {
         const partyRoster = buildPOVPartyRoster(characters, c);
-        const pov = await generateCharacterPOV(agentConfig, c, cleanedResponse, partyRoster, storySummary, povCampaignContext);
+        const pov = await generateCharacterPOV(povConfig, c, cleanedResponse, partyRoster, storySummary, povCampaignContext);
         return pov ? { name: c.character_name, pov } : null;
       }))
     ]);
@@ -652,6 +656,43 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
       .run(JSON.stringify(fullHistory), recentHistoryTokens, JSON.stringify(musicState), sessionId);
   }
 
+  let automaticCombat = null;
+  if (automaticCombatSetup) {
+    try {
+      const existingCombat = db.prepare('SELECT id FROM combats WHERE session_id = ? AND is_active = 1 LIMIT 1').get(sessionId);
+      const currentCharacters = db.prepare(`
+        SELECT c.* FROM characters c
+        INNER JOIN session_characters sc ON sc.character_id = c.id
+        WHERE sc.session_id = ? AND c.hp > 0
+        ORDER BY c.created_at DESC
+      `).all(sessionId);
+      if (!existingCombat && currentCharacters.length > 0) {
+        const state = createTacticalCombat(currentCharacters, automaticCombatSetup.enemies, { environment: automaticCombatSetup.environment });
+        const combat = {
+          id: uuidv4(),
+          session_id: sessionId,
+          name: automaticCombatSetup.name,
+          is_active: 1,
+          current_turn: state.turnIndex,
+          round: state.round
+        };
+        db.prepare('INSERT INTO combats (id, session_id, name, is_active, current_turn, round, combatants) VALUES (?, ?, ?, ?, ?, ?, ?)')
+          .run(combat.id, sessionId, combat.name, 1, state.turnIndex, state.round, JSON.stringify(state));
+        const updateHp = db.prepare('UPDATE characters SET hp = ? WHERE id = ?');
+        for (const unit of state.units) {
+          if (unit.side !== 'party' || !unit.sourceCharacterId) continue;
+          updateHp.run(unit.hp, unit.sourceCharacterId);
+          const updatedCharacter = db.prepare('SELECT * FROM characters WHERE id = ?').get(unit.sourceCharacterId);
+          if (updatedCharacter) emitCharacterUpdate(unit.sourceCharacterId, 'character_updated', updatedCharacter);
+        }
+        automaticCombat = { ...combat, state };
+        logger.info('Started tactical combat from agent resolution', { sessionId, combatId: combat.id, enemies: automaticCombatSetup.enemies.length });
+      }
+    } catch (error) {
+      logger.error('Automatic tactical combat handoff failed', { sessionId, error: error.message });
+    }
+  }
+
   // Clear pending actions
   db.prepare('DELETE FROM pending_actions WHERE session_id = ?').run(sessionId);
 
@@ -665,6 +706,9 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
     choices: parsedChoices,
     povs: hasPOVs ? parsedPOVs : null
   });
+  if (automaticCombat) {
+    sendToSession(sessionId, 'combat_updated', { sessionId, combat: automaticCombat, automatic: true });
+  }
   try {
     queueAutoPOVScenes({
       db,
@@ -682,7 +726,7 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
     logger.error('Optional post-turn work failed after narration was committed', { sessionId, error: error.message });
   }
 
-  return { response: cleanedResponse, tokensUsed: recentHistoryTokens };
+  return { response: cleanedResponse, tokensUsed: recentHistoryTokens, combat: automaticCombat };
 }
 
 /**

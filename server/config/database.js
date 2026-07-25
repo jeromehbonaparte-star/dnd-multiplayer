@@ -417,6 +417,7 @@ function initializeSettings() {
   initSetting.run('api_model', 'gpt-4');
   initSetting.run('narrator_api_config_id', '');
   initSetting.run('agent_api_config_id', '');
+  initSetting.run('pov_api_config_id', '');
   initSetting.run('max_tokens_before_compact', '8000');
   initSetting.run('youtube_dj_enabled', 'false');
   initSetting.run('youtube_api_key', '');

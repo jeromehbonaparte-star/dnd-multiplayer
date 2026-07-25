@@ -111,7 +111,10 @@ async function generateTurnResolution(aiConfig, { actions, partyState, storySumm
       content: `You are the rules resolver for a multiplayer D&D 5e game. Resolve the submitted actions before a separate narrator writes the scene. Respect every supplied dice roll, character capability, current resource, established fact, and knowledge boundary. Never choose extra actions, dialogue, thoughts, or decisions for player characters. Determine concrete outcomes, NPC/world reactions, and mechanical consequences.
 
 Return JSON only:
-{"resolution":"Concise, concrete facts the narrator must portray","state_tags":"zero or more newline-separated tags"}
+{"resolution":"Concise, concrete facts the narrator must portray","state_tags":"zero or more newline-separated tags","combat":null}
+
+COMBAT HANDOFF: Set "combat" to an encounter object when armed or magical hostilities are actively underway or begin now and initiative, movement, attacks, and positioning should take over. This includes a fight already happening in recent context that has not yet moved to the tactical board. Do not trigger for threats, tense conversation, harmless sparring, a completed fight, or danger the party can still avoid. When combat starts, resolve only the immediate initiating beat and stop at the point tactical initiative takes over; do not narratively finish the battle.
+Combat shape: {"name":"Encounter name","environment":"plains|forest|dungeon|ruins|water|city","enemies":[{"name":"Enemy name","hp":12,"ac":12,"attackBonus":3,"damageDie":6,"damageBonus":1,"initiativeBonus":0,"movement":6,"range":1}]}. Include every currently active hostile combatant once, with reasonable D&D 5e values. Otherwise use null.
 
 Allowed state tags: [HP: Name +/-N], [XP: Name +N], [GOLD: Name +/-N], [ITEM: Name +item], [ITEM: Name -item], [SPELL: Name -1st], [SPELL: Name +1st], [AC: Name N], [REST: Name SHORT], [REST: Name LONG]. Use an empty string when no state changes occur. Do not wrap the JSON in markdown.`
     },
@@ -130,7 +133,8 @@ Allowed state tags: [HP: Name +/-N], [XP: Name +N], [GOLD: Name +/-N], [ITEM: Na
     if (!resolution) throw new Error('Resolver returned no resolution');
     return {
       resolution,
-      stateTags: String(parsed.state_tags || '').trim()
+      stateTags: String(parsed.state_tags || '').trim(),
+      combat: parsed.combat && typeof parsed.combat === 'object' ? parsed.combat : null
     };
   } catch (error) {
     logger.warn('Turn resolution failed; narrator will use the submitted actions directly', { error: error.message });

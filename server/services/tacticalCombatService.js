@@ -27,6 +27,30 @@ function normalizedClass(value) {
   return String(value || '').toLowerCase();
 }
 
+function normalizeAutoCombatSetup(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const rawEnemies = Array.isArray(value.enemies) ? value.enemies : [];
+  const enemies = rawEnemies.slice(0, MAX_COMBATANTS_PER_SIDE).map((enemy, index) => ({
+    id: `auto-${index + 1}`,
+    name: String(enemy?.name || `Enemy ${index + 1}`).replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 80) || `Enemy ${index + 1}`,
+    hp: clamp(Number(enemy?.hp) || 12, 1, 500),
+    ac: clamp(Number(enemy?.ac) || 12, 1, 30),
+    attackBonus: clamp(Number(enemy?.attackBonus) || 3, -5, 25),
+    damageBonus: clamp(Number(enemy?.damageBonus) || 1, -5, 30),
+    damageDie: clamp(Number(enemy?.damageDie) || 6, 4, 20),
+    initiativeBonus: clamp(Number(enemy?.initiativeBonus) || 0, -10, 20),
+    movement: clamp(Number(enemy?.movement) || 6, 2, 9),
+    range: clamp(Number(enemy?.range) || 1, 1, 5)
+  }));
+  if (!enemies.length) return null;
+  const requestedEnvironment = String(value.environment || 'plains').toLowerCase().replace(/[^a-z]/g, '').slice(0, 50);
+  const environment = ['plains', 'forest', 'dungeon', 'ruins', 'water', 'city'].includes(requestedEnvironment)
+    ? requestedEnvironment
+    : 'plains';
+  const name = String(value.name || 'Tactical Encounter').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 120) || 'Tactical Encounter';
+  return { name, environment, enemies };
+}
+
 function classProfile(character) {
   const className = normalizedClass(character.class);
   const ranged = /artificer|bard|cleric|druid|ranger|sorcerer|warlock|wizard/.test(className);
@@ -372,5 +396,6 @@ module.exports = {
   applyTacticalAction,
   createTacticalCombat,
   getCombatSummary,
-  getReachableTiles
+  getReachableTiles,
+  normalizeAutoCombatSetup
 };
