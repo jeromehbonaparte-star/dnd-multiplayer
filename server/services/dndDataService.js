@@ -14,6 +14,15 @@ const STATIC_RACES = JSON.parse(fs.readFileSync(path.join(SRD_DIR, 'races.json')
 const STATIC_CLASSES = JSON.parse(fs.readFileSync(path.join(SRD_DIR, 'classes.json'), 'utf-8'));
 const STATIC_SKILLS = JSON.parse(fs.readFileSync(path.join(SRD_DIR, 'skills.json'), 'utf-8'));
 const STATIC_BACKGROUNDS = JSON.parse(fs.readFileSync(path.join(SRD_DIR, 'backgrounds.json'), 'utf-8'));
+const STATIC_SUBCLASSES = JSON.parse(fs.readFileSync(path.join(SRD_DIR, 'subclasses.json'), 'utf-8'));
+
+// class index -> subclasses, built once at startup
+const SUBCLASSES_BY_CLASS = STATIC_SUBCLASSES.reduce((map, subclass) => {
+  const key = String(subclass.class_index || '').toLowerCase();
+  if (!map[key]) map[key] = [];
+  map[key].push(subclass);
+  return map;
+}, {});
 
 const BASE_URL = 'https://www.dnd5eapi.co/api';
 
@@ -54,6 +63,38 @@ async function getRaces(db) {
 
 async function getClasses(db) {
   return STATIC_CLASSES.map(cls => ({ ...cls, starting_equipment: getStartingEquipment(cls.name) }));
+}
+
+// ============================================
+// Subclasses
+// ============================================
+
+// Accepts a class index ("sorcerer") or class name ("Sorcerer"), case-insensitive.
+function resolveClassIndex(classIndex) {
+  const raw = String(classIndex || '').trim().toLowerCase();
+  if (!raw) return null;
+  const match = STATIC_CLASSES.find(cls => cls.index.toLowerCase() === raw || cls.name.toLowerCase() === raw);
+  return match ? match.index : null;
+}
+
+// Never throws — an unknown class simply has no subclasses.
+function getSubclasses(classIndex) {
+  const resolved = resolveClassIndex(classIndex);
+  if (!resolved) return [];
+  return SUBCLASSES_BY_CLASS[resolved] || [];
+}
+
+// Case-insensitive match on subclass index or name; null when nothing matches.
+function getSubclass(classIndex, subclassIndexOrName) {
+  const needle = String(subclassIndexOrName || '').trim().toLowerCase();
+  if (!needle) return null;
+  const found = getSubclasses(classIndex).find(sub =>
+    String(sub.index || '').toLowerCase() === needle || String(sub.name || '').toLowerCase() === needle);
+  return found || null;
+}
+
+function getAllSubclasses() {
+  return STATIC_SUBCLASSES;
 }
 
 // ============================================
@@ -160,6 +201,9 @@ async function getBackgrounds(db) {
 module.exports = {
   getRaces,
   getClasses,
+  getAllSubclasses,
+  getSubclass,
+  getSubclasses,
   getSpellsByClass,
   getSpellDetail,
   getEquipmentByCategory,

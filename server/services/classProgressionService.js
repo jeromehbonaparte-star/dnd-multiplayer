@@ -1,4 +1,6 @@
+const logger = require('../lib/logger');
 const STATIC_CLASSES = require('../data/srd/classes.json');
+const STATIC_SUBCLASSES = require('../data/srd/subclasses.json');
 
 const FULL_CASTER_SLOTS = [
   [0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -264,18 +266,114 @@ function parseClasses(raw, primaryClass, totalLevel) {
   return classes;
 }
 
+// ============================================
+// Startup self-check
+// ============================================
+// Verifies that CLASS_RULES, FEATURES, classes.json and subclasses.json agree.
+// `collectClassDataProblems` is pure and takes injectable data so tests can feed
+// deliberately broken fixtures; `validateClassData` logs and throws on failure.
+
+function collectClassDataProblems(data = {}) {
+  const classes = data.classes || STATIC_CLASSES;
+  const subclasses = data.subclasses || STATIC_SUBCLASSES;
+  const classRules = data.classRules || CLASS_RULES;
+  const features = data.features || FEATURES;
+  const problems = [];
+
+  const classNames = (classes || []).map(cls => cls.name);
+  const classIndexes = new Set((classes || []).map(cls => cls.index));
+  const ruleNames = Object.keys(classRules || {});
+  const featureNames = Object.keys(features || {});
+
+  // (a) CLASS_RULES keys == FEATURES keys == classes.json names
+  for (const name of ruleNames) {
+    if (!classNames.includes(name)) problems.push(`CLASS_RULES has "${name}" which is missing from classes.json`);
+    if (!featureNames.includes(name)) problems.push(`CLASS_RULES has "${name}" which is missing from FEATURES`);
+  }
+  for (const name of featureNames) {
+    if (!ruleNames.includes(name)) problems.push(`FEATURES has "${name}" which is missing from CLASS_RULES`);
+  }
+  for (const name of classNames) {
+    if (!ruleNames.includes(name)) problems.push(`classes.json has "${name}" which is missing from CLASS_RULES`);
+  }
+
+  const subclassCounts = new Map(classNames.map(name => [name, 0]));
+  const seenIndexes = new Set();
+
+  for (const subclass of subclasses || []) {
+    const label = subclass && (subclass.index || subclass.name) || '(unnamed)';
+    if (!subclass || !subclass.index || !subclass.name) {
+      problems.push(`Subclass "${label}" is missing an index or name`);
+      continue;
+    }
+    const key = `${subclass.class_index}:${subclass.index}`;
+    if (seenIndexes.has(key)) problems.push(`Duplicate subclass index "${subclass.index}" for class "${subclass.class_index}"`);
+    seenIndexes.add(key);
+
+    // (b) parent class must exist
+    if (!classIndexes.has(subclass.class_index)) {
+      problems.push(`Subclass "${subclass.index}" references unknown class_index "${subclass.class_index}"`);
+      continue;
+    }
+    const parent = (classes || []).find(cls => cls.index === subclass.class_index);
+    const rules = (classRules || {})[parent.name];
+    if (!rules) {
+      problems.push(`Subclass "${subclass.index}" parent class "${parent.name}" has no CLASS_RULES entry`);
+      continue;
+    }
+    subclassCounts.set(parent.name, (subclassCounts.get(parent.name) || 0) + 1);
+
+    // (c) feature levels must be a subset of the parent's subclassLevels
+    const allowed = rules.subclassLevels || [];
+    const levels = Object.keys(subclass.features_by_level || {});
+    if (!levels.length) {
+      problems.push(`Subclass "${subclass.index}" has no features_by_level entries`);
+      continue;
+    }
+    for (const level of levels) {
+      if (!allowed.includes(Number(level))) {
+        problems.push(`Subclass "${subclass.index}" grants features at level ${level}, which is not in ${parent.name} subclassLevels [${allowed.join(', ')}]`);
+      }
+      const list = subclass.features_by_level[level];
+      if (!Array.isArray(list) || !list.length) {
+        problems.push(`Subclass "${subclass.index}" has an empty feature list at level ${level}`);
+      }
+    }
+  }
+
+  // (d) every class needs at least two subclasses
+  for (const [name, count] of subclassCounts) {
+    if (count < 2) problems.push(`Class "${name}" has ${count} subclass(es); at least 2 are required`);
+  }
+
+  return problems;
+}
+
+function validateClassData(data) {
+  const problems = collectClassDataProblems(data);
+  if (problems.length) {
+    for (const problem of problems) logger.error('Class data validation failure', { problem });
+    throw new Error(`Class data validation failed with ${problems.length} problem(s); see logs above`);
+  }
+  return true;
+}
+
 module.exports = {
   ABILITY_NAMES,
   CLASS_RULES,
+  FEATURES,
   FULL_CASTER_SLOTS,
   MULTICLASS_REQUIREMENTS,
   STATIC_CLASSES,
+  STATIC_SUBCLASSES,
   calculateMulticlassSpellcasterLevel,
+  collectClassDataProblems,
   getClassName,
   getClassOptions,
   getClassResourceState,
   getProgression,
   getSpellSlots,
   parseClasses,
-  slotsToState
+  slotsToState,
+  validateClassData
 };

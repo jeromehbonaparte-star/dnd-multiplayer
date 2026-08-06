@@ -26,6 +26,24 @@ function createDndDataRoutes(db, auth) {
     }
   });
 
+  // Unknown or subclass-less classes return an empty array, mirroring the
+  // permissive handling of the other static-data routes.
+  router.get('/classes/:classIndex/subclasses', requireUser, async (req, res, next) => {
+    try {
+      res.json(dndData.getSubclasses(req.params.classIndex));
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  router.get('/subclasses', requireUser, async (req, res, next) => {
+    try {
+      res.json(dndData.getAllSubclasses());
+    } catch (e) {
+      next(e);
+    }
+  });
+
   router.get('/classes/:classIndex/spells', requireUser, async (req, res, next) => {
     try {
       const level = parseInt(req.query.level) || 0;

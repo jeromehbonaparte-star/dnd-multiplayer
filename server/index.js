@@ -10,6 +10,11 @@ const logger = require('./lib/logger');
 const { securityHeaders, corsMiddleware } = require('./middleware/security');
 const { errorHandler } = require('./middleware/errorHandler');
 
+// Static SRD data self-check — a broken class/subclass data file must never
+// reach the level-up engine, so fail fast before anything else boots.
+const { validateClassData } = require('./services/classProgressionService');
+validateClassData();
+
 // Import database (runs all migrations on load)
 const { db } = require('./config/database');
 
