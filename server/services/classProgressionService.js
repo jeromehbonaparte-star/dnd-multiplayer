@@ -149,9 +149,310 @@ const MULTICLASS_REQUIREMENTS = {
   Ranger: { dexterity: 13, wisdom: 13 }, Rogue: { dexterity: 13 }, Sorcerer: { charisma: 13 }, Warlock: { charisma: 13 }, Wizard: { intelligence: 13 }
 };
 
+// ============================================
+// Class resolution ladder
+// ============================================
+// Free-text class strings ("Wild Magic Sorcerer", "Sorcerer (Wild Magic)",
+// "sorceror") used to resolve to null, which made /levelinfo dead-end and let
+// level-up treat the character as a fresh multiclass. `resolveClassAndSubclass`
+// walks a fixed ladder and reports which rung matched so callers can log/repair:
+//   exact  -> case-insensitive class name
+//   index  -> class index ("fighter")
+//   subclass-split -> class token + subclass tokens, or a bare subclass name
+//   suffix -> string starts/ends with a class token; leftover text is kept as a
+//             (possibly homebrew) subclass
+//   alias  -> tiny typo/shorthand map, re-run through the ladder
+// A miss returns { className: null, subclass: null, matched: null }.
+
+const CLASS_ALIASES = {
+  sorceror: 'Sorcerer',
+  sorcerer: 'Sorcerer',
+  wiz: 'Wizard',
+  barb: 'Barbarian',
+  rouge: 'Rogue',
+  pally: 'Paladin'
+};
+
+const SUBCLASS_PREFIX_RE = /^(?:path|college|circle|way|oath|school) of (?:the )?/;
+
+function tokenizeClassText(value) {
+  return String(value == null ? '' : value).split(/[^A-Za-z0-9]+/).filter(Boolean);
+}
+
+function normalizeClassText(value) {
+  return tokenizeClassText(value).join(' ').toLowerCase();
+}
+
+function shortSubclassForm(normalized) {
+  return normalized
+    .replace(SUBCLASS_PREFIX_RE, '')
+    .replace(/^the /, '')
+    .replace(/ domain$/, '')
+    .trim();
+}
+
+const CLASS_BY_NAME = new Map(STATIC_CLASSES.map(cls => [normalizeClassText(cls.name), cls.name]));
+const CLASS_BY_INDEX = new Map(STATIC_CLASSES.map(cls => [normalizeClassText(cls.index), cls.name]));
+const CLASS_NAME_BY_INDEX = new Map(STATIC_CLASSES.map(cls => [cls.index, cls.name]));
+
+const SUBCLASS_ENTRIES = STATIC_SUBCLASSES
+  .filter(sub => sub && sub.name && CLASS_NAME_BY_INDEX.has(sub.class_index))
+  .map(sub => ({
+    name: sub.name,
+    className: CLASS_NAME_BY_INDEX.get(sub.class_index),
+    normalized: normalizeClassText(sub.name),
+    short: shortSubclassForm(normalizeClassText(sub.name))
+  }));
+
+const SUBCLASSES_BY_CLASS = new Map();
+for (const entry of SUBCLASS_ENTRIES) {
+  if (!SUBCLASSES_BY_CLASS.has(entry.className)) SUBCLASSES_BY_CLASS.set(entry.className, []);
+  SUBCLASSES_BY_CLASS.get(entry.className).push(entry);
+}
+
+const CONNECTOR_TOKENS = new Set(['of', 'the', 'a', 'an', 'and']);
+
+// "Warlock of the Fiend" -> leftover "of the Fiend" -> "Fiend"
+function trimConnectorTokens(tokens) {
+  let start = 0;
+  let end = tokens.length;
+  while (start < end && CONNECTOR_TOKENS.has(tokens[start].toLowerCase())) start += 1;
+  while (end > start && CONNECTOR_TOKENS.has(tokens[end - 1].toLowerCase())) end -= 1;
+  return tokens.slice(start, end);
+}
+
+function classForToken(token) {
+  return CLASS_BY_NAME.get(token) || CLASS_BY_INDEX.get(token) || null;
+}
+
+function findSubclassEntry(normalized, className) {
+  if (!normalized) return null;
+  const list = className ? (SUBCLASSES_BY_CLASS.get(className) || []) : SUBCLASS_ENTRIES;
+  return list.find(entry => entry.normalized === normalized || entry.short === normalized) || null;
+}
+
+const NO_CLASS_MATCH = { className: null, subclass: null, matched: null };
+
+function resolveClassAndSubclass(raw, options = {}) {
+  const rawTokens = tokenizeClassText(raw);
+  if (!rawTokens.length) return { ...NO_CLASS_MATCH };
+  const tokens = rawTokens.map(token => token.toLowerCase());
+  const normalized = tokens.join(' ');
+
+  // (1) exact class name, case-insensitive
+  const byName = CLASS_BY_NAME.get(normalized);
+  if (byName) return { className: byName, subclass: null, matched: 'exact' };
+
+  // (2) exact class index
+  const byIndex = CLASS_BY_INDEX.get(normalized);
+  if (byIndex) return { className: byIndex, subclass: null, matched: 'index' };
+
+  // (3a) a class token plus tokens that name one of that class's subclasses
+  for (let i = 0; i < tokens.length; i += 1) {
+    const className = classForToken(tokens[i]);
+    if (!className) continue;
+    const restTokens = tokens.slice(0, i).concat(tokens.slice(i + 1));
+    const subclass = findSubclassEntry(restTokens.join(' '), className)
+      || findSubclassEntry(trimConnectorTokens(restTokens).join(' '), className);
+    if (subclass) return { className, subclass: subclass.name, matched: 'subclass-split' };
+  }
+
+  // (3b) a bare subclass name -> its parent class
+  const bare = findSubclassEntry(normalized, null);
+  if (bare) return { className: bare.className, subclass: bare.name, matched: 'subclass-split' };
+
+  // (4) suffix/prefix: leftover text becomes homebrew subclass wording.
+  // Suffix wins over prefix so "Shadow Fighter Monk" resolves to Monk.
+  if (tokens.length > 1) {
+    const suffixClass = classForToken(tokens[tokens.length - 1]);
+    if (suffixClass) {
+      return { className: suffixClass, subclass: trimConnectorTokens(rawTokens.slice(0, -1)).join(' ') || null, matched: 'suffix' };
+    }
+    const prefixClass = classForToken(tokens[0]);
+    if (prefixClass) {
+      return { className: prefixClass, subclass: trimConnectorTokens(rawTokens.slice(1)).join(' ') || null, matched: 'suffix' };
+    }
+  }
+
+  // (5) alias map, then one retry through the ladder with aliases substituted
+  if (!options.viaAlias) {
+    const whole = CLASS_ALIASES[normalized];
+    if (whole) return { className: whole, subclass: null, matched: 'alias' };
+    let substituted = false;
+    const swapped = rawTokens.map((token, index) => {
+      const alias = CLASS_ALIASES[tokens[index]];
+      if (!alias) return token;
+      substituted = true;
+      return alias;
+    });
+    if (substituted) {
+      const retry = resolveClassAndSubclass(swapped.join(' '), { viaAlias: true });
+      if (retry.className) return { className: retry.className, subclass: retry.subclass, matched: 'alias' };
+    }
+  }
+
+  return { ...NO_CLASS_MATCH };
+}
+
+function editDistance(a, b) {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  let previous = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i += 1) {
+    const row = [i];
+    for (let j = 1; j <= b.length; j += 1) {
+      row[j] = Math.min(previous[j] + 1, row[j - 1] + 1, previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    previous = row;
+  }
+  return previous[b.length];
+}
+
+/**
+ * Best-effort "did you mean" list for an unresolvable class string.
+ * Falls back to the full class list when nothing is close.
+ */
+function suggestClassNames(raw, limit = 4) {
+  const allNames = STATIC_CLASSES.map(cls => cls.name);
+  const normalized = normalizeClassText(raw);
+  if (!normalized) return allNames;
+  const threshold = Math.max(3, Math.ceil(normalized.length / 3));
+  const near = allNames
+    .map(name => {
+      const candidate = normalizeClassText(name);
+      const contained = candidate.includes(normalized) || normalized.includes(candidate);
+      return { name, score: contained ? 0 : editDistance(candidate, normalized) };
+    })
+    .filter(entry => entry.score <= threshold)
+    .sort((a, b) => a.score - b.score || a.name.localeCompare(b.name))
+    .slice(0, limit)
+    .map(entry => entry.name);
+  return near.length ? near : allNames;
+}
+
+/**
+ * Exact-only resolution (name or index). Returns null for anything the ladder
+ * would have to guess at — callers that must not silently accept fuzzy input.
+ */
+function getExactClassName(name) {
+  const normalized = normalizeClassText(name);
+  return CLASS_BY_NAME.get(normalized) || CLASS_BY_INDEX.get(normalized) || null;
+}
+
+/**
+ * Canonical class name or null. Exact matches are returned silently; anything
+ * resolved further down the ladder is logged at WARN so bad stored strings are
+ * visible in production logs.
+ */
 function getClassName(name) {
-  const match = STATIC_CLASSES.find(c => c.name.toLowerCase() === String(name || '').toLowerCase() || c.index === String(name || '').toLowerCase());
-  return match ? match.name : null;
+  const exact = getExactClassName(name);
+  if (exact) return exact;
+  const resolved = resolveClassAndSubclass(name);
+  if (resolved.className) {
+    logger.warn(`Resolved class '${String(name)}' via ${resolved.matched} to ${resolved.className}`, resolved.subclass ? { subclass: resolved.subclass } : undefined);
+    return resolved.className;
+  }
+  return null;
+}
+
+function safeParseObject(raw) {
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) return { ...raw };
+  try {
+    const parsed = JSON.parse(raw || '{}');
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+/**
+ * Normalize a `classes` map ({ "Wild Magic Sorcerer": 3 }) for a write.
+ * Returns canonical keys, any subclasses the split produced, and the keys that
+ * could not be resolved at all (callers decide: reject or drop).
+ */
+function normalizeClassesMap(raw) {
+  const parsed = safeParseObject(raw);
+  const classes = {};
+  const subclasses = {};
+  const unresolved = [];
+  for (const [key, value] of Object.entries(parsed)) {
+    const level = Math.max(0, Number(value) || 0);
+    const resolved = resolveClassAndSubclass(key);
+    if (!resolved.className) {
+      unresolved.push(key);
+      continue;
+    }
+    classes[resolved.className] = Math.max(classes[resolved.className] || 0, level);
+    if (resolved.subclass && !subclasses[resolved.className]) subclasses[resolved.className] = resolved.subclass;
+  }
+  return { classes, subclasses, unresolved };
+}
+
+/**
+ * Pure repair plan for a stored character row. Used by both the startup repair
+ * migration and the on-the-fly /levelinfo repair so they can never diverge.
+ * `row` needs { class, classes, class_choices }; nothing here touches the DB.
+ * Returns { changed, updates, unresolved, className, subclass, matched }.
+ */
+function planClassRepair(row = {}) {
+  const result = { changed: false, updates: {}, unresolved: [], className: null, subclass: null, matched: null };
+  const classChoices = safeParseObject(row.class_choices);
+  let choicesChanged = false;
+
+  const seedSubclass = (className, subclass) => {
+    if (!className || !subclass) return;
+    const existing = classChoices[className] || {};
+    if (existing.subclass) return;
+    classChoices[className] = { ...existing, subclass };
+    choicesChanged = true;
+  };
+
+  const rawClass = typeof row.class === 'string' ? row.class.trim() : '';
+  if (rawClass) {
+    const resolved = resolveClassAndSubclass(rawClass);
+    if (resolved.className) {
+      result.className = resolved.className;
+      result.subclass = resolved.subclass;
+      result.matched = resolved.matched;
+      if (resolved.className !== row.class) {
+        result.updates.class = resolved.className;
+        result.changed = true;
+      }
+      seedSubclass(resolved.className, resolved.subclass);
+    } else {
+      result.unresolved.push(rawClass);
+    }
+  }
+
+  const parsedClasses = safeParseObject(row.classes);
+  const classEntries = Object.entries(parsedClasses);
+  if (classEntries.length) {
+    const rebuilt = {};
+    let keysChanged = false;
+    for (const [key, value] of classEntries) {
+      const level = Math.max(0, Number(value) || 0);
+      const resolved = resolveClassAndSubclass(key);
+      if (!resolved.className) {
+        if (!result.unresolved.includes(key)) result.unresolved.push(key);
+        rebuilt[key] = Math.max(rebuilt[key] || 0, level);
+        continue;
+      }
+      if (resolved.className !== key) keysChanged = true;
+      rebuilt[resolved.className] = Math.max(rebuilt[resolved.className] || 0, level);
+      seedSubclass(resolved.className, resolved.subclass);
+    }
+    if (keysChanged) {
+      result.updates.classes = JSON.stringify(rebuilt);
+      result.changed = true;
+    }
+  }
+
+  if (choicesChanged) {
+    result.updates.class_choices = JSON.stringify(classChoices);
+    result.changed = true;
+  }
+  return result;
 }
 
 function getProgression(className, level) {
@@ -231,13 +532,45 @@ function calculateMulticlassSpellcasterLevel(classLevels) {
   }, 0);
 }
 
+/**
+ * Merge a computed slot array with the character's stored slot state.
+ *
+ * Floor guard: the result may never REDUCE a slot level the character already
+ * has. Where the computed array says 0 (or fewer) for a level whose stored max
+ * is greater, the stored max is kept and `current` is clamped to it. Levels that
+ * exist only in the stored state (e.g. the computed array is empty because the
+ * class was misresolved as a non-caster) survive untouched. `flooredLevels`
+ * lists every level where the floor kicked in so the CALLER can log a warning
+ * and surface it to the player.
+ *
+ * @returns {{ state: Object, flooredLevels: string[] }}
+ */
+function computeSlotState(slots, existing = {}) {
+  const computed = Array.isArray(slots) ? slots : [];
+  const current = existing && typeof existing === 'object' && !Array.isArray(existing) ? existing : {};
+  const levels = new Set(computed.map((_, index) => index + 1));
+  for (const key of Object.keys(current)) {
+    if (/^\d+$/.test(key)) levels.add(Number(key));
+  }
+
+  const state = {};
+  const flooredLevels = [];
+  for (const level of [...levels].sort((a, b) => a - b)) {
+    const key = String(level);
+    const computedMax = Math.max(0, Number(computed[level - 1]) || 0);
+    const old = current[key] && typeof current[key] === 'object' ? current[key] : {};
+    const storedMax = Math.max(0, Number(old.max) || 0);
+    const max = Math.max(computedMax, storedMax);
+    if (storedMax > computedMax) flooredLevels.push(key);
+    if (max <= 0) continue;
+    const storedCurrent = Number.isFinite(old.current) ? Number(old.current) : max;
+    state[key] = { max, current: Math.max(0, Math.min(max, storedCurrent)) };
+  }
+  return { state, flooredLevels };
+}
+
 function slotsToState(slots, existing = {}) {
-  const current = existing && typeof existing === 'object' ? existing : {};
-  return Object.fromEntries(slots.map((max, index) => {
-    const level = String(index + 1);
-    const old = current[level] || {};
-    return [level, { max, current: max === 0 ? 0 : Math.min(max, Number.isFinite(old.current) ? old.current : max) }];
-  }).filter(([, value]) => value.max > 0));
+  return computeSlotState(slots, existing).state;
 }
 
 function getClassOptions(character) {
@@ -257,11 +590,17 @@ function parseClasses(raw, primaryClass, totalLevel) {
   try { parsed = JSON.parse(raw || '{}'); } catch (e) { parsed = {}; }
   const classes = {};
   for (const [name, level] of Object.entries(parsed || {})) {
-    const canonical = getClassName(name) || name;
-    classes[canonical] = Math.max(classes[canonical] || 0, Number(level) || 0);
+    // getClassName runs the full ladder (and logs non-exact hits). Only truly
+    // unresolvable keys are kept verbatim, and those are warned about here.
+    const canonical = getClassName(name);
+    if (!canonical) logger.warn(`parseClasses: unresolvable class key '${String(name)}' kept as-is`);
+    const key = canonical || name;
+    classes[key] = Math.max(classes[key] || 0, Number(level) || 0);
   }
   if (!Object.keys(classes).length && primaryClass) {
-    classes[getClassName(primaryClass) || primaryClass] = totalLevel || 1;
+    const canonical = getClassName(primaryClass);
+    if (!canonical) logger.warn(`parseClasses: unresolvable primary class '${String(primaryClass)}' kept as-is`);
+    classes[canonical || primaryClass] = totalLevel || 1;
   }
   return classes;
 }
@@ -368,12 +707,18 @@ module.exports = {
   STATIC_SUBCLASSES,
   calculateMulticlassSpellcasterLevel,
   collectClassDataProblems,
+  computeSlotState,
   getClassName,
   getClassOptions,
   getClassResourceState,
+  getExactClassName,
   getProgression,
   getSpellSlots,
+  normalizeClassesMap,
   parseClasses,
+  planClassRepair,
+  resolveClassAndSubclass,
   slotsToState,
+  suggestClassNames,
   validateClassData
 };

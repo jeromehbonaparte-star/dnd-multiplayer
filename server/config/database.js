@@ -326,6 +326,67 @@ function migrateEquipmentToInventory() {
 }
 
 /**
+ * Repair character rows whose `class` / `classes` keys are free text
+ * ("Wild Magic Sorcerer", "sorceror", "fighter") rather than canonical class
+ * names. Runs the shared resolution ladder, rewrites the columns and merges any
+ * split-off subclass into class_choices. Naturally idempotent: a repaired row
+ * resolves exactly on the next boot and produces no updates. Rows that cannot
+ * be resolved at all are logged at ERROR and left untouched.
+ */
+function migrateClassStrings() {
+  const { planClassRepair } = require('../services/classProgressionService');
+  let rows = [];
+  try {
+    rows = db.prepare('SELECT id, class, classes, class_choices FROM characters').all();
+  } catch (e) {
+    logger.error('Class-string repair migration could not read characters', { error: e.message });
+    return;
+  }
+
+  let repaired = 0;
+  let unresolved = 0;
+  for (const row of rows) {
+    let plan;
+    try {
+      plan = planClassRepair(row);
+    } catch (e) {
+      logger.error(`Class-string repair failed for character ${row.id}`, { error: e.message });
+      continue;
+    }
+
+    if (plan.unresolved.length) {
+      unresolved += 1;
+      logger.error(`Character ${row.id} has unresolvable class strings; left untouched`, {
+        characterId: row.id,
+        unresolved: plan.unresolved,
+        class: row.class,
+        classes: row.classes
+      });
+    }
+
+    if (!plan.changed) continue;
+    const fields = Object.keys(plan.updates);
+    try {
+      db.prepare(`UPDATE characters SET ${fields.map(field => `${field} = ?`).join(', ')} WHERE id = ?`)
+        .run(...fields.map(field => plan.updates[field]), row.id);
+    } catch (e) {
+      logger.error(`Class-string repair could not write character ${row.id}`, { error: e.message });
+      continue;
+    }
+    repaired += 1;
+    logger.info(`Class repair for character ${row.id}`, {
+      before: { class: row.class, classes: row.classes, class_choices: row.class_choices },
+      after: plan.updates,
+      matched: plan.matched
+    });
+  }
+
+  if (repaired || unresolved) {
+    logger.info(`Class-string repair complete: ${repaired} character(s) repaired, ${unresolved} still unresolvable`);
+  }
+}
+
+/**
  * Seed API config from legacy settings if needed
  */
 function seedApiConfig() {
@@ -447,6 +508,7 @@ runMigrations();
 migrateMulticlass();
 migrateAcEffects();
 migrateEquipmentToInventory();
+migrateClassStrings();
 seedApiConfig();
 initializeSettings();
 bootstrapAdminUser();

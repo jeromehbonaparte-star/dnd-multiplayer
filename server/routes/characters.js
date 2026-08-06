@@ -10,17 +10,23 @@ const { getCached, setCache, invalidateCache } = require('../lib/cache');
 const { extractMarkerJson } = require('../lib/markerJson');
 const { loadPOVImageSettings, generatePOVSceneImage, saveCharacterAvatar, deleteCharacterAvatar } = require('../services/imageGenerationService');
 const { resolveStartingInventory } = require('../services/startingEquipmentService');
+const logger = require('../lib/logger');
 const {
   ABILITY_NAMES,
   CLASS_RULES,
   FULL_CASTER_SLOTS,
   calculateMulticlassSpellcasterLevel,
+  computeSlotState,
   getClassName,
   getClassOptions,
+  getExactClassName,
   getProgression,
   getSpellSlots,
+  normalizeClassesMap,
   parseClasses,
-  slotsToState
+  planClassRepair,
+  resolveClassAndSubclass,
+  suggestClassNames
 } = require('../services/classProgressionService');
 
 /**
@@ -55,6 +61,129 @@ function createCharacterRoutes(deps) {
       return null;
     }
     return character;
+  }
+
+  // ---- Class write boundaries -------------------------------------------
+  // Nothing in this router may persist a `class` / `classes` string that the
+  // resolution ladder cannot turn into a canonical class name. Player-facing
+  // writes reject with 400/409; AI-authored writes drop the offending field.
+
+  /**
+   * Merge newly discovered subclasses into a character's class_choices without
+   * ever overwriting a choice the player already made.
+   * @returns {string|null} JSON string for a `class_choices = ?` update, or null.
+   */
+  function mergeClassChoices(character, pendingSubclasses) {
+    const entries = Object.entries(pendingSubclasses || {}).filter(([, subclass]) => subclass);
+    if (!entries.length) return null;
+    let choices = {};
+    try { choices = JSON.parse(character.class_choices || '{}') || {}; } catch (e) { choices = {}; }
+    if (!choices || typeof choices !== 'object' || Array.isArray(choices)) choices = {};
+    let changed = false;
+    for (const [className, subclass] of entries) {
+      if (choices[className] && choices[className].subclass) continue;
+      choices[className] = { ...(choices[className] || {}), subclass };
+      changed = true;
+    }
+    return changed ? JSON.stringify(choices) : null;
+  }
+
+  /**
+   * Persist a planClassRepair() plan and return the patched in-memory row.
+   * Legacy rows like class="Wild Magic Sorcerer" heal the first time a level-up
+   * endpoint touches them, instead of dead-ending the modal.
+   */
+  function applyClassRepair(character, plan, context) {
+    if (!plan.changed) return character;
+    const fields = Object.keys(plan.updates);
+    db.prepare(`UPDATE characters SET ${fields.map(field => `${field} = ?`).join(', ')} WHERE id = ?`)
+      .run(...fields.map(field => plan.updates[field]), character.id);
+    logger.warn(`Repaired unresolved class strings during ${context}`, {
+      characterId: character.id,
+      before: { class: character.class, classes: character.classes, class_choices: character.class_choices },
+      after: plan.updates
+    });
+    invalidateCache('characters:');
+    return { ...character, ...plan.updates };
+  }
+
+  /**
+   * Level-up entry guard. Repairs ladder-resolvable class strings in place and
+   * returns { character, className }; sends 409 unresolved_class and returns
+   * null when the class cannot be resolved at all (never silently treats an
+   * unresolvable class as a fresh multiclass).
+   */
+  function resolveCharacterClass(res, character, requestedClass, context) {
+    const reject = (unresolvedClass) => {
+      logger.warn(`Unresolvable class blocked at ${context}`, { characterId: character.id, unresolvedClass });
+      res.status(409).json({
+        error: 'unresolved_class',
+        unresolvedClass,
+        suggestions: suggestClassNames(unresolvedClass)
+      });
+      return null;
+    };
+
+    const plan = planClassRepair(character);
+    // Any leftover junk (including a stray `classes` key) is fatal here: dropping
+    // it would silently lose class levels, and keeping it would let it reach the
+    // `class` column via the primary-class recalculation.
+    if (plan.unresolved.length) return reject(plan.unresolved[0]);
+    const repaired = applyClassRepair(character, plan, context);
+
+    const storedClasses = normalizeClassesMap(repaired.classes).classes;
+    const highestStored = Object.entries(storedClasses).sort((a, b) => b[1] - a[1])[0];
+    const effective = String(requestedClass || repaired.class || (highestStored ? highestStored[0] : '')).trim();
+    const className = getExactClassName(effective) || resolveClassAndSubclass(effective).className;
+    if (!className || !CLASS_RULES[className]) return reject(effective);
+    return { character: repaired, className };
+  }
+
+  /**
+   * Normalize AI-authored class fields onto an update statement. Unresolvable
+   * values are dropped with a WARN — never written, never fatal.
+   */
+  function applyAiClassFields(editData, character, updates, values) {
+    const pendingSubclasses = {};
+
+    if (editData.class !== undefined && editData.class !== null && String(editData.class).trim() !== '') {
+      const resolved = resolveClassAndSubclass(editData.class);
+      if (resolved.className) {
+        updates.push('class = ?');
+        values.push(resolved.className);
+        if (resolved.subclass) pendingSubclasses[resolved.className] = resolved.subclass;
+      } else {
+        logger.warn('AI editor emitted an unresolvable class; dropping field', {
+          characterId: character.id, value: String(editData.class)
+        });
+      }
+    }
+
+    if (editData.classes !== undefined && editData.classes !== null) {
+      const normalized = normalizeClassesMap(editData.classes);
+      if (normalized.unresolved.length) {
+        logger.warn('AI editor emitted unresolvable class keys; dropping them', {
+          characterId: character.id, keys: normalized.unresolved
+        });
+      }
+      if (Object.keys(normalized.classes).length) {
+        updates.push('classes = ?');
+        values.push(JSON.stringify(normalized.classes));
+        for (const [className, subclass] of Object.entries(normalized.subclasses)) {
+          if (!pendingSubclasses[className]) pendingSubclasses[className] = subclass;
+        }
+      } else {
+        logger.warn('AI editor emitted a classes map with no resolvable keys; dropping field', {
+          characterId: character.id
+        });
+      }
+    }
+
+    const choicesJson = mergeClassChoices(character, pendingSubclasses);
+    if (choicesJson) {
+      updates.push('class_choices = ?');
+      values.push(choicesJson);
+    }
   }
 
   // XP thresholds for each level (D&D 5e)
@@ -133,7 +262,8 @@ function createCharacterRoutes(deps) {
     // AC — class-specific unarmored defense
     const dexMod = calcMod(character.dexterity);
     const conMod = calcMod(character.constitution);
-    const className = character.class || '';
+    // Legacy rows may still hold free-text classes; resolve before the lookups.
+    const className = getClassName(character.class) || character.class || '';
     let ac = 10 + dexMod;
     let acSource = 'Unarmored';
 
@@ -255,6 +385,36 @@ function createCharacterRoutes(deps) {
       return res.status(400).json({ error: 'character_name, race, and class are required' });
     }
 
+    // Write boundary: only a ladder-resolvable class may be persisted.
+    const resolvedClass = resolveClassAndSubclass(charClass);
+    if (!resolvedClass.className) {
+      return res.status(400).json({
+        error: 'Unknown class',
+        input: String(charClass),
+        suggestions: suggestClassNames(charClass)
+      });
+    }
+    const canonicalClass = resolvedClass.className;
+
+    const normalizedClasses = normalizeClassesMap(classes);
+    if (normalizedClasses.unresolved.length) {
+      return res.status(400).json({
+        error: 'Unknown class',
+        input: normalizedClasses.unresolved[0],
+        suggestions: suggestClassNames(normalizedClasses.unresolved[0])
+      });
+    }
+    const classesJson = Object.keys(normalizedClasses.classes).length
+      ? JSON.stringify(normalizedClasses.classes)
+      : JSON.stringify({ [canonicalClass]: 1 });
+
+    const classChoices = {};
+    const requestedSubclass = validate.sanitizeString(req.body.subclass || resolvedClass.subclass || '', 60);
+    if (requestedSubclass) classChoices[canonicalClass] = { subclass: requestedSubclass };
+    for (const [className, subclass] of Object.entries(normalizedClasses.subclasses)) {
+      if (!classChoices[className]) classChoices[className] = { subclass };
+    }
+
     const id = uuidv4();
     const con = constitution || 10;
     const hp = 10 + Math.floor((con - 10) / 2);
@@ -263,24 +423,25 @@ function createCharacterRoutes(deps) {
       id, user_id, player_name, character_name, race, class,
       strength, dexterity, constitution, intelligence, wisdom, charisma,
       hp, max_hp, background, skills, spells, passives, class_features, feats,
-      appearance, backstory, gold, inventory, spell_slots, ac, classes
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      appearance, backstory, gold, inventory, spell_slots, ac, classes, class_choices
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
       id,
       req.user.id,
       validate.sanitizeString(player_name || 'Player', 100),
       validate.sanitizeString(character_name, 100),
       validate.sanitizeString(race, 50),
-      validate.sanitizeString(charClass, 50),
+      canonicalClass,
       strength || 10, dexterity || 10, con, intelligence || 10, wisdom || 10, charisma || 10,
       req.body.hp || hp, req.body.max_hp || hp,
       validate.sanitizeString(background || '', 1000),
       skills || '', spells || '', passives || '', class_features || '', feats || '',
       appearance || '', backstory || '',
       gold || 0,
-      JSON.stringify(resolveStartingInventory(charClass, inventory)),
+      JSON.stringify(resolveStartingInventory(canonicalClass, inventory)),
       typeof spell_slots === 'string' ? spell_slots : JSON.stringify(spell_slots || {}),
       ac || 10,
-      typeof classes === 'string' ? classes : JSON.stringify(classes || { [charClass]: 1 })
+      classesJson,
+      JSON.stringify(classChoices)
     );
 
     enrichCharacter(id);
@@ -546,10 +707,25 @@ function createCharacterRoutes(deps) {
 
     const updates = [];
     const values = [];
+    const pendingSubclasses = {};
 
     for (const field of allowedFields) {
       if (req.body[field] === undefined) continue;
       let value = req.body[field];
+
+      if (field === 'class') {
+        // Write boundary: canonicalize, split off any subclass, reject junk.
+        const resolved = resolveClassAndSubclass(value);
+        if (!resolved.className) {
+          return res.status(400).json({
+            error: 'Unknown class',
+            input: String(value),
+            suggestions: suggestClassNames(value)
+          });
+        }
+        value = resolved.className;
+        if (resolved.subclass) pendingSubclasses[resolved.className] = resolved.subclass;
+      }
 
       if (field === 'spell_slots') {
         let parsed;
@@ -579,10 +755,27 @@ function createCharacterRoutes(deps) {
       values.push(value);
     }
 
-    // Handle multiclass updates
+    // Handle multiclass updates — keys are normalized through the ladder
     if (req.body.classes !== undefined) {
+      const normalized = normalizeClassesMap(req.body.classes);
+      if (normalized.unresolved.length) {
+        return res.status(400).json({
+          error: 'Unknown class',
+          input: normalized.unresolved[0],
+          suggestions: suggestClassNames(normalized.unresolved[0])
+        });
+      }
       updates.push('classes = ?');
-      values.push(typeof req.body.classes === 'string' ? req.body.classes : JSON.stringify(req.body.classes));
+      values.push(JSON.stringify(normalized.classes));
+      for (const [className, subclass] of Object.entries(normalized.subclasses)) {
+        if (!pendingSubclasses[className]) pendingSubclasses[className] = subclass;
+      }
+    }
+
+    const choicesJson = mergeClassChoices(character, pendingSubclasses);
+    if (choicesJson) {
+      updates.push('class_choices = ?');
+      values.push(choicesJson);
     }
 
     if (updates.length === 0) {
@@ -627,15 +820,25 @@ function createCharacterRoutes(deps) {
    * Get level up info for a character
    */
   router.get('/:id/levelinfo', requireUser, (req, res) => {
-    const character = loadOwnedCharacter(req, res);
-    if (!character) return;
+    const loaded = loadOwnedCharacter(req, res);
+    if (!loaded) return;
+
+    // Repair ladder-resolvable class strings on the spot; 409 when hopeless so
+    // the modal can render a repair widget instead of dead-ending on a null
+    // nextProgression served as HTTP 200.
+    const resolved = resolveCharacterClass(res, loaded, req.query.class, 'levelinfo');
+    if (!resolved) return;
+    const character = resolved.character;
 
     const requiredXP = getRequiredXP(character.level);
     const canLevel = (character.xp || 0) >= requiredXP && character.level < 20;
     const currentClasses = parseClasses(character.classes, character.class, character.level);
-    const currentClass = getClassName(req.query.class || character.class) || character.class;
+    const currentClass = resolved.className;
     const currentClassLevel = currentClasses[currentClass] || 0;
     const nextProgression = getProgression(currentClass, Math.min(20, currentClassLevel + 1));
+
+    let classChoices = {};
+    try { classChoices = JSON.parse(character.class_choices || '{}') || {}; } catch (e) { classChoices = {}; }
 
     res.json({
       canLevel,
@@ -646,6 +849,7 @@ function createCharacterRoutes(deps) {
       classOptions: getClassOptions(character),
       currentClass,
       currentClassLevel,
+      currentSubclass: (classChoices[currentClass] || {}).subclass || null,
       nextProgression
     });
   });
@@ -661,10 +865,10 @@ function createCharacterRoutes(deps) {
       return res.status(404).json({ error: 'Character not found' });
     }
 
-    // Reset to level 1 with base stats
-    const primaryClass = character.class;
+    // Reset to level 1 with base stats (canonical class key only)
+    const primaryClass = getClassName(character.class) || character.class;
     const newClasses = {};
-    newClasses[primaryClass] = 1;
+    if (primaryClass) newClasses[primaryClass] = 1;
 
     db.prepare(`
       UPDATE characters SET
@@ -691,17 +895,25 @@ function createCharacterRoutes(deps) {
    * Apply a rules-validated 2014/5e level up. AI is not involved in mechanics.
    */
   router.post('/:id/levelup', requireUser, (req, res) => {
-    const character = loadOwnedCharacter(req, res);
-    if (!character) return;
-    if (!canLevelUp(character.xp || 0, character.level)) {
-      return res.status(400).json({ error: 'Not enough XP to level up', currentXP: character.xp || 0, requiredXP: getRequiredXP(character.level) });
+    const loaded = loadOwnedCharacter(req, res);
+    if (!loaded) return;
+    if (!canLevelUp(loaded.xp || 0, loaded.level)) {
+      return res.status(400).json({ error: 'Not enough XP to level up', currentXP: loaded.xp || 0, requiredXP: getRequiredXP(loaded.level) });
     }
 
     const choices = req.body.choices;
     if (!choices || typeof choices !== 'object' || Array.isArray(choices)) {
       return res.status(400).json({ error: 'Level-up choices are required. Open the structured level-up form and choose the available options.' });
     }
-    const className = getClassName(choices.class_name || choices.className || character.class);
+
+    // Entry guard: repair the stored class first so an unresolvable current
+    // class can never be mistaken for a fresh multiclass.
+    const currentResolved = resolveCharacterClass(res, loaded, null, 'levelup');
+    if (!currentResolved) return;
+    const character = currentResolved.character;
+
+    const requestedClass = choices.class_name || choices.className;
+    const className = requestedClass ? getClassName(requestedClass) : currentResolved.className;
     if (!className || !CLASS_RULES[className]) return res.status(400).json({ error: 'Choose a valid class.' });
 
     const currentClasses = parseClasses(character.classes, character.class, character.level);
@@ -761,7 +973,19 @@ function createCharacterRoutes(deps) {
     const slots = hasRegularCaster ? FULL_CASTER_SLOTS[Math.min(20, casterLevel)] || [] : getSpellSlots(className, classLevel);
     let existingSlots = {};
     try { existingSlots = JSON.parse(character.spell_slots || '{}'); } catch (e) { existingSlots = {}; }
-    const spellSlots = slotsToState(slots, existingSlots);
+    // Floor guard: a level-up may never shrink stored slot capacity.
+    const slotState = computeSlotState(slots, existingSlots);
+    const spellSlots = slotState.state;
+    let slotWarning = null;
+    if (slotState.flooredLevels.length) {
+      slotWarning = `Kept existing spell slot capacity at level ${slotState.flooredLevels.join(', ')}; the computed progression would have reduced it.`;
+      logger.warn('Level-up slot floor applied', {
+        characterId: character.id,
+        className,
+        classLevel,
+        flooredLevels: slotState.flooredLevels
+      });
+    }
     let classResources = {};
     try { classResources = JSON.parse(character.class_resources || '{}'); } catch (e) { classResources = {}; }
     classResources[className] = { level: classLevel, features: progression.features, spell_slots: progression.spellSlots, resources: progression.resources, proficiency_bonus: progression.proficiencyBonus };
@@ -799,6 +1023,7 @@ function createCharacterRoutes(deps) {
       message: `Level ${updatedChar.level} complete. ${className} gained ${featureEntries.join(', ') || 'no new named features'}; HP increased by ${hpIncrease}.`,
       complete: true,
       character: updatedChar,
+      ...(slotWarning ? { slotWarning } : {}),
       levelUp: { class_leveled: className, new_class_level: classLevel, hp_increase: hpIncrease, features: progression.features, spell_slots: spellSlots }
     });
   });
@@ -959,17 +1184,32 @@ LEVELUP_COMPLETE:{"hp_increase":N,"class_leveled":"ClassName","new_class_level":
               ? (character.feats ? `${character.feats}, ${levelData.new_feat}` : levelData.new_feat)
               : character.feats;
 
-            let updatedClasses = {};
-            try {
-              updatedClasses = JSON.parse(character.classes || '{}');
-            } catch (e) {
-              updatedClasses = {};
-              if (character.class) {
-                updatedClasses[character.class] = character.level;
-              }
+            // Class keys are AI-authored: normalize through the ladder and
+            // refuse to persist anything unresolvable.
+            const normalizedExisting = normalizeClassesMap(character.classes);
+            const canonicalCurrent = getClassName(character.class);
+            const updatedClasses = { ...normalizedExisting.classes };
+            if (normalizedExisting.unresolved.length) {
+              logger.warn('Legacy AI level-up found unresolvable stored class keys; dropping them', {
+                characterId: character.id, keys: normalizedExisting.unresolved
+              });
+            }
+            if (!Object.keys(updatedClasses).length && canonicalCurrent) {
+              updatedClasses[canonicalCurrent] = character.level;
             }
 
-            const classLeveled = levelData.class_leveled || character.class;
+            const classLeveled = getClassName(levelData.class_leveled) || canonicalCurrent;
+            if (!classLeveled) {
+              const unresolvedClass = String(levelData.class_leveled || character.class || '');
+              logger.warn('Legacy AI level-up produced an unresolvable class; refusing to write', {
+                characterId: character.id, unresolvedClass
+              });
+              return res.status(409).json({
+                error: 'unresolved_class',
+                unresolvedClass,
+                suggestions: suggestClassNames(unresolvedClass)
+              });
+            }
             updatedClasses[classLeveled] = (updatedClasses[classLeveled] || 0) + 1;
 
             const primaryClass = Object.entries(updatedClasses)
@@ -1103,7 +1343,9 @@ IMPORTANT: Output EDIT_COMPLETE: immediately followed by the JSON on ONE line. N
             const updates = [];
             const values = [];
 
-            const fields = ['character_name', 'race', 'class', 'level', 'xp', 'gold', 'strength', 'dexterity', 'constitution',
+            // `class` / `classes` are handled by applyAiClassFields (ladder-normalized,
+            // unresolvable values dropped) and deliberately absent from this list.
+            const fields = ['character_name', 'race', 'level', 'xp', 'gold', 'strength', 'dexterity', 'constitution',
                            'intelligence', 'wisdom', 'charisma', 'hp', 'max_hp', 'ac', 'background',
                            'appearance', 'backstory', 'spells', 'skills', 'passives', 'class_features', 'feats'];
 
@@ -1119,10 +1361,7 @@ IMPORTANT: Output EDIT_COMPLETE: immediately followed by the JSON on ONE line. N
               values.push(typeof editData.spell_slots === 'string' ? editData.spell_slots : JSON.stringify(editData.spell_slots));
             }
 
-            if (editData.classes !== undefined) {
-              updates.push('classes = ?');
-              values.push(typeof editData.classes === 'string' ? editData.classes : JSON.stringify(editData.classes));
-            }
+            applyAiClassFields(editData, character, updates, values);
 
             if (updates.length > 0) {
               values.push(req.params.id);
@@ -1153,7 +1392,8 @@ IMPORTANT: Output EDIT_COMPLETE: immediately followed by the JSON on ONE line. N
             const editData = JSON.parse(jsonFallback[0]);
             const updates = [];
             const values = [];
-            const fields = ['character_name', 'race', 'class', 'level', 'xp', 'gold', 'strength', 'dexterity', 'constitution',
+            // Same boundary as the marker path: class fields go through the ladder.
+            const fields = ['character_name', 'race', 'level', 'xp', 'gold', 'strength', 'dexterity', 'constitution',
                            'intelligence', 'wisdom', 'charisma', 'hp', 'max_hp', 'ac', 'background',
                            'appearance', 'backstory', 'spells', 'skills', 'passives', 'class_features', 'feats'];
             fields.forEach(field => {
@@ -1166,10 +1406,7 @@ IMPORTANT: Output EDIT_COMPLETE: immediately followed by the JSON on ONE line. N
               updates.push('spell_slots = ?');
               values.push(typeof editData.spell_slots === 'string' ? editData.spell_slots : JSON.stringify(editData.spell_slots));
             }
-            if (editData.classes !== undefined) {
-              updates.push('classes = ?');
-              values.push(typeof editData.classes === 'string' ? editData.classes : JSON.stringify(editData.classes));
-            }
+            applyAiClassFields(editData, character, updates, values);
             if (updates.length > 0) {
               values.push(req.params.id);
               db.prepare(`UPDATE characters SET ${updates.join(', ')} WHERE id = ?`).run(...values);
@@ -1227,21 +1464,44 @@ IMPORTANT: Output EDIT_COMPLETE: immediately followed by the JSON on ONE line. N
           try {
             const charData = JSON.parse(jsonStr);
 
+            // Write boundary: never persist an AI-invented class string.
+            const resolvedClass = resolveClassAndSubclass(charData.class);
+            if (!resolvedClass.className) {
+              logger.warn('AI character creation produced an unresolvable class; not saving', { value: String(charData.class || '') });
+              return res.json({
+                message: `I couldn't match "${String(charData.class || '')}" to a 5e class. Pick one of: ${suggestClassNames(charData.class).join(', ')} and I'll finish the sheet.`,
+                complete: false
+              });
+            }
+            const canonicalClass = resolvedClass.className;
+            const normalizedClasses = normalizeClassesMap(charData.classes);
+            if (normalizedClasses.unresolved.length) {
+              logger.warn('AI character creation emitted unresolvable class keys; dropping them', { keys: normalizedClasses.unresolved });
+            }
+            const classesJson = Object.keys(normalizedClasses.classes).length
+              ? JSON.stringify(normalizedClasses.classes)
+              : JSON.stringify({ [canonicalClass]: 1 });
+            const classChoices = {};
+            if (resolvedClass.subclass) classChoices[canonicalClass] = { subclass: resolvedClass.subclass };
+            for (const [className, subclass] of Object.entries(normalizedClasses.subclasses)) {
+              if (!classChoices[className]) classChoices[className] = { subclass };
+            }
+
             const id = uuidv4();
             const hp = 10 + Math.floor((charData.constitution - 10) / 2);
-            const classesJson = charData.classes ? JSON.stringify(charData.classes) : JSON.stringify({ [charData.class]: 1 });
 
             db.prepare(`
-              INSERT INTO characters (id, user_id, player_name, character_name, race, class, classes, level, strength, dexterity, constitution, intelligence, wisdom, charisma, hp, max_hp, background, appearance, backstory, spells, skills, passives, class_features, feats)
-              VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              INSERT INTO characters (id, user_id, player_name, character_name, race, class, classes, class_choices, level, strength, dexterity, constitution, intelligence, wisdom, charisma, hp, max_hp, background, appearance, backstory, spells, skills, passives, class_features, feats)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `).run(
               id,
               req.user.id,
               charData.player_name,
               charData.character_name,
               charData.race,
-              charData.class,
+              canonicalClass,
               classesJson,
+              JSON.stringify(classChoices),
               charData.strength,
               charData.dexterity,
               charData.constitution,
