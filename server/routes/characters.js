@@ -104,6 +104,10 @@ function createCharacterRoutes(deps) {
       after: plan.updates
     });
     invalidateCache('characters:');
+    // Other clients are holding the pre-repair row; broadcast like every other
+    // write in this router does so nobody stays on a stale class string.
+    const repairedRow = db.prepare('SELECT * FROM characters WHERE id = ?').get(character.id);
+    if (repairedRow) emitCharacterUpdate(repairedRow.id, 'character_updated', repairedRow);
     return { ...character, ...plan.updates };
   }
 
@@ -973,8 +977,12 @@ function createCharacterRoutes(deps) {
     const slots = hasRegularCaster ? FULL_CASTER_SLOTS[Math.min(20, casterLevel)] || [] : getSpellSlots(className, classLevel);
     let existingSlots = {};
     try { existingSlots = JSON.parse(character.spell_slots || '{}'); } catch (e) { existingSlots = {}; }
-    // Floor guard: a level-up may never shrink stored slot capacity.
-    const slotState = computeSlotState(slots, existingSlots);
+    // Floor guard: a level-up may never shrink stored slot capacity — EXCEPT for
+    // pact magic, whose single slot row legitimately climbs a level at a time.
+    // Keyed off warlock presence in the whole class map (not just the class being
+    // levelled) because a Warlock/Sorcerer multiclass carries pact rows too.
+    const hasPactMagic = Object.keys(updatedClasses).some(name => CLASS_RULES[name]?.caster === 'warlock');
+    const slotState = computeSlotState(slots, existingSlots, { allowShrink: hasPactMagic });
     const spellSlots = slotState.state;
     let slotWarning = null;
     if (slotState.flooredLevels.length) {

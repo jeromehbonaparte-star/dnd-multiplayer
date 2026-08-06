@@ -783,6 +783,9 @@ details.drawer-section.utility-menu > summary:hover { color: var(--accent-hover)
 
 .combat-gm-actions { display: flex; gap: 5px; flex-wrap: wrap; margin-left: auto; }
 .combat-gm-actions button, .music-dj-controls button { padding: 5px 9px; min-height: 30px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--bg-light); color: var(--text); cursor: pointer; font-family: var(--font-body); font-size: 12px; }
+/* The DJ transport keeps its original tight 3px corners (the shared rule above
+   is the combat tracker's, whose var(--radius-sm) is 6px). */
+.music-dj-controls button { border-radius: 3px; }
 .combat-gm-actions button:hover, .music-dj-controls button:hover { border-color: var(--accent); color: var(--accent); }
 .combat-gm-actions .combat-end-btn { color: var(--danger); }
 
@@ -1570,6 +1573,22 @@ details.drawer-section.utility-menu > summary:hover { color: var(--accent-hover)
 }
 
 .btn-submit:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; transform: none; }
+
+/* Voluntary "I'm done" during a fight — same shape as Submit, quieter fill.
+   Shown to whoever is acting, players included; it is not a GM control. */
+.btn-end-turn {
+  min-width: 74px;
+  background: var(--bg-light);
+  color: var(--text);
+  border: 1px solid var(--border-color);
+  box-shadow: none;
+}
+.btn-end-turn:hover {
+  background: var(--bg-light);
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: none;
+}
 
 /* ---------------------------------------------------------------
    13. DICE ROLLER

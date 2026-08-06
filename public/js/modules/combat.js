@@ -457,6 +457,18 @@ export async function postCombatTurnAction(characterId, action, version) {
   return result;
 }
 
+/** POST a voluntary end of turn — no action text, no narration, no dice. */
+export async function postCombatEndTurn(characterId, version) {
+  const session = getState('currentSession');
+  if (!session) throw new Error('Select a session first.');
+  const result = await api(`/api/sessions/${session.id}/combat/end-turn`, 'POST', {
+    ...(characterId ? { characterId } : {}),
+    ...(Number.isInteger(version) ? { version } : {})
+  });
+  renderCombatTracker(result.combat || null);
+  return result;
+}
+
 // ============================================
 // GM controls
 // ============================================

@@ -8,7 +8,7 @@
 import { getState, setState } from '../state.js';
 import {
   renderCombatTracker, renderCombatHistoryEntry, getCombatActionMode,
-  postInitiativeRoll, postCombatTurnAction, handleCombatApiError
+  postInitiativeRoll, postCombatTurnAction, postCombatEndTurn, handleCombatApiError
 } from './combat.js';
 import { renderYouTubeDJ } from './youtubeDj.js';
 import { api } from '../api.js';
@@ -249,6 +249,11 @@ export async function loadSession(id) {
     if (!previousSession || previousSession.id !== id) {
       storyContainer?.classList.remove('logs-open', 'story-expanded');
       _storyMinimized = false;
+      // Different fight, independent version counters. Session A at version 7
+      // would make renderCombatTracker's out-of-order guard swallow session B's
+      // version-1 tracker and leave the action bar locked on A's state, so tear
+      // the old tracker down BEFORE the new session's combat is rendered.
+      renderCombatTracker(null);
     }
     setState({
       currentSession: data.session,
@@ -1699,6 +1704,37 @@ async function submitCombatAction(combat) {
   }
 }
 
+/**
+ * Voluntary end of turn. Available to whoever is acting (players included), so
+ * a fight can never stall on someone who has nothing left to do. No action text
+ * and no dice roll are required — the server just walks the turn on.
+ */
+export async function endCombatTurn() {
+  const combat = getCombatActionMode();
+  if (!combat.active || combat.mode !== 'turn') {
+    showNotification(combat.banner || 'It is not your turn yet.');
+    return;
+  }
+  const endTurnBtn = document.getElementById('end-turn-btn');
+  if (endTurnBtn) {
+    endTurnBtn.disabled = true;
+    endTurnBtn.textContent = 'Ending...';
+  }
+  try {
+    await postCombatEndTurn(combat.characterId, combat.version);
+    resetDiceRoll();
+    dismissChoices();
+    const actionTextarea = document.getElementById('action-text');
+    if (actionTextarea) actionTextarea.value = '';
+  } catch (error) {
+    console.error('Failed to end the combat turn:', error);
+    handleCombatApiError(error, 'Unable to end your turn.');
+  } finally {
+    if (endTurnBtn) endTurnBtn.textContent = 'End Turn';
+    updateActionFormState();
+  }
+}
+
 export async function submitAction() {
   const currentSession = getState('currentSession');
   if (!currentSession) { alert('Please select a session first'); return; }
@@ -1898,6 +1934,14 @@ export function updateActionFormState() {
       submitBtn.disabled = false;
       submitBtn.textContent = 'Submit Action';
     }
+  }
+
+  // "End Turn" only exists during a fight, and only for the combatant whose turn
+  // it is. Deliberately not admin-gated: the acting PLAYER is the one who needs it.
+  const endTurnBtn = document.getElementById('end-turn-btn');
+  if (endTurnBtn) {
+    endTurnBtn.style.display = canTakeTurn ? '' : 'none';
+    endTurnBtn.disabled = !canTakeTurn || isTurnProcessing;
   }
 
   if (actionTextarea) {

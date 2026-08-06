@@ -4,8 +4,12 @@ const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
+  CLASS_RULES,
+  FULL_CASTER_SLOTS,
+  calculateMulticlassSpellcasterLevel,
   computeSlotState,
   getClassName,
+  getSpellSlots,
   getExactClassName,
   normalizeClassesMap,
   parseClasses,
@@ -133,6 +137,80 @@ describe('spell slot floor guard', () => {
   test('slotsToState keeps its legacy signature and drops empty levels', () => {
     assert.deepEqual(slotsToState([2, 0, 0], {}), { 1: { max: 2, current: 2 } });
     assert.deepEqual(slotsToState([0], { 4: { max: 3, current: 1 } }), { 4: { max: 3, current: 1 } });
+  });
+});
+
+// ============================================
+// Pact magic: the floor guard must NOT apply
+// ============================================
+
+/**
+ * Replays the /levelup slot algorithm one class level at a time, feeding each
+ * result back in as the stored state — exactly how a real character accumulates
+ * `spell_slots`. `allowShrink` is decided the way the route decides it: any
+ * warlock anywhere in the class MAP.
+ */
+function levelUpSlots(steps) {
+  const classes = {};
+  let state = {};
+  let warnings = 0;
+  for (const className of steps) {
+    classes[className] = (classes[className] || 0) + 1;
+    const casterLevel = calculateMulticlassSpellcasterLevel(classes);
+    const slots = casterLevel > 0
+      ? (FULL_CASTER_SLOTS[Math.min(20, casterLevel)] || [])
+      : getSpellSlots(className, classes[className]);
+    const hasPactMagic = Object.keys(classes).some(name => CLASS_RULES[name]?.caster === 'warlock');
+    const result = computeSlotState(slots, state, { allowShrink: hasPactMagic });
+    if (result.flooredLevels.length) warnings++;
+    state = result.state;
+  }
+  return { state, warnings };
+}
+
+const repeat = (name, count) => Array.from({ length: count }, () => name);
+
+describe('pact magic slot progression', () => {
+  test('allowShrink lets a slot row move up a level instead of accumulating', () => {
+    const { state, flooredLevels } = computeSlotState(
+      [0, 0, 0, 0, 2, 0, 0, 0, 0],
+      { 4: { max: 2, current: 2 } },
+      { allowShrink: true }
+    );
+    assert.deepEqual(state, { 5: { max: 2, current: 2 } });
+    assert.deepEqual(flooredLevels, []);
+  });
+
+  test('cumulative Warlock 1 -> 9 keeps only the level 5 pact slots', () => {
+    const { state, warnings } = levelUpSlots(repeat('Warlock', 9));
+    assert.deepEqual(state, { 5: { max: 2, current: 2 } });
+    assert.equal(warnings, 0, 'a clean pact progression must never raise a slot warning');
+  });
+
+  test('Warlock 5 and Warlock 20 match the pre-floor progression', () => {
+    assert.deepEqual(levelUpSlots(repeat('Warlock', 5)).state, { 3: { max: 2, current: 2 } });
+    assert.deepEqual(levelUpSlots(repeat('Warlock', 20)).state, { 5: { max: 4, current: 2 } });
+  });
+
+  test('Warlock/Sorcerer multiclass does not accumulate stale pact rows', () => {
+    const forward = levelUpSlots([...repeat('Warlock', 6), ...repeat('Sorcerer', 2)]);
+    assert.deepEqual(forward.state, { 1: { max: 3, current: 2 } });
+    assert.equal(forward.warnings, 0);
+
+    const reversed = levelUpSlots([...repeat('Sorcerer', 2), ...repeat('Warlock', 6)]);
+    assert.deepEqual(reversed.state, { 1: { max: 3, current: 2 } });
+    assert.equal(reversed.warnings, 0);
+  });
+
+  test('a non-pact caster still gets the floor: a misresolved class keeps stored slots', () => {
+    const { state, flooredLevels } = computeSlotState([], { 1: { max: 4, current: 2 }, 2: { max: 3, current: 3 } });
+    assert.deepEqual(state, { 1: { max: 4, current: 2 }, 2: { max: 3, current: 3 } });
+    assert.deepEqual(flooredLevels, ['1', '2']);
+
+    // ...and a pure Wizard progression is untouched by the allowShrink option.
+    const wizard = levelUpSlots(repeat('Wizard', 9));
+    assert.equal(wizard.warnings, 0);
+    assert.deepEqual(wizard.state[5], { max: 1, current: 1 });
   });
 });
 

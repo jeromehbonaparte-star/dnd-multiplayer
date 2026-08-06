@@ -543,9 +543,20 @@ function calculateMulticlassSpellcasterLevel(classLevels) {
  * lists every level where the floor kicked in so the CALLER can log a warning
  * and surface it to the player.
  *
+ * `options.allowShrink` turns the floor OFF. Pact magic legitimately MOVES its
+ * single slot row UP a level (Warlock 8 is `{"4":{max:2}}`, Warlock 9 is
+ * `{"5":{max:2}}`), so flooring a warlock would accumulate every level the pact
+ * ever occupied — permanently, plus a spurious warning on every level-up. When
+ * shrinking is allowed the computed array wins outright and `flooredLevels`
+ * stays empty.
+ *
+ * @param {Array<number>} slots - computed progression row
+ * @param {Object} [existing] - stored `spell_slots` state
+ * @param {{allowShrink?: boolean}} [options]
  * @returns {{ state: Object, flooredLevels: string[] }}
  */
-function computeSlotState(slots, existing = {}) {
+function computeSlotState(slots, existing = {}, options = {}) {
+  const allowShrink = Boolean(options && options.allowShrink);
   const computed = Array.isArray(slots) ? slots : [];
   const current = existing && typeof existing === 'object' && !Array.isArray(existing) ? existing : {};
   const levels = new Set(computed.map((_, index) => index + 1));
@@ -560,8 +571,8 @@ function computeSlotState(slots, existing = {}) {
     const computedMax = Math.max(0, Number(computed[level - 1]) || 0);
     const old = current[key] && typeof current[key] === 'object' ? current[key] : {};
     const storedMax = Math.max(0, Number(old.max) || 0);
-    const max = Math.max(computedMax, storedMax);
-    if (storedMax > computedMax) flooredLevels.push(key);
+    const max = allowShrink ? computedMax : Math.max(computedMax, storedMax);
+    if (!allowShrink && storedMax > computedMax) flooredLevels.push(key);
     if (max <= 0) continue;
     const storedCurrent = Number.isFinite(old.current) ? Number(old.current) : max;
     state[key] = { max, current: Math.max(0, Math.min(max, storedCurrent)) };

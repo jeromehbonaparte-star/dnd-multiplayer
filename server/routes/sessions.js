@@ -110,6 +110,48 @@ function createSessionRoutes(deps) {
   // Narrative combat (NTC) plumbing
   // ============================================
 
+  /**
+   * Per-session serialization for every MUTATING combat route.
+   *
+   * `saveCombat` is a blind UPDATE and the optimistic `version` check happens
+   * before the (up to 20s) adjudicator await, so two overlapping requests would
+   * TOCTOU each other — a GM "end combat" landing mid-adjudication could be
+   * resurrected by the losing writer. Deliberately NOT `processingSessions`:
+   * `runCombatConclusion` inspects that set and degrades to the no-narration
+   * path when it is already held.
+   */
+  const combatLocks = new Set();
+  const COMBAT_BUSY_ERROR = 'Another combat action is still resolving. Try again in a moment.';
+
+  /**
+   * Wraps a combat route handler so at most one mutation per session is in
+   * flight. The lock is taken BEFORE the handler body runs, so `getActiveCombat`
+   * always loads state under it, and released once the handler settles.
+   *
+   * The lock is per-route-entry only: internal helpers (`continueCombat`,
+   * `driveEnemyTurns`, `runCombatConclusion`) never re-check it, so the enemy
+   * turns a route awaits run inside that route's own lock.
+   */
+  function withCombatLock(handler) {
+    return async (req, res, ...rest) => {
+      const sessionId = req.params.id;
+      if (combatLocks.has(sessionId)) {
+        return res.status(409).json({ error: COMBAT_BUSY_ERROR });
+      }
+      combatLocks.add(sessionId);
+      try {
+        return await handler(req, res, ...rest);
+      } catch (error) {
+        // Express 4 does not catch a rejected promise, and a hung request would
+        // leave the player staring at a spinner. Answer, then release.
+        logger.error('Combat route threw', { sessionId, url: req.originalUrl, error: error.message });
+        if (!res.headersSent) res.status(500).json({ error: 'Combat action failed.' });
+      } finally {
+        combatLocks.delete(sessionId);
+      }
+    };
+  }
+
   function saveCombat(combat, state) {
     db.prepare('UPDATE combats SET combatants = ?, current_turn = ?, round = ?, is_active = ? WHERE id = ?')
       .run(combatService.serialize(state), state.turnIndex, state.round, state.outcome ? 0 : 1, combat.id);
@@ -147,6 +189,8 @@ function createSessionRoutes(deps) {
     const combat = { ...rest, state };
     if (!raw || Number(raw.schema) !== combatService.COMBAT_SCHEMA_VERSION) {
       hydrateMigratedCombat(state);
+      // Schema-1 blobs carried no name — the encounter name lived on the row.
+      if (!raw?.name && row.name) state.name = row.name;
       saveCombat(combat, state);
       logger.info('Migrated a tactical encounter to narrative combat', { sessionId, combatId: row.id });
     }
@@ -361,6 +405,32 @@ function createSessionRoutes(deps) {
   }
 
   /**
+   * Crash recovery for a parked enemy turn.
+   *
+   * Enemy turns only ever run inside a request. If the process dies mid
+   * `driveEnemyTurns`, the persisted state is left resting on an enemy unit and
+   * every player route answers 403 ("not your turn") forever. Any read that
+   * notices that re-kicks the driver in the background under the same lock the
+   * mutating routes take, so it can neither race them nor double-fire.
+   *
+   * Fire-and-forget on purpose: the caller's response must not wait for it.
+   */
+  function resumeIfParked(sessionId, combat, state) {
+    if (!combat || !state || state.outcome || state.phase !== 'active') return false;
+    const unit = combatService.currentUnit(state);
+    if (!unit || unit.side !== 'enemy') return false;
+    if (combatLocks.has(sessionId)) return false;
+
+    combatLocks.add(sessionId);
+    logger.warn('Resuming a parked enemy turn', { sessionId, combatId: combat.id, unitId: unit.id });
+    Promise.resolve()
+      .then(() => continueCombat(sessionId, combat, state))
+      .catch(error => logger.error('Unable to resume a parked enemy turn', { sessionId, combatId: combat.id, error: error.message }))
+      .finally(() => combatLocks.delete(sessionId));
+    return true;
+  }
+
+  /**
    * GET /api/sessions
    * List all sessions
    */
@@ -533,6 +603,10 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
       combat: activeCombat ? toPublicCombat(activeCombat, activeCombat.state) : null,
       features: { povImageEnabled }
     });
+
+    // After the response: a fight left resting on an enemy unit by a crashed
+    // process is un-stuck here, in the background.
+    if (activeCombat) resumeIfParked(req.params.id, activeCombat, activeCombat.state);
   });
 
   /**
@@ -541,7 +615,7 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
    * always come from the current session characters. Combat opens in the
    * initiative phase — every player rolls a d20 before the first turn.
    */
-  router.post('/:id/combat', requireAdmin, (req, res) => {
+  router.post('/:id/combat', requireAdmin, withCombatLock((req, res) => {
     const sessionId = req.params.id;
     const session = db.prepare('SELECT id FROM game_sessions WHERE id = ?').get(sessionId);
     if (!session) return res.status(404).json({ error: 'Session not found' });
@@ -585,7 +659,7 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
       logger.error('Unable to start combat', { sessionId, error: error.message });
       res.status(400).json({ error: error.message || 'Unable to start combat.' });
     }
-  });
+  }));
 
   /**
    * POST /api/sessions/:id/combat/initiative
@@ -593,7 +667,7 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
    * the server adds the DEX-based bonus. When the last party unit rolls, the
    * turn order locks in and any leading enemy turns resolve immediately.
    */
-  router.post('/:id/combat/initiative', requireUser, async (req, res) => {
+  router.post('/:id/combat/initiative', requireUser, withCombatLock(async (req, res) => {
     const sessionId = req.params.id;
     if (!userCanViewSession(req.user, sessionId)) return res.status(403).json({ error: 'You do not have a character in this session' });
     const combat = getActiveCombat(sessionId);
@@ -631,10 +705,10 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
       outcome: state.outcome || null,
       ...(conclusion || {})
     });
-  });
+  }));
 
   /** POST /api/sessions/:id/combat/roll-remaining - GM rolls initiative for stragglers. */
-  router.post('/:id/combat/roll-remaining', requireAdmin, async (req, res) => {
+  router.post('/:id/combat/roll-remaining', requireAdmin, withCombatLock(async (req, res) => {
     const sessionId = req.params.id;
     const combat = getActiveCombat(sessionId);
     if (!combat) return res.status(404).json({ error: 'No active encounter.' });
@@ -663,7 +737,7 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
       outcome: state.outcome || null,
       ...(conclusion || {})
     });
-  });
+  }));
 
   /**
    * POST /api/sessions/:id/combat/turn-action
@@ -672,7 +746,7 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
    * engine applies the returned Adjudication JSON, the sheet is written back and
    * any enemy turns that follow resolve before the response returns.
    */
-  router.post('/:id/combat/turn-action', requireUser, async (req, res) => {
+  router.post('/:id/combat/turn-action', requireUser, withCombatLock(async (req, res) => {
     const sessionId = req.params.id;
     if (!userCanViewSession(req.user, sessionId)) return res.status(403).json({ error: 'You do not have a character in this session' });
     const combat = getActiveCombat(sessionId);
@@ -772,7 +846,53 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
       outcome: state.outcome || null,
       ...(conclusion || {})
     });
-  });
+  }));
+
+  /**
+   * POST /api/sessions/:id/combat/end-turn
+   * Body: { characterId?, version? }. The acting player voluntarily passes.
+   * Same auth + "is it your turn" gate as /combat/turn-action, but no
+   * adjudication and no narration: the turn walker simply moves on and the
+   * enemy turns that follow resolve before the response returns.
+   */
+  router.post('/:id/combat/end-turn', requireUser, withCombatLock(async (req, res) => {
+    const sessionId = req.params.id;
+    if (!userCanViewSession(req.user, sessionId)) return res.status(403).json({ error: 'You do not have a character in this session' });
+    const combat = getActiveCombat(sessionId);
+    if (!combat) return res.status(404).json({ error: 'No active encounter.' });
+    const state = combat.state;
+    if (state.outcome) return res.status(409).json({ error: 'This encounter has already ended.' });
+    if (state.phase !== 'active') return res.status(409).json({ error: 'Initiative is still being rolled.' });
+    if (Number.isInteger(req.body?.version) && req.body.version !== state.version) {
+      return res.status(409).json({ error: 'The combat changed. Reloading the latest state.', combat: toPublicCombat(combat, state) });
+    }
+
+    const actor = resolveCombatActor(req, state, unit => combatService.isPlayerTurn(state, unit.sourceCharacterId));
+    if (actor.error) return res.status(actor.status).json({ error: actor.error });
+    if (!combatService.isPlayerTurn(state, actor.unit.sourceCharacterId)) {
+      return res.status(403).json({ error: 'It is not that character\'s turn.', combat: toPublicCombat(combat, state) });
+    }
+
+    combatIntegration.passTurn(state);
+    persistCombatWriteback(state);
+    saveCombat(combat, state);
+    emitCombatUpdate(sessionId, combat, state);
+
+    let conclusion = null;
+    try {
+      conclusion = await continueCombat(sessionId, combat, state);
+    } catch (error) {
+      logger.error('Combat could not continue after a player ended their turn', { sessionId, error: error.message });
+    }
+
+    res.json({
+      combat: state.outcome ? null : toPublicCombat(combat, state),
+      turnAdvanced: true,
+      version: state.version,
+      outcome: state.outcome || null,
+      ...(conclusion || {})
+    });
+  }));
 
   /**
    * POST /api/sessions/:id/combat/end
@@ -780,7 +900,7 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
    * fight properly: outcome 'resolved' plus the same summary + aftermath
    * narration a natural ending produces.
    */
-  router.post('/:id/combat/end', requireAdmin, async (req, res) => {
+  router.post('/:id/combat/end', requireAdmin, withCombatLock(async (req, res) => {
     const sessionId = req.params.id;
     const combat = getActiveCombat(sessionId);
     if (!combat) return res.status(404).json({ error: 'No active encounter.' });
@@ -811,7 +931,7 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
       logger.error('GM ended combat but the aftermath narration failed', { sessionId, error: error.message });
     }
     res.json({ success: true, outcome: state.outcome, ...(conclusion || {}) });
-  });
+  }));
 
   /** POST /api/sessions/:id/music - GM manual override for the shared YouTube DJ. */
   router.post('/:id/music', requireAdmin, async (req, res) => {

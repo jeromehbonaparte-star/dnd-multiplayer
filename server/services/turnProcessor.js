@@ -498,6 +498,17 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
     db.prepare('DELETE FROM pending_actions WHERE session_id = ?').run(sessionId);
 
     const payload = { ...combat, state: combatIntegration.publicCombatState(state) };
+    // `combat_updated` MUST go first. `turn_processed` makes the client reload
+    // the session, which renders the tracker and populates `activeCombat`; a
+    // later `combat_updated` would then see a previous state and swallow the
+    // "roll for initiative!" toast (its `automatic && !previous` guard).
+    sendToSession(sessionId, 'combat_updated', combatIntegration.buildCombatUpdatedPayload({
+      sessionId,
+      combatId: combat.id,
+      state,
+      events: state.log,
+      automatic: true
+    }));
     sendToSession(sessionId, 'turn_processed', {
       sessionId,
       response: '',
@@ -507,13 +518,6 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
       choices: [],
       combatPending: true
     });
-    sendToSession(sessionId, 'combat_updated', combatIntegration.buildCombatUpdatedPayload({
-      sessionId,
-      combatId: combat.id,
-      state,
-      events: state.log,
-      automatic: true
-    }));
     logger.info('Deferred narration and started narrative combat', { sessionId, combatId: combat.id, enemies: automaticCombatSetup.enemies.length });
     return { response: '', tokensUsed: promptTokens, combat: payload, deferredNarration: true };
   }

@@ -933,9 +933,11 @@ function applyAdjudication(state, actingUnitId, adjudication) {
 
 /**
  * Sheet deltas the caller should persist after every applied adjudication.
- * `inventory: null` means "this unit never carried tracked inventory"
- * (migrated schema-1 units) — callers must NOT overwrite the stored inventory
- * with an empty list in that case.
+ *
+ * `null` is the "never tracked on this unit" sentinel — callers must NOT
+ * overwrite the stored column in that case. `inventory: null` covers migrated
+ * schema-1 units; `spellSlots: null` covers a unit with no spell-slot object at
+ * all (coercing that to `{}` used to blank the sheet's stored slots).
  */
 function collectCharacterWriteback(state) {
   if (!state || !Array.isArray(state.units)) return [];
@@ -944,7 +946,9 @@ function collectCharacterWriteback(state) {
     .map(unit => ({
       characterId: unit.sourceCharacterId,
       hp: Math.max(0, Number(unit.hp) || 0),
-      spellSlots: unit.spellSlots && typeof unit.spellSlots === 'object' ? clone(unit.spellSlots) : {},
+      spellSlots: unit.spellSlots && typeof unit.spellSlots === 'object' && !Array.isArray(unit.spellSlots)
+        ? clone(unit.spellSlots)
+        : null,
       inventory: Array.isArray(unit.inventory) ? clone(unit.inventory) : null
     }));
 }

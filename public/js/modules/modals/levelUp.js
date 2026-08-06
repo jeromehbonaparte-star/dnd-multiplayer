@@ -243,29 +243,72 @@ function renderClassRepair(charId, char, details) {
     </div>`;
 
   document.getElementById('levelup-repair-form')?.querySelectorAll('.levelup-repair-btn').forEach(btn => {
-    btn.addEventListener('click', () => repairClass(charId, char, btn.dataset.class));
+    btn.addEventListener('click', () => repairClass(charId, char, btn.dataset.class, details));
   });
   document.getElementById('levelup-repair-apply')?.addEventListener('click', () => {
-    repairClass(charId, char, document.getElementById('levelup-repair-input')?.value.trim());
+    repairClass(charId, char, document.getElementById('levelup-repair-input')?.value.trim(), details);
   });
 }
 
-async function repairClass(charId, char, className) {
+/**
+ * Rebuild a character's `classes` map with the unresolvable key swapped for the
+ * class the player picked.
+ *
+ * The multiclass migration copied the broken class string into `classes` as a
+ * KEY, so repairing only the `class` column leaves /levelinfo 409ing on the very
+ * same string forever — the repair widget loops. Levels merge with Math.max when
+ * the canonical key is already present (Warlock + "warlock " → one Warlock).
+ *
+ * @returns {Object|null} the remapped map, or null when the broken string is not
+ *   a key at all (then only `class` needs writing and the map is left alone).
+ */
+function remapClassesMap(char, unresolvedClass, className) {
+  const broken = String(unresolvedClass || '').trim().toLowerCase();
+  if (!broken) return null;
+  const parsed = parseClasses(char?.classes, char?.class, char?.level);
+  const keys = Object.keys(parsed);
+  if (!keys.some(key => String(key).trim().toLowerCase() === broken)) return null;
+
+  const remapped = {};
+  for (const key of keys) {
+    const target = String(key).trim().toLowerCase() === broken ? className : key;
+    const level = Math.max(0, Number(parsed[key]) || 0);
+    remapped[target] = Math.max(remapped[target] || 0, level);
+  }
+  return remapped;
+}
+
+async function repairClass(charId, char, className, details) {
   const errorEl = document.getElementById('levelup-repair-error');
   if (!className) {
     if (errorEl) errorEl.textContent = 'Enter a class name first.';
     return;
   }
   if (errorEl) errorEl.textContent = 'Repairing...';
+
+  // Re-read the row: `char` was captured when the modal opened and may predate a
+  // socket-driven refresh.
+  const fresh = (getState('characters') || []).find(candidate => candidate.id === charId) || char;
+  const classes = remapClassesMap(fresh, details?.unresolvedClass, className);
+
   try {
-    await api(`/api/characters/${charId}/quick-update`, 'POST', { class: className });
+    await api(`/api/characters/${charId}/quick-update`, 'POST', {
+      class: className,
+      // `classes` is normalized server-side by normalizeClassesMap, which takes a
+      // plain object or a JSON string; send the object.
+      ...(classes ? { classes } : {})
+    });
   } catch (error) {
     const hints = error.data?.suggestions || [];
-    if (errorEl) errorEl.textContent = `${error.message}${hints.length ? `. Try: ${hints.join(', ')}` : ''}`;
+    // `input` names WHICH key the server rejected — with the classes map now in
+    // the payload that may be a second broken key, not the one just picked.
+    const offender = error.data?.input && error.data.input !== className ? ` ("${error.data.input}")` : '';
+    if (errorEl) errorEl.textContent = `${error.message}${offender}${hints.length ? `. Try: ${hints.join(', ')}` : ''}`;
     return;
   }
-  loadCharacters();
-  loadLevelInfo(charId, char);
+  await loadCharacters();
+  const reloaded = (getState('characters') || []).find(candidate => candidate.id === charId) || fresh;
+  loadLevelInfo(charId, reloaded);
 }
 
 export async function submitStructuredLevelUp(charId) {

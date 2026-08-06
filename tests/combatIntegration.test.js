@@ -174,7 +174,30 @@ test('buildCharacterWritebackStatements floors HP and skips rows without a chara
     { characterId: 'c', hp: -4, spellSlots: null, inventory: null }
   ]);
   assert.equal(statements.length, 1);
-  assert.deepEqual(statements[0].args, [0, '{}', 'c']);
+  // Both sentinels are null, so hp is the only column touched.
+  assert.match(statements[0].sql, /SET hp = \? WHERE id = \?$/);
+  assert.deepEqual(statements[0].args, [0, 'c']);
+});
+
+test('buildCharacterWritebackStatements never blanks spell_slots for a unit that has none', () => {
+  const [statement] = combatIntegration.buildCharacterWritebackStatements([
+    { characterId: 'a', hp: 7, spellSlots: null, inventory: [{ name: 'Rope', quantity: 1 }] }
+  ]);
+  assert.match(statement.sql, /SET hp = \?, inventory = \? WHERE id = \?$/);
+  assert.ok(!statement.sql.includes('spell_slots'), 'a null spellSlots sentinel must leave the stored column alone');
+  assert.deepEqual(statement.args, [7, '[{"name":"Rope","quantity":1}]', 'a']);
+});
+
+test('collectCharacterWriteback reports null spellSlots for a unit lacking the key', () => {
+  const state = makeActiveState();
+  const unit = state.units.find(candidate => candidate.side === 'party');
+  delete unit.spellSlots;
+  const [writeback] = combatService.collectCharacterWriteback(state);
+  assert.equal(writeback.spellSlots, null);
+
+  unit.spellSlots = { 1: { current: 0, max: 2 } };
+  const [withSlots] = combatService.collectCharacterWriteback(state);
+  assert.deepEqual(withSlots.spellSlots, { 1: { current: 0, max: 2 } });
 });
 
 test('collectCharacterWriteback + buildCharacterWritebackStatements round-trip a live combat', () => {
@@ -418,5 +441,32 @@ test('forceTurnEnd is inert outside an active fight', () => {
   const pending = makeState();
   const snapshot = JSON.stringify(pending);
   combatIntegration.forceTurnEnd(pending);
+  assert.equal(JSON.stringify(pending), snapshot);
+});
+
+test('passTurn walks the turn on with a neutral, non-stall log line', () => {
+  const state = makeActiveState();
+  const before = combatService.currentUnit(state);
+  const versionBefore = state.version;
+
+  combatIntegration.passTurn(state);
+
+  assert.notEqual(combatService.currentUnit(state).id, before.id);
+  assert.ok(state.version > versionBefore);
+  assert.equal(state.turnActionCount, 0);
+  assert.ok(
+    state.log.some(entry => entry.text === `${before.name} ends their turn.`),
+    'the pass is logged in the acting unit\'s name'
+  );
+  assert.ok(
+    !state.log.some(entry => entry.text.includes('actions this turn')),
+    'a voluntary pass must not read as a stall'
+  );
+});
+
+test('passTurn is inert outside an active fight', () => {
+  const pending = makeState();
+  const snapshot = JSON.stringify(pending);
+  combatIntegration.passTurn(pending);
   assert.equal(JSON.stringify(pending), snapshot);
 });

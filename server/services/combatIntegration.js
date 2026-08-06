@@ -112,9 +112,13 @@ function unitsNeedingHydration(state) {
 
 /**
  * Turns `collectCharacterWriteback` rows into ready-to-run UPDATE statements.
- * `inventory === null` (a migrated unit that never carried a tracked sheet)
- * means the stored inventory MUST NOT be overwritten, so those rows get the
- * two-column statement.
+ *
+ * `null` is the "this unit never carried that sheet field" sentinel and means
+ * the stored column MUST NOT be overwritten — `inventory: null` for a migrated
+ * unit that never tracked inventory, `spellSlots: null` for a unit with no
+ * spell-slot object at all (writing `{}` there wiped the sheet's slots). Only
+ * the columns the unit actually carries appear in the statement.
+ *
  * @param {Array} writebacks
  * @returns {Array<{characterId:string, sql:string, args:Array}>}
  */
@@ -123,19 +127,21 @@ function buildCharacterWritebackStatements(writebacks) {
   return writebacks
     .filter(entry => entry && entry.characterId != null)
     .map(entry => {
-      const hp = Math.max(0, Math.floor(Number(entry.hp) || 0));
-      const slots = JSON.stringify(entry.spellSlots && typeof entry.spellSlots === 'object' ? entry.spellSlots : {});
-      if (Array.isArray(entry.inventory)) {
-        return {
-          characterId: entry.characterId,
-          sql: 'UPDATE characters SET hp = ?, spell_slots = ?, inventory = ? WHERE id = ?',
-          args: [hp, slots, JSON.stringify(entry.inventory), entry.characterId]
-        };
+      const assignments = ['hp = ?'];
+      const args = [Math.max(0, Math.floor(Number(entry.hp) || 0))];
+      if (entry.spellSlots && typeof entry.spellSlots === 'object' && !Array.isArray(entry.spellSlots)) {
+        assignments.push('spell_slots = ?');
+        args.push(JSON.stringify(entry.spellSlots));
       }
+      if (Array.isArray(entry.inventory)) {
+        assignments.push('inventory = ?');
+        args.push(JSON.stringify(entry.inventory));
+      }
+      args.push(entry.characterId);
       return {
         characterId: entry.characterId,
-        sql: 'UPDATE characters SET hp = ?, spell_slots = ? WHERE id = ?',
-        args: [hp, slots, entry.characterId]
+        sql: `UPDATE characters SET ${assignments.join(', ')} WHERE id = ?`,
+        args
       };
     });
 }
@@ -306,17 +312,27 @@ function shouldForceTurnEnd(count) {
 }
 
 /**
- * Ends the current turn without an adjudication (stall cap tripped). Logs the
- * reason, advances the walker and bumps the version so clients refresh.
+ * Ends the current turn without an adjudication. Logs the reason, advances the
+ * walker and bumps the version so clients refresh.
+ *
+ * `options.reason` picks the log wording: `'stall'` (the default) is the stall
+ * cap tripping, `'pass'` is the acting player voluntarily ending their turn.
+ * `options.message` overrides the line outright.
  */
-function forceTurnEnd(state) {
+function forceTurnEnd(state, options = {}) {
   if (!state || state.phase !== 'active' || state.outcome) return state;
   const unit = combatService.currentUnit(state);
+  const who = unit?.name || 'The combatant';
+  const text = options.message
+    ? String(options.message).slice(0, 200)
+    : options.reason === 'pass'
+      ? `${who} ends their turn.`
+      : `${who} has taken ${MAX_TURN_ACTIONS} actions this turn; the turn passes.`;
   if (!Array.isArray(state.log)) state.log = [];
   state.log.push({
     round: Number(state.round) || 1,
     type: 'turn',
-    text: `${unit?.name || 'The combatant'} has taken ${MAX_TURN_ACTIONS} actions this turn; the turn passes.`,
+    text,
     ...(unit?.id ? { unitId: unit.id } : {})
   });
   if (state.log.length > combatService.MAX_LOG_ENTRIES) {
@@ -326,6 +342,11 @@ function forceTurnEnd(state) {
   state.version = (Number(state.version) || 0) + 1;
   state.turnActionCount = 0;
   return state;
+}
+
+/** Voluntary "I'm done" from the acting player — same walk, neutral log line. */
+function passTurn(state) {
+  return forceTurnEnd(state, { reason: 'pass' });
 }
 
 module.exports = {
@@ -344,6 +365,7 @@ module.exports = {
   normalizeCombatAction,
   normalizeInitiativeRoll,
   parseStoredInventory,
+  passTurn,
   publicCombatState,
   publicCombatUnit,
   sheetContext,

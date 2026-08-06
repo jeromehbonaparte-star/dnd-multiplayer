@@ -22,7 +22,7 @@ import {
   loadSessions, loadSession, deleteSession,
   openNewSessionModal, closeNewSessionModal, createSession,
   selectScenario, toggleCharacterSelection,
-  submitAction, forceProcessTurn, rerollLastResponse, deleteStoryMessage,
+  submitAction, endCombatTurn, forceProcessTurn, rerollLastResponse, deleteStoryMessage,
   cancelAction, updateActionFormState,
   recalculateXP, recalculateLoot, recalculateInventory, recalculateACSpells,
   rollActionDice, getCurrentDiceRoll,
@@ -105,6 +105,7 @@ window.createSession = createSession;
 window.selectScenario = selectScenario;
 window.toggleCharacterSelection = toggleCharacterSelection;
 window.submitAction = submitAction;
+window.endCombatTurn = endCombatTurn;
 window.forceProcessTurn = forceProcessTurn;
 window.rerollLastResponse = rerollLastResponse;
 window.deleteStoryMessage = deleteStoryMessage;
