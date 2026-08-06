@@ -1,5 +1,7 @@
 # Rework Campaign Plan — dnd-multiplayer
 
+> **Note:** the combat + level-up campaign has moved to [COMBAT_REWORK_PLAN.md](COMBAT_REWORK_PLAN.md) (complete). Sections here that describe tactical grid combat are historical; the open P2/P3 units below are still live.
+
 Branch: `rework/refactor-ui` (off `main`). Local commits per verified unit; **no push to GitHub until user says so**.
 Decisions (user-confirmed 2026-07-19): keep vanilla no-build frontend and restructure it; UI = visual overhaul on the existing CSS token/theme system (parchment-fantasy identity stays).
 

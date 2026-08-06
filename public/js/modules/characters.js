@@ -221,6 +221,7 @@ export function renderCharactersList() {
     const requiredXP = getRequiredXP(c.level);
     const xpPercent = Math.min((xp / requiredXP) * 100, 100);
     const canLevel = canLevelUp(xp, c.level);
+    const levelUpLabel = canLevel ? 'Level Up!' : (c.level >= 20 ? 'Max Level' : 'Need XP');
     const gold = c.gold || 0;
     const inventory = getCachedInventory(c.id, c.inventory);
     const itemCount = inventory.reduce((sum, item) => sum + (item.quantity || 1), 0);
@@ -338,7 +339,7 @@ export function renderCharactersList() {
           <button class="btn-secondary" onclick="event.stopPropagation(); generateCharacterAvatar('${c.id}', this)" title="Generate or replace avatar">Generate Avatar</button>
         </div>
         <div class="btn-row">
-          <button class="btn-levelup" onclick="event.stopPropagation(); levelUpCharacter('${c.id}')" ${canLevel ? '' : 'disabled'}>${canLevel ? 'Level Up!' : 'Need XP'}</button>
+          <button class="btn-levelup" onclick="event.stopPropagation(); levelUpCharacter('${c.id}')" ${canLevel ? '' : 'disabled'}>${levelUpLabel}</button>
           <button class="btn-spells" onclick="event.stopPropagation(); openSpellSlotsModal('${c.id}')">Spell Slots</button>
         </div>
         <div class="btn-row">
@@ -396,6 +397,7 @@ export function updatePartyList() {
     const requiredXP = getRequiredXP(c.level);
     const gold = c.gold || 0;
     const canLevel = canLevelUp(xp, c.level);
+    const levelUpLabel = canLevel ? 'Level Up!' : (c.level >= 20 ? 'Max Level' : 'Need XP');
     const inventory = getCachedInventory(c.id, c.inventory);
     const itemCount = inventory.reduce((sum, item) => sum + (item.quantity || 1), 0);
 
@@ -463,7 +465,7 @@ export function updatePartyList() {
       <div class="party-actions">
         <button class="party-btn" onclick="event.stopPropagation(); openInventoryModal('${c.id}')">Inv</button>
         <button class="party-btn" onclick="event.stopPropagation(); openSpellSlotsModal('${c.id}')">Spells</button>
-        <button class="party-btn ${canLevel ? 'party-btn-levelup' : ''}" onclick="event.stopPropagation(); levelUpCharacter('${c.id}')" ${canLevel ? '' : 'disabled'}>${canLevel ? 'Level Up!' : 'Need XP'}</button>
+        <button class="party-btn ${canLevel ? 'party-btn-levelup' : ''}" onclick="event.stopPropagation(); levelUpCharacter('${c.id}')" ${canLevel ? '' : 'disabled'}>${levelUpLabel}</button>
       </div>
     </div>
   `}).join('');

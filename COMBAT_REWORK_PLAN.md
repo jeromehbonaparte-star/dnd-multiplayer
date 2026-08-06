@@ -83,15 +83,15 @@ Delete grid UI (`public/js/modules/tacticalCombat.js` board/power-menu/animation
 - **Self-check**: startup assertion that `CLASS_RULES`, `FEATURES`, `classes.json`, and `subclasses.json` agree (same 12 classes; every subclass's parent exists; subclass levels match `subclassLevels`).
 - **Client/server drift fix**: client `canLevelUp` gets the level-20 cap.
 
-## Build units (Opus 5, sequential per track; two tracks parallel)
-- **C1** engine: `server/services/combatService.js` (NTC state, initiative, AP/BP, applyAdjudication, enemy pre-rolls, outcome, summary, `fromTacticalState`) + tests. Pure, DB-free.
-- **C2** AI: adjudicator + enemy-turn prompts/parsers in `aiService.js` + tests (mocked callAI).
-- **C3** server integration: sessions routes (initiative, turn-action, GM controls), turnProcessor auto-start + conclusion rewiring, lazy migration, socket events, per-combatant history entries.
-- **C4** frontend: remove grid UI, new initiative-tracker panel + turn-gated action bar, socket handlers, CSS.
-- **C5** cleanup: dead assets, stale DOCUMENTATION.md/UPDATE.md combat sections.
-- **L1** subclass data + service + routes + startup self-check + tests.
-- **L2** resolution ladder + write-boundary validation + repair migration + `/levelinfo` 409 + slot guard + tests.
-- **L3** frontend: level-up modal subclass select + repair widget, builder subclass step, `canLevelUp` cap.
+## Build units (Opus 5, sequential per track; two tracks parallel) — ALL DONE
+- **C1** `3c0b099` — DONE. Engine: `server/services/combatService.js` (NTC state, initiative, AP/BP, applyAdjudication, enemy pre-rolls, outcome, summary, `fromTacticalState`) + tests. Pure, DB-free.
+- **C2** `369989f` — DONE. AI: adjudicator + enemy-turn prompts/parsers in `aiService.js` + tests (mocked callAI).
+- **C3** `16cc53c` — DONE. Server integration: sessions routes (initiative, turn-action, GM controls), turnProcessor auto-start + conclusion rewiring, lazy migration, socket events, per-combatant history entries.
+- **C4** `60c6249` — DONE. Frontend: remove grid UI, new initiative-tracker panel + turn-gated action bar, socket handlers, CSS.
+- **C5** *(this change)* — DONE. Cleanup: deleted `tacticalCombatService.js` + its test + `public/assets/tactical/*.webp` (migration coverage kept via an inline schema-1 fixture), rewrote the stale combat sections in DOCUMENTATION.md / UPDATE.md / README.md, added level-up & subclass docs, "Max Level" button label at 20.
+- **L1** `ecee6af` — DONE. Subclass data + service + routes + startup self-check + tests.
+- **L2** `1891123` — DONE. Resolution ladder + write-boundary validation + repair migration + `/levelinfo` 409 + slot guard + tests.
+- **L3** `090c396` — DONE. Frontend: level-up modal subclass select + repair widget, builder subclass step, `canLevelUp` cap.
 
 ## Constraints
 - Local server CANNOT boot (better-sqlite3 native binding vs Node 24). Verification = `node --check` + `npm test` (node:test, DB-free pure modules). Route/DB code verified by review + tests around extracted pure helpers.

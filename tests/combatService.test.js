@@ -17,7 +17,6 @@ const {
   rollInitiative,
   rollRemainingInitiative
 } = require('../server/services/combatService');
-const { createTacticalCombat } = require('../server/services/tacticalCombatService');
 
 const party = [
   {
@@ -62,6 +61,111 @@ function startCombat(overrides = {}) {
   rollInitiative(state, 'pc:fighter', 20);
   rollInitiative(state, 'pc:wizard', 3);
   return state;
+}
+
+/**
+ * A hand-built schema-1 blob in the exact shape the retired tactical grid
+ * service used to persist (grid + per-unit x/y/movement/range/hasMoved/
+ * defending). The service itself is gone; this fixture keeps the migration
+ * path under test. Mirrors `createTacticalCombat(party, enemies, ...)`.
+ */
+function tacticalFixture({ seed = 99, environment = 'forest', rngState = 1548709294 } = {}) {
+  return {
+    version: 1,
+    seed,
+    rngState,
+    environment,
+    grid: {
+      width: 10,
+      height: 8,
+      tiles: Array.from({ length: 8 }, (unused, y) =>
+        Array.from({ length: 10 }, (ignored, x) => (x === 4 && (y === 2 || y === 5) ? 'forest' : 'plains')))
+    },
+    units: [
+      {
+        id: 'pc:fighter',
+        sourceCharacterId: 'fighter',
+        name: 'Mara',
+        side: 'party',
+        imageUrl: '',
+        hp: 28,
+        maxHp: 28,
+        ac: 16,
+        initiativeBonus: 1,
+        attackBonus: 5,
+        damageBonus: 3,
+        damageDie: 10,
+        range: 1,
+        movement: 5,
+        spellSlots: {},
+        powers: [
+          { id: 'ability:class', source: 'ability', slotLevel: 0, attackBonus: 5, damageDie: 8, bonus: 3, name: 'Second Wind', kind: 'heal', range: 0, maxUses: 1 }
+        ],
+        powerUses: {},
+        x: 0,
+        y: 1,
+        hasMoved: false,
+        hasActed: false,
+        defending: false
+      },
+      {
+        id: 'pc:wizard',
+        sourceCharacterId: 'wizard',
+        name: 'Orrin',
+        side: 'party',
+        imageUrl: '',
+        hp: 18,
+        maxHp: 18,
+        ac: 12,
+        initiativeBonus: 2,
+        attackBonus: 5,
+        damageBonus: 3,
+        damageDie: 8,
+        range: 3,
+        movement: 6,
+        spellSlots: { 1: { current: 2, max: 2 } },
+        powers: [
+          { id: 'spell:0', name: 'Fire Bolt', source: 'spell', kind: 'attack', slotLevel: 0, range: 4, attackBonus: 5, damageDie: 6, bonus: 3 },
+          { id: 'spell:1', name: 'Magic Missile', source: 'spell', kind: 'attack', slotLevel: 1, range: 4, attackBonus: 5, damageDie: 8, bonus: 3 }
+        ],
+        powerUses: {},
+        x: 0,
+        y: 2,
+        hasMoved: false,
+        hasActed: false,
+        defending: false
+      },
+      {
+        id: 'npc:goblin',
+        name: 'Goblin',
+        side: 'enemy',
+        hp: 14,
+        maxHp: 14,
+        ac: 12,
+        initiativeBonus: 0,
+        attackBonus: 4,
+        damageBonus: 2,
+        damageDie: 6,
+        range: 1,
+        movement: 6,
+        x: 4,
+        y: 1,
+        hasMoved: true,
+        hasActed: true,
+        defending: false
+      }
+    ],
+    turnOrder: ['npc:goblin', 'pc:wizard', 'pc:fighter'],
+    turnIndex: 1,
+    round: 2,
+    outcome: null,
+    log: [
+      { type: 'start', text: `Combat begins in the ${environment}.` },
+      { type: 'move', text: 'Goblin advances.', unitId: 'npc:goblin', from: { x: 9, y: 1 }, to: { x: 4, y: 1 } },
+      { type: 'wait', text: 'Goblin holds position.', unitId: 'npc:goblin' },
+      { type: 'turn', text: "Orrin's turn.", unitId: 'pc:wizard' }
+    ]
+  };
 }
 
 /** Jump the turn pointer to a specific unit with a fresh point budget. */
@@ -544,7 +648,7 @@ test('normalizeAutoCombatSetup clamps hostile stats and drops grid fields', () =
 });
 
 test('fromTacticalState transcodes a live grid fight without losing progress', () => {
-  const old = createTacticalCombat(party, enemies, { seed: 99, environment: 'forest' });
+  const old = tacticalFixture({ seed: 99, environment: 'forest' });
   old.name = 'Ambush at the ford';
   old.round = 3;
   old.deferredTurn = { openingResolution: 'Goblins burst from the treeline.', startedAt: '2026-08-06T01:02:03.000Z' };
@@ -602,7 +706,7 @@ test('fromTacticalState and deserialize are idempotent on schema-2 state', () =>
   assert.equal(fromTacticalState(null), null);
   assert.equal(deserialize('{not json'), null);
 
-  const old = createTacticalCombat(party, enemies, { seed: 5 });
+  const old = tacticalFixture({ seed: 5, environment: 'plains', rngState: 1306475959 });
   const migrated = deserialize(JSON.stringify(old));
   assert.equal(migrated.schema, 2);
   assert.equal(fromTacticalState(migrated), migrated);

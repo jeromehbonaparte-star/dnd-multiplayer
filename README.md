@@ -10,7 +10,7 @@ A real-time multiplayer D&D (Dungeons & Dragons 5e) web application with an AI-p
 - **AI-Guided Character Creation** - Chat-based Level 1 character creation
 - **Turn-Based Gameplay** - All players submit actions, then AI narrates the outcome
 - **Automatic Dice Rolling** - AI rolls dice and calculates results using character stats
-- **Tactical Combat** - Defers narration while a server-authoritative encounter resolves initiative, movement, attacks, spells, class abilities, defense, ownership, and animated real-time enemy turns; the narrator then writes the aftermath from the submitted actions and battle result
+- **Narrative Turn-Based Combat** - Text combat inside the story stream: players roll initiative, then describe what they do on their turn while the AI adjudicates costs, dice and effects against a server-authoritative state (AI-driven enemy turns, live spell slot and HP writeback); the narrator writes the aftermath once the fight resolves
 - **YouTube DJ** - Optional shared, scene-matched music that changes with every narrated turn
 - **Illustrated POV Stage** - Players can generate avatar-referenced scene art for their own POV, shared live across devices
 - **XP Tracking** - Automatic XP parsing from AI responses with D&D 5e leveling

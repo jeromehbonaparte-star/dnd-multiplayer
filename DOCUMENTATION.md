@@ -274,13 +274,11 @@ When creating a new session, players can choose from predefined scenarios:
   - `[HP: CharacterName =20]` - Set HP to specific value
 - HP changes are automatically applied and broadcast to all clients
 
-### 5b3. Combat Control Tags
-- DM can control combat through narrative:
-  - `[COMBAT: START Combat Name]` - Start combat, auto-roll party initiative
-  - `[COMBAT: END]` - End the current combat
-  - `[COMBAT: NEXT]` - Advance to next turn
-  - `[COMBAT: PREV]` - Go back one turn
-- Combat tracker syncs automatically across all clients
+### 5b3. Combat Triggering
+- There is no `[COMBAT:]` narrative tag. An encounter starts one of two ways:
+  - **Automatically** - the resolver AI returns a `combat` payload while processing a turn; `turnProcessor` builds the encounter and defers the narration until the fight ends
+  - **Manually** - the GM posts `POST /api/sessions/:id/combat` with an enemy list
+- See [6f. Narrative Turn-Based Combat](#6f-narrative-turn-based-combat-ntc) for the full system
 
 ### 5c. AC Effects & Spell Slots System
 **Armor Class (AC) with Effects Tracking:**
@@ -359,6 +357,41 @@ When creating a new session, players can choose from predefined scenarios:
 - Inventory button: Opens inventory management modal
 - Level Up button: Highlighted green when ready, disabled when not enough XP
 
+### 6a. Level-Up Data & Class Resolution
+
+**Subclass data:**
+- `server/data/srd/subclasses.json` - 40 PHB subclasses as `{ index, name, class_index, flavor_name, features_by_level }`, loaded and validated by `dndDataService`
+- `GET /api/dnd/classes/:classIndex/subclasses` - subclasses for one class (unknown class -> `[]`)
+- `GET /api/dnd/subclasses` - the whole catalogue
+- The level-up modal and the character builder render a subclass `<select>` from these, with a "Homebrew..." free-text escape
+- A startup self-check asserts `CLASS_RULES`, `FEATURES`, `classes.json` and `subclasses.json` agree (same classes, every subclass has a real parent)
+
+**Class resolution ladder** (`classProgressionService.resolveClassAndSubclass`) -
+free-text like "Wild Magic Sorcerer" used to resolve to `null`, which dead-ended
+`/levelinfo` and made level-up treat the character as a fresh multiclass. The
+ladder tries, in order:
+1. `exact` - case-insensitive class name
+2. `index` - class index (`"fighter"`)
+3. `subclass-split` - class token plus subclass tokens, or a bare subclass name
+4. `suffix` - the string starts/ends with a class token; the leftover becomes a (possibly homebrew) subclass
+5. `alias` - small typo/shorthand map (`sorceror`, `rouge`, `pally`...), re-run through the ladder
+
+Every non-exact hit is logged. A miss returns `{ className: null }`. All write
+boundaries (`POST /characters`, quick-update, the AI editor) normalize through
+the ladder, and `/levelinfo` answers `409 { unresolvedClass, suggestions }` so
+the modal can show a **repair widget** instead of dead-ending.
+
+**Repair migration:** on startup, `database.js` scans `characters` for
+`class`/`classes` values that fail resolution and rewrites them through the same
+ladder (class + subclass into `class_choices`), logging each repair and each
+still-unresolvable row. It is idempotent - a repaired row is a no-op next boot.
+
+**Spell-slot floor guard:** `computeSlotState` takes the stored slot state as a
+floor. A recomputed max lower than the stored max (a misresolved class, a
+non-caster mistake) can never shrink a character's slots; the stored max wins,
+`current` is clamped to it, and the floored levels are reported to the caller
+for logging.
+
 ### 6b. Appearance & Backstory System
 
 **Appearance:**
@@ -432,66 +465,74 @@ When creating a new session, players can choose from predefined scenarios:
 | Warlock | CHA 13 |
 | Wizard | INT 13 |
 
-### 6f. Combat Tracker System
+### 6f. Narrative Turn-Based Combat (NTC)
 
-**Features:**
-- Initiative-based turn order tracking
-- Round counter with turn progression
-- HP tracking with damage/heal controls
-- D&D 5e conditions (Blinded, Charmed, Poisoned, etc.)
-- Party initiative rolling (uses DEX modifier)
-- Add enemies/NPCs mid-combat
-- Real-time sync across all players via Socket.IO
-- HP changes sync with character sheets (for player characters)
+Combat is **text**, not a board. It plays out inside the normal story stream:
+every resolution is written by the AI and appended to `full_history` as a
+visible entry, so the fight reads as part of the narrative. A compact
+initiative tracker panel shows order, round, HP and remaining points.
 
-**Database Schema (combats table):**
+**Flow:**
+1. **Start** - resolver-AI `combat` payload (auto) or `POST /:id/combat` (GM). Party units are built from the live session characters; enemies come from the payload/body. Enemy initiative is server-rolled immediately; phase is `initiative`
+2. **Initiative** - each player rolls a d20 in the dice UI and posts it; the server adds the DEX-based bonus. The GM can auto-roll stragglers. When the last party unit rolls, the order sorts descending and phase becomes `active`
+3. **Player turn** - only the active player's action bar is enabled. They type a freeform action (optionally with a dice roll); the **combat adjudicator** AI returns Adjudication JSON, the engine validates/clamps and applies it, deducts points, and narrates
+4. **Enemy turn** - the server pre-rolls attack and damage dice from the seeded PRNG and hands them to the enemy-turn AI as authoritative results, so enemies can never roll in their own favour
+5. **End** - a wiped side (victory/defeat) or an adjudicator `endCombat` effect (fled/negotiated -> `resolved`) closes the fight. A summary narration is written, and the deferred pre-combat narration is finally resolved
+
+**AP/BP economy:**
+- Each unit gets 1 Action Point and 1 Bonus Point at the start of its turn
+- The adjudicator decides what an action costs; the engine clamps costs to what the unit actually has
+- A player may submit multiple times per turn while points remain; the turn advances when points run out or the adjudicator sets `turnEnds`
+- A stall cap force-ends a turn after too many submissions
+
+**AI adjudication:**
+- Adjudication JSON: `{ narration, costs: {ap, bp}, effects: [...], turnEnds }`
+- Effect types: `damage`, `heal`, `condition` (add/remove), `spendSlot`, `useItem`, `useAbility`, `endCombat`
+- Targets resolve fuzzily by unit name or id; amounts are clamped; unknown effect types are logged and ignored
+- Malformed AI output is a safe no-op - the state is untouched and the player is told to try again
+- If an **enemy-turn** AI call fails or returns junk, a deterministic fallback resolves that turn straight from the pre-rolled dice (hit if the attack roll meets AC), so a dead adjudicator can never stall a fight
+
+**Character-sheet writeback:**
+- Units carry the full sheet: HP, spell slots, inventory, class resources/features and known spells
+- After *every* applied adjudication the engine returns a writeback list and the server persists HP / spell slots / inventory to `characters`, then emits `character_updated` - open character sheets update mid-fight
+
+**Database (combats table):** unchanged DDL, new role. There is **one active row
+per session** and `combatants` holds the entire serialized combat state blob
+(not an array of combatants):
 ```sql
 id TEXT PRIMARY KEY
 session_id TEXT NOT NULL
 name TEXT DEFAULT 'Combat'
 is_active INTEGER DEFAULT 1
-current_turn INTEGER DEFAULT 0
-round INTEGER DEFAULT 1
-combatants TEXT DEFAULT '[]'   -- JSON array of combatant objects
+current_turn INTEGER DEFAULT 0   -- mirrors state.turnIndex for convenience
+round INTEGER DEFAULT 1          -- mirrors state.round
+combatants TEXT DEFAULT '[]'     -- JSON: the whole NTC state object (schema 2)
 created_at DATETIME
 ```
+The state object carries `schema`, `phase`, `round`, `turnOrder`, `turnIndex`,
+`pendingInitiative`, `units[]` (hp/ac/attackBonus/ap/bp/conditions/spellSlots/
+inventory...), `log[]`, `seed`/`rngState`, a `version` counter used for
+optimistic concurrency, and an optional `deferredTurn`.
 
-**Combatant Object Structure:**
-```json
-{
-  "id": "uuid",
-  "character_id": "character-uuid or null",
-  "name": "Goblin 1",
-  "initiative": 15,
-  "hp": 7,
-  "max_hp": 7,
-  "ac": 15,
-  "is_player": false,
-  "is_active": true,
-  "conditions": ["Poisoned"],
-  "notes": "Holding a torch"
-}
-```
-
-**UI Components:**
-- Combat Tracker panel in Game tab sidebar
-- Start Combat modal (set initiative, add enemies)
-- Combatant Edit modal (HP, conditions, notes)
-- Add Combatant modal (mid-combat additions)
+**Migration:** older sessions stored a schema-1 tactical grid blob. Any active
+combat is transcoded to schema 2 lazily on load - stats, HP, spell slots,
+powers, turn order, round and `deferredTurn` survive; grid fields (`grid`,
+`x`/`y`, `movement`, `range`, `hasMoved`, `defending`) are dropped and
+initiative is synthesized from the existing turn order. A mid-fight party
+continues where it left off. The transcode is idempotent and is written back on
+the first mutation.
 
 **API Endpoints:**
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/sessions/:id/combat` | GET | Get active combat |
-| `/api/sessions/:id/combat/start` | POST | Start new combat |
-| `/api/sessions/:id/combat/end` | POST | End combat |
-| `/api/sessions/:id/combat/next-turn` | POST | Advance turn |
-| `/api/sessions/:id/combat/prev-turn` | POST | Go back one turn |
-| `/api/sessions/:id/combat/add-combatant` | POST | Add combatant |
-| `/api/sessions/:id/combat/update-combatant` | POST | Update HP/conditions |
-| `/api/sessions/:id/combat/remove-combatant` | POST | Remove combatant |
-| `/api/sessions/:id/combat/damage` | POST | Quick damage/heal |
-| `/api/sessions/:id/combat/roll-party-initiative` | POST | Roll all party initiative |
+| `/api/sessions/:id/combat` | POST | GM starts an encounter (`{ enemies: [...] }`) |
+| `/api/sessions/:id/combat/initiative` | POST | Player reports their d20 (`{ roll, characterId? }`) |
+| `/api/sessions/:id/combat/roll-remaining` | POST | GM auto-rolls initiative for stragglers |
+| `/api/sessions/:id/combat/turn-action` | POST | Active player's freeform action (`{ action, version? }`) |
+| `/api/sessions/:id/combat/end` | POST | GM ends the encounter (writes a summary narration) |
+
+The active combat is delivered with the session payload (`GET /api/sessions/:id`)
+and pushed to every client over Socket.IO; there is no separate GET.
 
 ### 6g. Multiple API Configurations
 
@@ -573,6 +614,7 @@ created_at DATETIME
 - `POST /api/sessions/:id/recalculate-xp` - Scan history for XP
 - `POST /api/sessions/:id/recalculate-loot` - Scan history for gold and items
 - `POST /api/sessions/:id/recalculate-ac-spells` - Scan history for AC and spell slot usage
+- `POST /api/sessions/:id/combat*` - Narrative combat (see [6f](#6f-narrative-turn-based-combat-ntc))
 
 ---
 
@@ -699,12 +741,13 @@ Shows all characters with:
 - Skills, spells, passives, class features, items
 - Quick action buttons: Inventory, Spells, Level Up
 
-### Combat Tracker (Game Tab Sidebar)
-Located in Game tab sidebar:
-- **No Combat:** Shows "No active combat" with Start Combat button
-- **Active Combat:** Shows initiative order, round counter, turn indicator
-- **Combatant Cards:** Click to edit HP, conditions, notes
-- **Controls:** Prev Turn, Next Turn, End Combat buttons
+### Initiative Tracker (Game Tab)
+The story stream stays visible during combat - there is no full-screen takeover.
+- **No Combat:** Hidden; the GM has a Start Encounter control
+- **Initiative phase:** Prompts each player to roll their d20; GM gets "Roll remaining"
+- **Active phase:** Compact list in initiative order with round counter, active-turn marker, HP bars and AP/BP pips
+- **Action bar:** Enabled only on your own turn ("Your turn - Round N"); freeform text plus the usual dice roll
+- **Controls:** GM-only End Encounter (writes a summary narration)
 
 ### Modals
 - **Edit Modal:** Chat interface for AI-assisted character editing (supports appearance, backstory, feats, class features, and multiclass)
@@ -714,9 +757,7 @@ Located in Game tab sidebar:
 - **Spell Slots Modal:** AC editor and visual spell slot management with pip interface
 - **Admin Login Modal:** Password entry for settings access
 - **API Edit Modal:** Edit existing API configurations (name, endpoint, model, key)
-- **Start Combat Modal:** Roll party initiative, add enemies, set combat name
-- **Combatant Edit Modal:** Adjust HP (with -5/-1/+1/+5 buttons), conditions, notes, initiative
-- **Add Combatant Modal:** Add new combatants mid-combat
+- **Start Encounter Modal (GM):** Name the encounter and list enemies (HP, AC, attack/damage); the party is taken from the session
 
 ### Helper Functions (Frontend)
 - `escapeHtml(str)` - Prevents XSS in user-generated content
@@ -846,7 +887,7 @@ The Dockerfile:
 - [x] Multiple API configurations (implemented!)
 - [x] Class Features tracking (implemented!)
 - [x] Appearance & Backstory tracking (implemented!)
-- [x] Combat tracker with initiative (implemented!)
+- [x] Narrative turn-based combat with initiative, AP/BP and AI adjudication (implemented!)
 - [x] Per-character POV narrations (implemented!)
 - [x] Long Rest tag with full resource restoration (implemented!)
 - [x] Anthropic API provider support (implemented!)

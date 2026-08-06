@@ -343,19 +343,18 @@ Before deploying, test these scenarios:
 - [ ] Recalculate buttons work
 - [ ] Delete session
 
-#### Combat Tracker
-- [ ] Start new combat
-- [ ] Roll party initiative
-- [ ] Add enemies/NPCs
-- [ ] Initiative order sorted correctly
-- [ ] Next/Previous turn works
-- [ ] Round counter increments
-- [ ] Edit combatant HP, conditions
-- [ ] Add combatant mid-combat
-- [ ] Remove combatant
-- [ ] End combat
-- [ ] HP syncs with character sheets
+#### Narrative Combat
+- [ ] GM can start an encounter with enemies
+- [ ] Resolver AI can auto-start an encounter mid-turn
+- [ ] Every player can roll initiative; GM can roll for stragglers
+- [ ] Initiative order sorted correctly, round counter increments
+- [ ] Only the active player's action bar is enabled
+- [ ] Freeform action is adjudicated, AP/BP deducted, narration lands in the story
+- [ ] Enemy turns resolve automatically (and still resolve if the AI call fails)
+- [ ] HP, spell slots and inventory sync to character sheets every turn
+- [ ] Victory/defeat/flee ends combat and writes the deferred narration
 - [ ] Real-time updates across clients
+- [ ] A session left mid-fight on the old grid combat resumes as narrative combat
 
 #### API Configurations
 - [ ] Add new config
@@ -488,12 +487,12 @@ console.log('All characters:', all);
 - **Scenario Selection** - Choose from 10 preset scenarios (Fantasy, Modern, Zombie, Sci-Fi, etc.) or custom setting when creating sessions
 - **AI-Generated Opening Scenes** - DM automatically sets the scene based on selected scenario
 - **DM HP Control** - `[HP: Character -10]`, `[HP: Character +5]`, `[HP: Character =20]` tags for damage/healing
-- **DM Combat Control** - `[COMBAT: START]`, `[COMBAT: END]`, `[COMBAT: NEXT]`, `[COMBAT: PREV]` tags
+- **Combat Triggering** - the resolver AI auto-starts an encounter from the turn it is processing, or the GM starts one via `POST /api/sessions/:id/combat` (there is no `[COMBAT:]` tag)
 - **Setting-Agnostic Currency** - "Money" instead of "Gold", works with any setting (gp, USD, credits)
 - **Collapsible Character Cards** - Click to expand/collapse, shows summary when minimized
 - **Player Agency Rules** - DM no longer gives numbered choice lists, lets players discover options
 - **Beautified Session UI** - Player actions as individual bubbles, character sheets hidden from chat
-- **Combat Tracker with Initiative** - Full turn-based combat management
+- **Narrative Turn-Based Combat** - Initiative rolls, an AP/BP turn economy, AI adjudication of freeform actions, AI enemy turns and per-turn character-sheet writeback, all inside the story stream
 - **Class Features tracking** - Fighter's Second Wind, Bard's Song of Rest, etc.
 - **Appearance & Backstory** - Character descriptions and history
 - **Quick Edit modal** - Direct editing of text fields without AI

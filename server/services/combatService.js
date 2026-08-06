@@ -60,7 +60,7 @@ const SPELL_LEVELS = {
 };
 
 /* ------------------------------------------------------------------ *
- * Small shared helpers (ported from tacticalCombatService)
+ * Small shared helpers (carried over from the retired grid combat service)
  * ------------------------------------------------------------------ */
 
 function clamp(value, minimum, maximum) {
