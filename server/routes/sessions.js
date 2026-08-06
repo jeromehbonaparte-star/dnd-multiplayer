@@ -8,12 +8,8 @@ const { v4: uuidv4 } = require('uuid');
 const { validate, validateBody, schemas } = require('../lib/validation');
 const tagParser = require('../services/tagParser');
 const logger = require('../lib/logger');
-const {
-  activeUnit,
-  applyTacticalAction,
-  createTacticalCombat,
-  getCombatSummary
-} = require('../services/tacticalCombatService');
+const combatService = require('../services/combatService');
+const combatIntegration = require('../services/combatIntegration');
 const { searchYoutubeMusic } = require('../services/youtubeService');
 const {
   deletePOVSceneImage,
@@ -34,7 +30,8 @@ const {
  * @param {Set} deps.processingSessions - Set tracking sessions being processed
  * @param {Function} deps.getApiConfigForRole - Function to get narrator or agent API config
  * @param {Function} deps.processAITurn - Function to process AI turn
- * @param {Function} deps.completeCombatTurn - Function to narrate a resolved tactical encounter
+ * @param {Function} deps.emitCharacterUpdate - Character-scoped socket emitter (charId, event, payload)
+ * @param {Function} deps.completeCombatTurn - Function to narrate a resolved combat encounter
  * @param {string} deps.DEFAULT_SYSTEM_PROMPT - Default DM system prompt
  * @param {Function} deps.parseAcEffects - AC effects parser
  * @param {Function} deps.calculateTotalAC - AC calculator
@@ -46,6 +43,7 @@ const {
 function createSessionRoutes(deps) {
   const {
     db, io, auth, aiService, emitToSession,
+    emitCharacterUpdate,
     processingSessions,
     getActiveApiConfig,
     getApiConfigForRole,
@@ -66,6 +64,9 @@ function createSessionRoutes(deps) {
     ? emitToSession
     : (sessionId, event, payload) => io.emit(event, payload);
   const getRoleApiConfig = role => getApiConfigForRole ? getApiConfigForRole(role) : getActiveApiConfig();
+  const sendToCharacter = typeof emitCharacterUpdate === 'function'
+    ? emitCharacterUpdate
+    : (characterId, event, payload) => io.emit(event, payload);
 
   // Helper to get session characters
   function getSessionCharacters(sessionId) {
@@ -105,44 +106,258 @@ function createSessionRoutes(deps) {
     return !!row && row.user_id === user.id;
   }
 
-  function getActiveCombat(sessionId) {
-    const row = db.prepare('SELECT * FROM combats WHERE session_id = ? AND is_active = 1 ORDER BY created_at DESC LIMIT 1').get(sessionId);
-    if (!row) return null;
-    try {
-      return { ...row, state: JSON.parse(row.combatants || '{}') };
-    } catch (error) {
-      logger.error('Unable to read tactical combat state', { sessionId, combatId: row.id, error: error.message });
-      return null;
-    }
-  }
+  // ============================================
+  // Narrative combat (NTC) plumbing
+  // ============================================
 
   function saveCombat(combat, state) {
     db.prepare('UPDATE combats SET combatants = ?, current_turn = ?, round = ?, is_active = ? WHERE id = ?')
-      .run(JSON.stringify(state), state.turnIndex, state.round, state.outcome ? 0 : 1, combat.id);
+      .run(combatService.serialize(state), state.turnIndex, state.round, state.outcome ? 0 : 1, combat.id);
   }
 
-  function persistPartyHealth(state) {
-    const updateCharacter = db.prepare('UPDATE characters SET hp = ?, spell_slots = ? WHERE id = ?');
-    for (const unit of state.units) {
-      if (unit.side === 'party' && unit.sourceCharacterId) {
-        updateCharacter.run(unit.hp, JSON.stringify(unit.spellSlots || {}), unit.sourceCharacterId);
+  /**
+   * Re-reads the sheet fields a migrated schema-1 unit cannot carry (grid combat
+   * never tracked inventory, spells text, features or class resources).
+   */
+  function hydrateMigratedCombat(state) {
+    const pending = combatIntegration.unitsNeedingHydration(state);
+    if (!pending.length) return;
+    const selectCharacter = db.prepare('SELECT * FROM characters WHERE id = ?');
+    for (const unit of pending) {
+      combatIntegration.hydrateMigratedUnit(unit, selectCharacter.get(unit.sourceCharacterId) || null);
+    }
+  }
+
+  /**
+   * Loads the active encounter as schema-2 state. A stored schema-1 grid blob is
+   * transcoded, re-hydrated from the character rows and written back once, so
+   * every later caller sees narrative state.
+   */
+  function getActiveCombat(sessionId) {
+    const row = db.prepare('SELECT * FROM combats WHERE session_id = ? AND is_active = 1 ORDER BY created_at DESC LIMIT 1').get(sessionId);
+    if (!row) return null;
+    let raw = null;
+    try { raw = JSON.parse(row.combatants || 'null'); } catch (error) { raw = null; }
+    const state = combatService.deserialize(raw);
+    if (!state) {
+      logger.error('Unable to read combat state', { sessionId, combatId: row.id });
+      return null;
+    }
+    const { combatants, ...rest } = row;
+    const combat = { ...rest, state };
+    if (!raw || Number(raw.schema) !== combatService.COMBAT_SCHEMA_VERSION) {
+      hydrateMigratedCombat(state);
+      saveCombat(combat, state);
+      logger.info('Migrated a tactical encounter to narrative combat', { sessionId, combatId: row.id });
+    }
+    return combat;
+  }
+
+  /** REST-facing envelope: the combats row plus the stripped public state. */
+  function toPublicCombat(combat, state) {
+    if (!combat || !state) return null;
+    return {
+      id: combat.id,
+      session_id: combat.session_id,
+      name: combat.name,
+      is_active: state.outcome ? 0 : 1,
+      current_turn: state.turnIndex,
+      round: state.round,
+      created_at: combat.created_at,
+      state: combatIntegration.publicCombatState(state)
+    };
+  }
+
+  function emitCombatUpdate(sessionId, combat, state, options = {}) {
+    sendToSession(sessionId, 'combat_updated', combatIntegration.buildCombatUpdatedPayload({
+      sessionId,
+      combatId: combat?.id,
+      state,
+      events: options.events || state.log,
+      automatic: options.automatic
+    }));
+  }
+
+  /** Syncs HP / spell slots / inventory back to every party character sheet. */
+  function persistCombatWriteback(state) {
+    const statements = combatIntegration.buildCharacterWritebackStatements(combatService.collectCharacterWriteback(state));
+    for (const statement of statements) {
+      try {
+        db.prepare(statement.sql).run(...statement.args);
+        const row = db.prepare('SELECT * FROM characters WHERE id = ?').get(statement.characterId);
+        if (row) sendToCharacter(statement.characterId, 'character_updated', row);
+      } catch (error) {
+        logger.error('Unable to persist a combat writeback', { characterId: statement.characterId, error: error.message });
       }
     }
   }
 
-  function recordCombatOutcome(sessionId, state, events) {
-    if (!state.outcome) return;
+  /**
+   * Appends one visible combat beat to the session history. Carries no `role`,
+   * so the narrator prompt builder skips it; combat reaches the narrator through
+   * the conclusion summary instead. Never bumps `current_turn`.
+   */
+  function appendCombatHistory(sessionId, entryInput) {
+    const session = db.prepare('SELECT full_history FROM game_sessions WHERE id = ?').get(sessionId);
+    if (!session) return null;
+    let history = [];
+    try { history = JSON.parse(session.full_history || '[]'); } catch (error) { history = []; }
+    if (!Array.isArray(history)) history = [];
+    const entry = combatIntegration.buildCombatHistoryEntry(entryInput);
+    history.push(entry);
+    db.prepare('UPDATE game_sessions SET full_history = ? WHERE id = ?').run(JSON.stringify(history), sessionId);
+    return entry;
+  }
+
+  function announceCombatStart(sessionId, state) {
+    return appendCombatHistory(sessionId, {
+      content: `Combat begins: ${state.name}. Every player rolls a d20 for initiative.`,
+      unitName: '',
+      round: state.round
+    });
+  }
+
+  /** Fallback record of a finished encounter when the aftermath narration cannot run. */
+  function recordCombatOutcome(sessionId, summary) {
     const session = db.prepare('SELECT full_history FROM game_sessions WHERE id = ?').get(sessionId);
     if (!session) return;
     let history = [];
     try { history = JSON.parse(session.full_history || '[]'); } catch (error) { history = []; }
+    if (!Array.isArray(history)) history = [];
     history.push({
       role: 'assistant',
       type: 'narration',
-      content: getCombatSummary(state, events),
+      content: summary,
       timestamp: new Date().toISOString()
     });
     db.prepare('UPDATE game_sessions SET full_history = ?, current_turn = current_turn + 1 WHERE id = ?').run(JSON.stringify(history), sessionId);
+  }
+
+  /** Ownership without the admin bypass — used to auto-resolve "my" combatant. */
+  function ownsCharacterDirectly(user, characterId) {
+    const row = db.prepare('SELECT user_id FROM characters WHERE id = ?').get(characterId);
+    return !!row && row.user_id === user.id;
+  }
+
+  /**
+   * Resolves which combatant the caller is acting as. Mirrors /action: an
+   * explicit characterId is validated for session membership and ownership;
+   * otherwise the caller's own eligible combatant is used, and controlling more
+   * than one eligible combatant requires the explicit id.
+   */
+  function resolveCombatActor(req, state, isEligible) {
+    const sessionId = req.params.id;
+    const explicitId = req.body?.characterId || req.body?.character_id;
+    if (explicitId) {
+      if (!isCharacterInSession(sessionId, explicitId)) return { status: 403, error: 'Character is not part of this session' };
+      if (!userOwnsCharacter(req.user, explicitId)) return { status: 403, error: 'You do not own this character' };
+      const unit = state.units.find(candidate => candidate.side === 'party' && String(candidate.sourceCharacterId) === String(explicitId));
+      if (!unit) return { status: 404, error: 'That character is not in this encounter.' };
+      return { unit };
+    }
+    const candidates = state.units.filter(unit => unit.side === 'party'
+      && unit.sourceCharacterId
+      && ownsCharacterDirectly(req.user, unit.sourceCharacterId)
+      && isEligible(unit));
+    if (candidates.length === 1) return { unit: candidates[0] };
+    if (!candidates.length) return { status: 403, error: 'You have no character able to act in this encounter right now.' };
+    return { status: 400, error: 'Send characterId — you control more than one combatant here.' };
+  }
+
+  /**
+   * Resolves consecutive enemy turns. A failed AI call falls back to a
+   * deterministic basic attack built from the engine pre-rolls, so a dead
+   * adjudicator can never stall the fight.
+   */
+  async function driveEnemyTurns(sessionId, combat, state, config) {
+    for (let guard = 0; guard < combatIntegration.MAX_ENEMY_TURNS; guard++) {
+      if (state.outcome || state.phase !== 'active') break;
+      const unit = combatService.currentUnit(state);
+      if (!unit || unit.side !== 'enemy') break;
+
+      const round = state.round;
+      let adjudication = null;
+      if (config?.api_key) {
+        try {
+          adjudication = await aiService.generateEnemyCombatTurn({ state, enemyUnitId: unit.id, config });
+        } catch (error) {
+          logger.warn('Enemy combat turn threw', { sessionId, unitId: unit.id, error: error.message });
+          adjudication = null;
+        }
+      }
+      if (!adjudication || adjudication.error) {
+        if (adjudication?.error) {
+          logger.warn('Enemy combat turn failed; using the deterministic fallback', { sessionId, unitId: unit.id, reason: adjudication.error });
+        }
+        adjudication = combatIntegration.buildEnemyFallbackAdjudication(state, unit.id);
+      }
+      if (!adjudication) break;
+
+      let result = combatService.applyAdjudication(state, unit.id, adjudication);
+      if (!result.ok) {
+        const fallback = combatIntegration.buildEnemyFallbackAdjudication(state, unit.id);
+        if (fallback) {
+          adjudication = fallback;
+          result = combatService.applyAdjudication(state, unit.id, fallback);
+        }
+      }
+      if (!result.ok) {
+        logger.error('Enemy turn could not be applied; forcing the turn to pass', { sessionId, unitId: unit.id, error: result.error });
+        combatIntegration.forceTurnEnd(state);
+        saveCombat(combat, state);
+        emitCombatUpdate(sessionId, combat, state);
+        continue;
+      }
+
+      state.turnActionCount = 0;
+      persistCombatWriteback(state);
+      saveCombat(combat, state);
+      const narration = String(adjudication.narration || '');
+      appendCombatHistory(sessionId, { content: narration, unitName: unit.name, round });
+      sendToSession(sessionId, 'combat_turn_narration', combatIntegration.buildNarrationPayload({
+        sessionId, unitName: unit.name, narration, round, warnings: result.warnings
+      }));
+      emitCombatUpdate(sessionId, combat, state);
+    }
+  }
+
+  /**
+   * The conclusion path shared by natural endings and the GM "end combat"
+   * button: summary + aftermath narration through completeCombatTurn (which
+   * consumes deferredTurn.openingResolution).
+   */
+  async function runCombatConclusion(sessionId, state) {
+    const summary = combatService.getCombatSummary(state, (state.log || []).slice(-6));
+    if (processingSessions.has(sessionId)) {
+      recordCombatOutcome(sessionId, summary);
+      sendToSession(sessionId, 'turn_processed', { sessionId, response: summary, choices: [], compacted: false });
+      return { outcome: state.outcome, summary, narrationPending: false };
+    }
+
+    processingSessions.add(sessionId);
+    sendToSession(sessionId, 'turn_processing', { sessionId, combatConclusion: true });
+    try {
+      const characters = getSessionCharacters(sessionId);
+      const aftermath = await completeCombatTurn(sessionId, characters, {
+        summary,
+        openingResolution: state.deferredTurn?.openingResolution || ''
+      });
+      return { outcome: state.outcome, summary, narrationPending: false, aftermath };
+    } catch (error) {
+      logger.error('Combat ended but aftermath narration failed', { sessionId, error: error.message });
+      recordCombatOutcome(sessionId, summary);
+      sendToSession(sessionId, 'turn_processed', { sessionId, response: summary, choices: [], compacted: false, degraded: true });
+      return { outcome: state.outcome, summary, narrationPending: false, aftermathError: error.message };
+    } finally {
+      processingSessions.delete(sessionId);
+    }
+  }
+
+  /** Enemy turns first, then the conclusion path when the fight is over. */
+  async function continueCombat(sessionId, combat, state) {
+    await driveEnemyTurns(sessionId, combat, state, getRoleApiConfig('agent'));
+    if (!state.outcome) return null;
+    return runCombatConclusion(sessionId, state);
   }
 
   /**
@@ -310,13 +525,21 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
     const sessionChars = getSessionCharacters(req.params.id);
     const povImageEnabled = db.prepare("SELECT value FROM settings WHERE key = 'pov_image_enabled'").get()?.value === 'true';
 
-    res.json({ session, pendingActions, sessionCharacters: sessionChars, combat: getActiveCombat(req.params.id), features: { povImageEnabled } });
+    const activeCombat = getActiveCombat(req.params.id);
+    res.json({
+      session,
+      pendingActions,
+      sessionCharacters: sessionChars,
+      combat: activeCombat ? toPublicCombat(activeCombat, activeCombat.state) : null,
+      features: { povImageEnabled }
+    });
   });
 
   /**
    * POST /api/sessions/:id/combat
-   * Start a server-authoritative tactical encounter. The GM supplies enemies;
-   * party units always come from the current session characters.
+   * Start a narrative encounter manually. The GM supplies enemies; party units
+   * always come from the current session characters. Combat opens in the
+   * initiative phase — every player rolls a d20 before the first turn.
    */
   router.post('/:id/combat', requireAdmin, (req, res) => {
     const sessionId = req.params.id;
@@ -325,7 +548,7 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
     if (getActiveCombat(sessionId)) return res.status(409).json({ error: 'An encounter is already active.' });
 
     const rawEnemies = Array.isArray(req.body?.enemies) ? req.body.enemies : [];
-    const enemies = rawEnemies.slice(0, 12).map((enemy, index) => ({
+    const enemies = rawEnemies.slice(0, combatService.MAX_COMBATANTS_PER_SIDE).map((enemy, index) => ({
       id: validate.sanitizeString(enemy?.id || String(index + 1), 60),
       name: validate.sanitizeString(enemy?.name || `Enemy ${index + 1}`, 80),
       hp: Number(enemy?.hp),
@@ -333,8 +556,6 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
       attackBonus: Number(enemy?.attackBonus),
       damageBonus: Number(enemy?.damageBonus),
       damageDie: Number(enemy?.damageDie),
-      movement: Number(enemy?.movement),
-      range: Number(enemy?.range),
       initiativeBonus: Number(enemy?.initiativeBonus)
     }));
     if (!enemies.length) return res.status(400).json({ error: 'Add at least one enemy to begin combat.' });
@@ -342,93 +563,254 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
     if (!characters.length) return res.status(400).json({ error: 'This session has no party members.' });
 
     try {
-      const name = validate.sanitizeString(req.body?.name || 'Tactical Encounter', 120);
+      const name = validate.sanitizeString(req.body?.name || 'Combat Encounter', 120);
       const environment = validate.sanitizeString(req.body?.environment || 'plains', 50);
-      const state = createTacticalCombat(characters, enemies, { environment });
-      const combat = { id: uuidv4(), session_id: sessionId, name, is_active: 1, current_turn: state.turnIndex, round: state.round };
+      const state = combatService.createCombat({ name, environment, characters, enemies });
+      const combat = {
+        id: uuidv4(),
+        session_id: sessionId,
+        name,
+        is_active: 1,
+        current_turn: state.turnIndex,
+        round: state.round,
+        created_at: new Date().toISOString()
+      };
       db.prepare('INSERT INTO combats (id, session_id, name, is_active, current_turn, round, combatants) VALUES (?, ?, ?, ?, ?, ?, ?)')
-        .run(combat.id, sessionId, name, 1, state.turnIndex, state.round, JSON.stringify(state));
-      persistPartyHealth(state);
+        .run(combat.id, sessionId, name, 1, state.turnIndex, state.round, combatService.serialize(state));
       db.prepare('DELETE FROM pending_actions WHERE session_id = ?').run(sessionId);
-      const payload = { ...combat, state };
-      sendToSession(sessionId, 'combat_updated', { sessionId, combat: payload });
-      res.status(201).json({ combat: payload });
+      announceCombatStart(sessionId, state);
+      emitCombatUpdate(sessionId, combat, state);
+      res.status(201).json({ combat: toPublicCombat(combat, state) });
     } catch (error) {
-      logger.error('Unable to start tactical combat', { sessionId, error: error.message });
-      res.status(400).json({ error: error.message || 'Unable to start tactical combat.' });
+      logger.error('Unable to start combat', { sessionId, error: error.message });
+      res.status(400).json({ error: error.message || 'Unable to start combat.' });
     }
   });
 
-  /** POST /api/sessions/:id/combat/action - execute the current owner's tactical action. */
-  router.post('/:id/combat/action', requireUser, async (req, res) => {
+  /**
+   * POST /api/sessions/:id/combat/initiative
+   * Body: { roll: 1-20, characterId? }. The player reports the d20 they rolled;
+   * the server adds the DEX-based bonus. When the last party unit rolls, the
+   * turn order locks in and any leading enemy turns resolve immediately.
+   */
+  router.post('/:id/combat/initiative', requireUser, async (req, res) => {
     const sessionId = req.params.id;
     if (!userCanViewSession(req.user, sessionId)) return res.status(403).json({ error: 'You do not have a character in this session' });
     const combat = getActiveCombat(sessionId);
-    if (!combat) return res.status(404).json({ error: 'No active tactical encounter.' });
-    if (Number.isInteger(req.body?.version) && req.body.version !== combat.state.version) {
-      return res.status(409).json({ error: 'The combat changed. Reloading the latest state.', combat });
-    }
-    const current = activeUnit(combat.state);
-    if (!current || current.side !== 'party' || !current.sourceCharacterId) return res.status(409).json({ error: 'Wait for the next player turn.', combat });
-    if (!userOwnsCharacter(req.user, current.sourceCharacterId)) return res.status(403).json({ error: 'Only the player who owns the active character can act.' });
+    if (!combat) return res.status(404).json({ error: 'No active encounter.' });
+    const state = combat.state;
+    if (state.outcome) return res.status(409).json({ error: 'This encounter has already ended.' });
+    if (state.phase !== 'initiative') return res.status(409).json({ error: 'Initiative has already been settled.' });
 
-    const result = applyTacticalAction(combat.state, req.body?.action);
-    if (!result.ok) return res.status(400).json({ error: result.error, combat });
-    saveCombat(combat, result.state);
-    persistPartyHealth(result.state);
-    const payload = { ...combat, is_active: result.state.outcome ? 0 : 1, round: result.state.round, state: result.state };
-    sendToSession(sessionId, 'combat_updated', {
-      sessionId,
-      combat: result.state.outcome ? null : payload,
-      events: result.events,
-      version: result.state.version
+    const roll = combatIntegration.normalizeInitiativeRoll(req.body?.roll);
+    if (roll.error) return res.status(400).json({ error: roll.error });
+
+    const actor = resolveCombatActor(req, state, unit => state.pendingInitiative.includes(unit.id));
+    if (actor.error) return res.status(actor.status).json({ error: actor.error });
+
+    const applied = combatService.rollInitiative(state, actor.unit.id, roll.roll);
+    if (!applied.ok) return res.status(409).json({ error: applied.error, combat: toPublicCombat(combat, state) });
+
+    saveCombat(combat, state);
+    emitCombatUpdate(sessionId, combat, state);
+
+    let conclusion = null;
+    if (applied.activated) {
+      try {
+        conclusion = await continueCombat(sessionId, combat, state);
+      } catch (error) {
+        logger.error('Enemy turns failed after initiative locked in', { sessionId, error: error.message });
+      }
+    }
+
+    res.json({
+      combat: state.outcome ? null : toPublicCombat(combat, state),
+      version: state.version,
+      phase: state.outcome ? 'ended' : state.phase,
+      activated: Boolean(applied.activated),
+      outcome: state.outcome || null,
+      ...(conclusion || {})
     });
-
-    if (!result.state.outcome) {
-      return res.json({ combat: payload, events: result.events, version: result.state.version, outcome: null });
-    }
-
-    const summary = getCombatSummary(result.state, result.events);
-    if (processingSessions.has(sessionId)) {
-      recordCombatOutcome(sessionId, result.state, result.events);
-      sendToSession(sessionId, 'turn_processed', { sessionId, response: summary, choices: [], compacted: false });
-      return res.json({ combat: null, events: result.events, version: result.state.version, outcome: result.state.outcome, narrationPending: false });
-    }
-
-    processingSessions.add(sessionId);
-    sendToSession(sessionId, 'turn_processing', { sessionId, combatConclusion: true });
-    try {
-      const characters = getSessionCharacters(sessionId);
-      const narration = await completeCombatTurn(sessionId, characters, {
-        summary,
-        openingResolution: result.state.deferredTurn?.openingResolution || ''
-      });
-      return res.json({
-        combat: null,
-        events: result.events,
-        version: result.state.version,
-        outcome: result.state.outcome,
-        narrationPending: false,
-        narration
-      });
-    } catch (error) {
-      logger.error('Combat ended but aftermath narration failed', { sessionId, error: error.message });
-      recordCombatOutcome(sessionId, result.state, result.events);
-      sendToSession(sessionId, 'turn_processed', { sessionId, response: summary, choices: [], compacted: false, degraded: true });
-      return res.json({ combat: null, events: result.events, version: result.state.version, outcome: result.state.outcome, narrationPending: false, narrationError: error.message });
-    } finally {
-      processingSessions.delete(sessionId);
-    }
   });
 
-  /** POST /api/sessions/:id/combat/end - GM can end an encounter early. */
-  router.post('/:id/combat/end', requireAdmin, (req, res) => {
+  /** POST /api/sessions/:id/combat/roll-remaining - GM rolls initiative for stragglers. */
+  router.post('/:id/combat/roll-remaining', requireAdmin, async (req, res) => {
     const sessionId = req.params.id;
     const combat = getActiveCombat(sessionId);
-    if (!combat) return res.status(404).json({ error: 'No active tactical encounter.' });
-    db.prepare('UPDATE combats SET is_active = 0 WHERE id = ?').run(combat.id);
-    sendToSession(sessionId, 'combat_updated', { sessionId, combat: null });
-    res.json({ success: true });
+    if (!combat) return res.status(404).json({ error: 'No active encounter.' });
+    const state = combat.state;
+
+    const applied = combatService.rollRemainingInitiative(state);
+    if (!applied.ok) return res.status(409).json({ error: applied.error, combat: toPublicCombat(combat, state) });
+
+    saveCombat(combat, state);
+    emitCombatUpdate(sessionId, combat, state);
+
+    let conclusion = null;
+    if (applied.activated) {
+      try {
+        conclusion = await continueCombat(sessionId, combat, state);
+      } catch (error) {
+        logger.error('Enemy turns failed after the GM rolled remaining initiative', { sessionId, error: error.message });
+      }
+    }
+
+    res.json({
+      combat: state.outcome ? null : toPublicCombat(combat, state),
+      version: state.version,
+      rolled: applied.rolled,
+      activated: Boolean(applied.activated),
+      outcome: state.outcome || null,
+      ...(conclusion || {})
+    });
+  });
+
+  /**
+   * POST /api/sessions/:id/combat/turn-action
+   * Body: { action, characterId?, version? }. The active player's freeform
+   * action (it may embed a [DICE ROLL] tag) goes to the combat adjudicator; the
+   * engine applies the returned Adjudication JSON, the sheet is written back and
+   * any enemy turns that follow resolve before the response returns.
+   */
+  router.post('/:id/combat/turn-action', requireUser, async (req, res) => {
+    const sessionId = req.params.id;
+    if (!userCanViewSession(req.user, sessionId)) return res.status(403).json({ error: 'You do not have a character in this session' });
+    const combat = getActiveCombat(sessionId);
+    if (!combat) return res.status(404).json({ error: 'No active encounter.' });
+    const state = combat.state;
+    if (state.outcome) return res.status(409).json({ error: 'This encounter has already ended.' });
+    if (state.phase !== 'active') return res.status(409).json({ error: 'Initiative is still being rolled.' });
+    if (Number.isInteger(req.body?.version) && req.body.version !== state.version) {
+      return res.status(409).json({ error: 'The combat changed. Reloading the latest state.', combat: toPublicCombat(combat, state) });
+    }
+
+    const parsedAction = combatIntegration.normalizeCombatAction(req.body?.action);
+    if (parsedAction.error) return res.status(400).json({ error: parsedAction.error });
+
+    const actor = resolveCombatActor(req, state, unit => combatService.isPlayerTurn(state, unit.sourceCharacterId));
+    if (actor.error) return res.status(actor.status).json({ error: actor.error });
+    if (!combatService.isPlayerTurn(state, actor.unit.sourceCharacterId)) {
+      return res.status(403).json({ error: 'It is not that character\'s turn.', combat: toPublicCombat(combat, state) });
+    }
+
+    // Stall cap: a player who keeps submitting without ending their turn loses it.
+    if (combatIntegration.shouldForceTurnEnd(combatIntegration.turnActionCount(state))) {
+      combatIntegration.forceTurnEnd(state);
+      saveCombat(combat, state);
+      emitCombatUpdate(sessionId, combat, state);
+      let stalledConclusion = null;
+      try {
+        stalledConclusion = await continueCombat(sessionId, combat, state);
+      } catch (error) {
+        logger.error('Enemy turns failed after a stalled turn was forced to end', { sessionId, error: error.message });
+      }
+      return res.status(409).json({
+        error: `You have already taken ${combatIntegration.MAX_TURN_ACTIONS} actions this turn — the turn has passed.`,
+        combat: state.outcome ? null : toPublicCombat(combat, state),
+        version: state.version,
+        outcome: state.outcome || null,
+        ...(stalledConclusion || {})
+      });
+    }
+
+    const config = getRoleApiConfig('agent');
+    if (!config?.api_key) return res.status(400).json({ error: 'No agent API configuration. Choose one in Settings.' });
+
+    let adjudication;
+    try {
+      adjudication = await aiService.adjudicateCombatAction({
+        state, actingUnitId: actor.unit.id, actionText: parsedAction.action, config
+      });
+    } catch (error) {
+      logger.error('Combat adjudication threw', { sessionId, error: error.message });
+      adjudication = { error: 'request-failed', message: error.message };
+    }
+    if (!adjudication || adjudication.error) {
+      logger.warn('Combat adjudication failed', { sessionId, reason: adjudication?.error || 'empty' });
+      return res.status(502).json({ error: 'The DM stumbled — try again.' });
+    }
+
+    const round = state.round;
+    const result = combatService.applyAdjudication(state, actor.unit.id, adjudication);
+    if (!result.ok) {
+      return res.status(409).json({ error: result.error, combat: toPublicCombat(combat, state) });
+    }
+
+    state.turnActionCount = combatIntegration.nextTurnActionCount(state, result.turnAdvanced);
+    let turnAdvanced = result.turnAdvanced;
+    if (!state.outcome && !turnAdvanced && combatIntegration.shouldForceTurnEnd(state.turnActionCount)) {
+      combatIntegration.forceTurnEnd(state);
+      turnAdvanced = true;
+    }
+
+    persistCombatWriteback(state);
+    saveCombat(combat, state);
+    const narration = String(adjudication.narration || '');
+    appendCombatHistory(sessionId, { content: narration, unitName: actor.unit.name, round });
+    sendToSession(sessionId, 'combat_turn_narration', combatIntegration.buildNarrationPayload({
+      sessionId, unitName: actor.unit.name, narration, round, warnings: result.warnings
+    }));
+    emitCombatUpdate(sessionId, combat, state);
+
+    let conclusion = null;
+    try {
+      if (turnAdvanced && !state.outcome) {
+        conclusion = await continueCombat(sessionId, combat, state);
+      } else if (state.outcome) {
+        conclusion = await runCombatConclusion(sessionId, state);
+      }
+    } catch (error) {
+      logger.error('Combat could not continue after a player turn', { sessionId, error: error.message });
+    }
+
+    res.json({
+      combat: state.outcome ? null : toPublicCombat(combat, state),
+      narration,
+      warnings: result.warnings,
+      turnAdvanced,
+      version: state.version,
+      outcome: state.outcome || null,
+      ...(conclusion || {})
+    });
+  });
+
+  /**
+   * POST /api/sessions/:id/combat/end
+   * GM ends the encounter early. Unlike the old silent stop this resolves the
+   * fight properly: outcome 'resolved' plus the same summary + aftermath
+   * narration a natural ending produces.
+   */
+  router.post('/:id/combat/end', requireAdmin, async (req, res) => {
+    const sessionId = req.params.id;
+    const combat = getActiveCombat(sessionId);
+    if (!combat) return res.status(404).json({ error: 'No active encounter.' });
+    const state = combat.state;
+
+    if (!state.outcome) {
+      state.outcome = 'resolved';
+      if (!Array.isArray(state.log)) state.log = [];
+      state.log.push({
+        round: Number(state.round) || 1,
+        type: 'end',
+        text: 'The GM calls the encounter; the fighting stops.'
+      });
+      if (state.log.length > combatService.MAX_LOG_ENTRIES) {
+        state.log.splice(0, state.log.length - combatService.MAX_LOG_ENTRIES);
+      }
+      state.version = (Number(state.version) || 0) + 1;
+    }
+
+    persistCombatWriteback(state);
+    saveCombat(combat, state);
+    emitCombatUpdate(sessionId, combat, state);
+
+    let conclusion = null;
+    try {
+      conclusion = await runCombatConclusion(sessionId, state);
+    } catch (error) {
+      logger.error('GM ended combat but the aftermath narration failed', { sessionId, error: error.message });
+    }
+    res.json({ success: true, outcome: state.outcome, ...(conclusion || {}) });
   });
 
   /** POST /api/sessions/:id/music - GM manual override for the shared YouTube DJ. */
@@ -497,7 +879,7 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
     }
 
     if (getActiveCombat(sessionId)) {
-      return res.status(409).json({ error: 'A tactical encounter is active. Use the battlefield controls until combat ends.' });
+      return res.status(409).json({ error: 'A combat encounter is active. Use the combat controls until the encounter ends.' });
     }
 
     if (processingSessions.has(sessionId)) {
@@ -573,7 +955,7 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
     const sessionId = req.params.id;
 
     if (getActiveCombat(sessionId)) {
-      return res.status(409).json({ error: 'A tactical encounter is active. Resolve it before processing narration.' });
+      return res.status(409).json({ error: 'A combat encounter is active. Resolve it before processing narration.' });
     }
 
     if (processingSessions.has(sessionId)) {
@@ -866,7 +1248,7 @@ RULES:
     const sessionId = req.params.id;
 
     if (getActiveCombat(sessionId)) {
-      return res.status(409).json({ error: 'A tactical encounter is active. Resolve it before rerolling narration.' });
+      return res.status(409).json({ error: 'A combat encounter is active. Resolve it before rerolling narration.' });
     }
 
     if (processingSessions.has(sessionId)) {
@@ -997,7 +1379,7 @@ RULES:
     const { character_id, context } = req.body;
 
     if (getActiveCombat(sessionId)) {
-      return res.status(409).json({ error: 'A tactical encounter is active. Use the battlefield controls instead.' });
+      return res.status(409).json({ error: 'A combat encounter is active. Use the combat controls instead.' });
     }
 
     if (processingSessions.has(sessionId)) {

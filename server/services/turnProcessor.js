@@ -8,7 +8,9 @@ const logger = require('../lib/logger');
 const { estimateTokens } = require('../lib/tokens');
 const { searchYoutubeMusic } = require('./youtubeService');
 const { queueAutoPOVScenes } = require('./imageGenerationService');
-const { createTacticalCombat, normalizeAutoCombatSetup } = require('./tacticalCombatService');
+const combatService = require('./combatService');
+const combatIntegration = require('./combatIntegration');
+const { normalizeAutoCombatSetup } = combatService;
 const {
   NARRATION_WORD_LIMIT,
   NARRATION_MAX_TOKENS,
@@ -60,6 +62,10 @@ async function compactHistory(apiConfig, existingSummary, history, characters, e
       return `[DM]: ${h.content}`;
     } else if (h.type === 'gm_nudge') {
       return `[GM INSTRUCTION]: ${h.content}`;
+    } else if (h.type === 'combat_turn') {
+      // Combat beats never reach the live prompt (buildConversationMessages skips
+      // them: they carry no `role`), but they belong in the long-term summary.
+      return `[COMBAT${h.unitName ? ` — ${h.unitName}` : ''}]: ${h.content}`;
     } else if (h.hidden || h.type === 'context') {
       return ''; // Skip hidden context
     }
@@ -363,7 +369,7 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
   if (options.combatConclusion) {
     fullHistory.push({
       role: 'user',
-      content: `AUTHORITATIVE TACTICAL COMBAT RESULT:\n${options.combatConclusion.summary}`,
+      content: `AUTHORITATIVE COMBAT RESULT:\n${options.combatConclusion.summary}`,
       type: 'combat_result',
       hidden: true
     });
@@ -400,7 +406,7 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
       resolution: [
         options.combatConclusion.openingResolution,
         options.combatConclusion.summary,
-        'Portray the submitted player actions as the cause of the encounter and the tactical result as authoritative. Do not replay the battle blow by blow; narrate its decisive ending and immediate aftermath.'
+        'Portray the submitted player actions as the cause of the encounter and the combat result as authoritative. Do not replay the battle blow by blow; narrate its decisive ending and immediate aftermath.'
       ].filter(Boolean).join('\n\n'),
       stateTags: '',
       combat: null
@@ -450,7 +456,12 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
     `).all(sessionId);
     if (!currentCharacters.length) throw new Error('The party has no conscious combatants.');
 
-    const state = createTacticalCombat(currentCharacters, automaticCombatSetup.enemies, { environment: automaticCombatSetup.environment });
+    const state = combatService.createCombat({
+      name: automaticCombatSetup.name,
+      environment: automaticCombatSetup.environment,
+      characters: currentCharacters,
+      enemies: automaticCombatSetup.enemies
+    });
     state.deferredTurn = {
       openingResolution: turnResolution?.resolution || '',
       startedAt: new Date().toISOString()
@@ -461,10 +472,11 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
       name: automaticCombatSetup.name,
       is_active: 1,
       current_turn: state.turnIndex,
-      round: state.round
+      round: state.round,
+      created_at: new Date().toISOString()
     };
     db.prepare('INSERT INTO combats (id, session_id, name, is_active, current_turn, round, combatants) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(combat.id, sessionId, combat.name, 1, state.turnIndex, state.round, JSON.stringify(state));
+      .run(combat.id, sessionId, combat.name, 1, state.turnIndex, state.round, combatService.serialize(state));
     const updateCombatHp = db.prepare('UPDATE characters SET hp = ? WHERE id = ?');
     for (const unit of state.units) {
       if (unit.side !== 'party' || !unit.sourceCharacterId) continue;
@@ -472,12 +484,20 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
       const updatedCharacter = db.prepare('SELECT * FROM characters WHERE id = ?').get(unit.sourceCharacterId);
       if (updatedCharacter) emitCharacterUpdate(unit.sourceCharacterId, 'character_updated', updatedCharacter);
     }
+    // Visible "the fight is on" beat. Carries no `role`, so it never reaches the
+    // narrator prompt and never bumps current_turn.
+    fullHistory.push(combatIntegration.buildCombatHistoryEntry({
+      content: `Combat begins: ${state.name}. Every player rolls a d20 for initiative.`,
+      unitName: '',
+      round: state.round
+    }));
+
     const promptTokens = estimatePromptTokens(fullHistory.slice(compactedCount), session.story_summary || '');
     db.prepare('UPDATE game_sessions SET full_history = ?, total_tokens = ? WHERE id = ?')
       .run(JSON.stringify(fullHistory), promptTokens, sessionId);
     db.prepare('DELETE FROM pending_actions WHERE session_id = ?').run(sessionId);
 
-    const payload = { ...combat, state };
+    const payload = { ...combat, state: combatIntegration.publicCombatState(state) };
     sendToSession(sessionId, 'turn_processed', {
       sessionId,
       response: '',
@@ -487,8 +507,14 @@ async function runAITurn(deps, sessionId, pendingActions, characters, options = 
       choices: [],
       combatPending: true
     });
-    sendToSession(sessionId, 'combat_updated', { sessionId, combat: payload, automatic: true, events: state.log, version: state.version });
-    logger.info('Deferred narration and started tactical combat', { sessionId, combatId: combat.id, enemies: automaticCombatSetup.enemies.length });
+    sendToSession(sessionId, 'combat_updated', combatIntegration.buildCombatUpdatedPayload({
+      sessionId,
+      combatId: combat.id,
+      state,
+      events: state.log,
+      automatic: true
+    }));
+    logger.info('Deferred narration and started narrative combat', { sessionId, combatId: combat.id, enemies: automaticCombatSetup.enemies.length });
     return { response: '', tokensUsed: promptTokens, combat: payload, deferredNarration: true };
   }
 

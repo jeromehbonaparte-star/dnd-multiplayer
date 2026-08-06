@@ -24,6 +24,8 @@ const { formatAIConfig, getApiConfigForRole: resolveApiConfigForRole } = require
 const tagParser = require('./services/tagParser');
 const { parseAcEffects, calculateTotalAC, updateCharacterAC, getSessionCharacters } = require('./services/characterService');
 const { applyAllTags } = require('./services/tagApplicator');
+const combatService = require('./services/combatService');
+const combatIntegration = require('./services/combatIntegration');
 const {
   processAITurn: processAITurnCore,
   streamAITurn: streamAITurnCore,
@@ -170,11 +172,23 @@ function processAITurn(sessionId, pendingActions, characters) {
       const lastEntry = history[history.length - 1];
       const activeCombat = turnDeps.db.prepare('SELECT * FROM combats WHERE session_id = ? AND is_active = 1 ORDER BY created_at DESC LIMIT 1').get(sessionId);
       if (activeCombat) {
-        logger.error('Post-handoff work failed after tactical combat started', { sessionId, error: streamError.message });
+        logger.error('Post-handoff work failed after combat started', { sessionId, error: streamError.message });
+        const combatState = combatService.deserialize(activeCombat.combatants);
         return {
           response: '',
           tokensUsed: Number(session?.total_tokens || 0),
-          combat: { ...activeCombat, state: JSON.parse(activeCombat.combatants || '{}') },
+          combat: combatState
+            ? {
+              id: activeCombat.id,
+              session_id: activeCombat.session_id,
+              name: activeCombat.name,
+              is_active: combatState.outcome ? 0 : 1,
+              current_turn: combatState.turnIndex,
+              round: combatState.round,
+              created_at: activeCombat.created_at,
+              state: combatIntegration.publicCombatState(combatState)
+            }
+            : null,
           deferredNarration: true,
           degraded: true
         };

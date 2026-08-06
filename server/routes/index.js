@@ -30,6 +30,7 @@ function initializeRoutes(deps) {
     apiConfig: createApiConfigRoutes(db, auth),
     sessions: createSessionRoutes({
       db, io, auth, aiService, emitToSession,
+      emitCharacterUpdate,
       processingSessions,
       getActiveApiConfig,
       getApiConfigForRole,
