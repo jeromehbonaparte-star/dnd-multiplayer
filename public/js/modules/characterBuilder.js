@@ -10,7 +10,7 @@ import { loadCharacters } from './characters.js';
 import { escapeHtml } from '../utils/formatters.js';
 import { showNotification } from '../utils/dom.js';
 import {
-  getRaces, getClasses, getSpellsByClass, getEquipment, getSkills, getBackgrounds,
+  getRaces, getClasses, getSubclasses, getSpellsByClass, getEquipment, getSkills, getBackgrounds,
   STANDARD_ARRAY, POINT_BUY_COSTS, POINT_BUY_TOTAL, ABILITY_NAMES, ABILITY_SHORT,
   calcModifier, modString, CASTER_DATA
 } from '../utils/dndData.js';
@@ -29,6 +29,8 @@ const builder = {
   selectedRace: null,
   selectedClass: null,
   selectedBackground: null,
+  subclasses: [],
+  subclassRequired: false,
   statMethod: 'standard-array',
   stats: { strength: 10, dexterity: 10, constitution: 10, intelligence: 10, wisdom: 10, charisma: 10 },
   racialBonuses: {},
@@ -109,6 +111,8 @@ export function initCharacterBuilder() {
   const bgSelect = document.getElementById('builder-background');
   if (raceSelect) raceSelect.addEventListener('change', () => onRaceChange(raceSelect.value));
   if (classSelect) classSelect.addEventListener('change', () => onClassChange(classSelect.value));
+  const subclassSelect = document.getElementById('builder-subclass');
+  if (subclassSelect) subclassSelect.addEventListener('change', onSubclassChange);
   if (bgSelect) {
     bgSelect.addEventListener('change', () => {
       const idx = bgSelect.value;
@@ -275,6 +279,7 @@ function validateStep(step) {
     if (!charName) { showNotification('Please enter a character name'); return false; }
     if (!race) { showNotification('Please select a race'); return false; }
     if (!cls) { showNotification('Please select a class'); return false; }
+    if (builder.subclassRequired && !getSelectedSubclass()) { showNotification('Please choose a subclass'); return false; }
     return true;
   }
   if (step === 1) {
@@ -331,6 +336,7 @@ function onRaceChange(raceIndex) {
 
 function onClassChange(classIndex) {
   builder.selectedClass = builder.classes.find(c => c.index === classIndex) || null;
+  renderSubclassChoice();
   const infoPanel = document.getElementById('class-info');
   if (!infoPanel) return;
 
@@ -398,6 +404,98 @@ function onClassChange(classIndex) {
 
   // Pre-render equipment suggestion
   renderEquipmentSuggestion();
+}
+
+// ============================================
+// Subclass Choice
+// ============================================
+
+const CUSTOM_SUBCLASS = '__custom__';
+
+// Only used when the subclass list can't be fetched: these are the classes whose
+// CLASS_RULES.subclassLevels start at 1 on the server. With data in hand the
+// question is answered from it — a level-1 key in features_by_level means the
+// choice is made at character creation.
+const LEVEL1_SUBCLASS_CLASSES = ['Cleric', 'Sorcerer', 'Warlock'];
+
+function choosesSubclassAtLevel1(subclasses) {
+  return subclasses.some(sub => Object.keys(sub.features_by_level || {}).some(level => Number(level) === 1));
+}
+
+async function renderSubclassChoice() {
+  const group = document.getElementById('builder-subclass-group');
+  const select = document.getElementById('builder-subclass');
+  const custom = document.getElementById('builder-subclass-custom');
+  const info = document.getElementById('builder-subclass-info');
+  const label = group?.querySelector('label');
+  if (!group || !select) return;
+
+  builder.subclasses = [];
+  builder.subclassRequired = false;
+  group.classList.add('hidden');
+  select.classList.remove('hidden');
+  select.innerHTML = '<option value="">Choose a subclass...</option>';
+  if (custom) { custom.value = ''; custom.classList.add('hidden'); }
+  if (info) info.innerHTML = '';
+  if (label) label.textContent = 'Subclass *';
+
+  const cls = builder.selectedClass;
+  if (!cls) return;
+
+  let subclasses = null;
+  try {
+    subclasses = await getSubclasses(cls.index);
+  } catch (e) {
+    console.error('Failed to load subclasses:', e);
+  }
+  // The class may have changed while the fetch was in flight.
+  if (builder.selectedClass !== cls) return;
+
+  if (!subclasses) {
+    // No data to choose from: offer optional free text for the classes that
+    // normally pick at level 1, and never block character creation on it.
+    if (!LEVEL1_SUBCLASS_CLASSES.includes(cls.name)) return;
+    group.classList.remove('hidden');
+    select.classList.add('hidden');
+    custom?.classList.remove('hidden');
+    if (label) label.textContent = 'Subclass (optional)';
+    return;
+  }
+
+  if (!choosesSubclassAtLevel1(subclasses)) return;
+
+  builder.subclasses = subclasses;
+  builder.subclassRequired = true;
+  const flavor = subclasses[0].flavor_name || 'Subclass';
+  if (label) label.textContent = `${flavor} *`;
+  select.innerHTML = `<option value="">Choose a ${escapeHtml(flavor.toLowerCase())}...</option>` +
+    subclasses.map(sub => `<option value="${escapeHtml(sub.name)}">${escapeHtml(sub.name)}</option>`).join('') +
+    `<option value="${CUSTOM_SUBCLASS}">Homebrew / custom...</option>`;
+  group.classList.remove('hidden');
+}
+
+function onSubclassChange() {
+  const select = document.getElementById('builder-subclass');
+  const custom = document.getElementById('builder-subclass-custom');
+  const info = document.getElementById('builder-subclass-info');
+  const isCustom = select?.value === CUSTOM_SUBCLASS;
+  custom?.classList.toggle('hidden', !isCustom);
+  if (!info) return;
+
+  const sub = isCustom ? null : builder.subclasses.find(s => s.name === select?.value);
+  const features = sub ? (sub.features_by_level || {})['1'] || [] : [];
+  info.innerHTML = features.length
+    ? `<strong>${escapeHtml(sub.name)} (level 1):</strong> ${features.map(feature => escapeHtml(feature)).join(', ')}`
+    : '';
+}
+
+function getSelectedSubclass() {
+  const select = document.getElementById('builder-subclass');
+  const custom = document.getElementById('builder-subclass-custom');
+  if (!select || select.classList.contains('hidden') || select.value === CUSTOM_SUBCLASS) {
+    return custom?.value.trim() || '';
+  }
+  return select.value || '';
 }
 
 // ============================================
@@ -1116,6 +1214,12 @@ export async function saveNewCharacter() {
     showNotification('Please select a class');
     return;
   }
+  const subclass = getSelectedSubclass();
+  if (builder.subclassRequired && !subclass) {
+    showNotification('Please choose a subclass');
+    switchBuilderStep(0);
+    return;
+  }
 
   const stats = getFinalStats();
   const hitDie = builder.selectedClass?.hit_die || 10;
@@ -1130,6 +1234,7 @@ export async function saveNewCharacter() {
     race: builder.selectedRace?.name || '',
     class: builder.selectedClass?.name || '',
     classes: JSON.stringify({ [builder.selectedClass?.name || 'Fighter']: 1 }),
+    subclass,
     strength: stats.strength,
     dexterity: stats.dexterity,
     constitution: stats.constitution,
@@ -1192,6 +1297,8 @@ export function resetBuilder() {
   builder.selectedRace = null;
   builder.selectedClass = null;
   builder.selectedBackground = null;
+  builder.subclasses = [];
+  builder.subclassRequired = false;
   builder.statMethod = 'standard-array';
   builder.stats = { strength: 10, dexterity: 10, constitution: 10, intelligence: 10, wisdom: 10, charisma: 10 };
   builder.racialBonuses = {};
@@ -1229,6 +1336,9 @@ export function resetBuilder() {
     const el = document.getElementById(id);
     if (el) el.selectedIndex = 0;
   });
+
+  // Reset the subclass step (renderSubclassChoice re-hides it with no class set)
+  renderSubclassChoice();
 
   // Clear image
   clearImageUpload();

@@ -21,6 +21,12 @@ export async function getClasses() {
   return fetchCached('classes', '/api/dnd/classes');
 }
 
+// Accepts a class index ("sorcerer") or a class name ("Sorcerer").
+export async function getSubclasses(classIndex) {
+  const key = String(classIndex || '').toLowerCase();
+  return fetchCached(`subclasses:${key}`, `/api/dnd/classes/${encodeURIComponent(classIndex)}/subclasses`);
+}
+
 export async function getSpellsByClass(classIndex, level) {
   return fetchCached(`spells:${classIndex}:${level}`, `/api/dnd/classes/${classIndex}/spells?level=${level}`);
 }

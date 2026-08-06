@@ -14,5 +14,6 @@ export function getRequiredXP(level) {
 }
 
 export function canLevelUp(xp, level) {
-  return xp >= getRequiredXP(level);
+  // Level 20 is the cap on the server too — no amount of XP levels past it.
+  return level < 20 && xp >= getRequiredXP(level);
 }

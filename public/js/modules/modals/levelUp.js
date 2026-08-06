@@ -7,9 +7,11 @@ import { api } from '../../api.js';
 import { escapeHtml } from '../../utils/formatters.js';
 import { showNotification } from '../../utils/dom.js';
 import { getRequiredXP, canLevelUp } from '../../utils/gameRules.js';
+import { getSubclasses } from '../../utils/dndData.js';
 import { loadCharacters } from '../characters.js';
 
 const ABILITIES = ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma'];
+const CUSTOM_SUBCLASS = '__custom__';
 
 export async function levelUpCharacter(charId) {
   const characters = getState('characters');
@@ -27,10 +29,23 @@ export async function levelUpCharacter(charId) {
   document.getElementById('modal-chat-messages').innerHTML = '<div class="chat-message assistant"><div class="message-content">Loading the rules for this level...</div></div>';
   document.getElementById('char-modal').classList.add('active');
 
+  loadLevelInfo(charId, char);
+}
+
+/**
+ * Load (or reload) the level info in place. A 409 unresolved_class renders the
+ * repair widget instead of a dead-end error.
+ */
+async function loadLevelInfo(charId, char, requestedClass) {
+  const query = requestedClass ? `?class=${encodeURIComponent(requestedClass)}` : '';
   try {
-    const info = await api(`/api/characters/${charId}/levelinfo`);
+    const info = await api(`/api/characters/${charId}/levelinfo${query}`);
     renderLevelUpForm(charId, char, info);
   } catch (error) {
+    if (error.status === 409 && error.data?.error === 'unresolved_class') {
+      renderClassRepair(charId, char, error.data);
+      return;
+    }
     renderError(error.message);
   }
 }
@@ -64,9 +79,10 @@ function renderLevelUpForm(charId, char, info) {
       <input id="levelup-feat" class="hidden" maxlength="120" placeholder="Feat name">
     </div>` : '';
   const subclass = progression.subclass ? `
-    <div class="levelup-choice-group">
+    <div class="levelup-choice-group" id="levelup-subclass-group">
       <label for="levelup-subclass">Subclass choice</label>
       <input id="levelup-subclass" maxlength="120" placeholder="Subclass, oath, domain, path, tradition, or patron">
+      <div id="levelup-subclass-features" class="info-panel"></div>
     </div>` : '';
   const spellcasting = progression.spell_slots?.some(slot => slot > 0) ? `
     <div class="levelup-choice-group">
@@ -74,11 +90,14 @@ function renderLevelUpForm(charId, char, info) {
       <textarea id="levelup-spells" rows="2" placeholder="Optional: separate spell names with commas"></textarea>
     </div>` : '';
 
+  const subclassLabel = info.currentSubclass ? ` (${escapeHtml(info.currentSubclass)})` : '';
+
   document.getElementById('modal-chat-messages').innerHTML = `
     <div class="chat-message assistant"><div class="message-content">
-      <strong>Level ${info.nextLevel}: ${escapeHtml(info.currentClass)} ${info.currentClassLevel + 1}</strong><br>
+      <strong>Level ${info.nextLevel}: ${escapeHtml(info.currentClass)}${subclassLabel} ${info.currentClassLevel + 1}</strong><br>
       Choose the class level to take. The server applies HP, features, proficiencies, ASI/feat rules, and spell slots from the stored 2014/5e progression.
       <ul>${progression.features.map(feature => `<li>${escapeHtml(feature)}</li>`).join('') || '<li>No named feature at this level</li>'}</ul>
+      <ul id="levelup-subclass-upcoming"></ul>
       <p>Fixed HP increase: ${Math.floor(progression.hitDie / 2) + 1 + Math.floor((Number(char.constitution || 10) - 10) / 2)} (minimum 1).</p>
     </div></div>
     <div class="levelup-form" id="levelup-form">
@@ -87,18 +106,166 @@ function renderLevelUpForm(charId, char, info) {
       <button class="btn-primary" onclick="submitStructuredLevelUp('${escapeHtml(charId)}')">Apply Level Up</button>
     </div>`;
 
-  document.getElementById('levelup-class')?.addEventListener('change', async event => {
-    try {
-      const selectedInfo = await api(`/api/characters/${charId}/levelinfo?class=${encodeURIComponent(event.target.value)}`);
-      renderLevelUpForm(charId, char, selectedInfo);
-    } catch (error) {
-      renderError(error.message);
-    }
+  document.getElementById('levelup-class')?.addEventListener('change', event => {
+    loadLevelInfo(charId, char, event.target.value);
   });
   document.getElementById('levelup-asi')?.addEventListener('change', event => {
     document.getElementById('levelup-asi-split')?.classList.toggle('hidden', event.target.value !== 'split');
     document.getElementById('levelup-feat')?.classList.toggle('hidden', event.target.value !== 'feat');
   });
+
+  // Static subclass data is a nice-to-have: both hydrations degrade to the
+  // plain free-text input / no extra features when the fetch fails.
+  if (progression.subclass) {
+    hydrateSubclassChoice(info.currentClass, info.currentClassLevel + 1, info.currentSubclass);
+  } else if (info.currentSubclass) {
+    hydrateUpcomingSubclassFeatures(info.currentClass, info.currentSubclass, info.currentClassLevel + 1);
+  }
+}
+
+// ============================================
+// Subclass helpers
+// ============================================
+
+function matchesSubclass(subclass, value) {
+  const needle = String(value || '').trim().toLowerCase();
+  if (!needle) return false;
+  return String(subclass.index || '').toLowerCase() === needle
+    || String(subclass.name || '').toLowerCase() === needle;
+}
+
+function renderSubclassFeatures(subclasses, value, classLevel) {
+  const panel = document.getElementById('levelup-subclass-features');
+  if (!panel) return;
+  const subclass = subclasses.find(sub => matchesSubclass(sub, value));
+  const features = subclass ? (subclass.features_by_level || {})[String(classLevel)] || [] : [];
+  panel.innerHTML = features.length
+    ? `<strong>${escapeHtml(subclass.name)} at class level ${classLevel}:</strong> ${features.map(feature => escapeHtml(feature)).join(', ')}`
+    : '';
+}
+
+/**
+ * Swap the free-text subclass input for a select built from the SRD list.
+ * Leaves the input in place (and visible) when the data cannot be loaded.
+ */
+async function hydrateSubclassChoice(className, classLevel, currentSubclass) {
+  const group = document.getElementById('levelup-subclass-group');
+  if (!group) return;
+
+  let subclasses = [];
+  try {
+    subclasses = await getSubclasses(className);
+  } catch (error) {
+    console.error('Failed to load subclasses:', error);
+    return;
+  }
+  // The modal may have re-rendered (class switch) while the fetch was in flight.
+  if (!subclasses.length || document.getElementById('levelup-subclass-group') !== group) return;
+
+  const input = document.getElementById('levelup-subclass');
+  if (!input) return;
+
+  const flavor = subclasses[0].flavor_name || 'Subclass';
+  const matched = subclasses.find(sub => matchesSubclass(sub, currentSubclass));
+  const label = group.querySelector('label');
+  if (label) {
+    label.textContent = `${flavor} choice`;
+    label.htmlFor = 'levelup-subclass-select';
+  }
+
+  input.insertAdjacentHTML('beforebegin', `
+    <select id="levelup-subclass-select">
+      <option value="">Choose a ${escapeHtml(flavor.toLowerCase())}...</option>
+      ${subclasses.map(sub => `<option value="${escapeHtml(sub.name)}"${sub === matched ? ' selected' : ''}>${escapeHtml(sub.name)}</option>`).join('')}
+      <option value="${CUSTOM_SUBCLASS}">Homebrew / custom...</option>
+    </select>`);
+  input.classList.add('hidden');
+
+  document.getElementById('levelup-subclass-select')?.addEventListener('change', event => {
+    const custom = event.target.value === CUSTOM_SUBCLASS;
+    input.classList.toggle('hidden', !custom);
+    renderSubclassFeatures(subclasses, custom ? '' : event.target.value, classLevel);
+  });
+  renderSubclassFeatures(subclasses, matched ? matched.name : '', classLevel);
+}
+
+/**
+ * List the already-chosen subclass's features for the incoming level next to
+ * the class features.
+ */
+async function hydrateUpcomingSubclassFeatures(className, subclassName, classLevel) {
+  const list = document.getElementById('levelup-subclass-upcoming');
+  if (!list) return;
+
+  let subclasses = [];
+  try {
+    subclasses = await getSubclasses(className);
+  } catch (error) {
+    console.error('Failed to load subclasses:', error);
+    return;
+  }
+  if (document.getElementById('levelup-subclass-upcoming') !== list) return;
+
+  const subclass = subclasses.find(sub => matchesSubclass(sub, subclassName));
+  const features = subclass ? (subclass.features_by_level || {})[String(classLevel)] || [] : [];
+  list.innerHTML = features.map(feature => `<li>${escapeHtml(feature)} <em>(${escapeHtml(subclass.name)})</em></li>`).join('');
+}
+
+function readSubclassChoice() {
+  const select = document.getElementById('levelup-subclass-select');
+  const input = document.getElementById('levelup-subclass');
+  if (select && select.value !== CUSTOM_SUBCLASS) return select.value || '';
+  return input?.value || '';
+}
+
+// ============================================
+// Unresolvable class repair
+// ============================================
+
+function renderClassRepair(charId, char, details) {
+  const suggestions = details.suggestions || [];
+  const buttons = suggestions.map(name =>
+    `<button class="btn-secondary levelup-repair-btn" data-class="${escapeHtml(name)}">${escapeHtml(name)}</button>`).join(' ');
+
+  document.getElementById('modal-chat-messages').innerHTML = `
+    <div class="chat-message assistant"><div class="message-content">
+      This character's class "${escapeHtml(details.unresolvedClass || '')}" isn't recognized, so the level-up rules can't be applied.
+      Pick the class it should be and the sheet is repaired in place.
+    </div></div>
+    <div class="levelup-form" id="levelup-repair-form">
+      ${buttons ? `<div class="levelup-choice-group">${buttons}</div>` : ''}
+      <div class="levelup-choice-group">
+        <label for="levelup-repair-input">Or type the class name</label>
+        <input id="levelup-repair-input" maxlength="60" placeholder="Fighter, Wizard, Rogue...">
+        <button class="btn-primary" id="levelup-repair-apply">Apply</button>
+      </div>
+      <div id="levelup-repair-error" class="form-hint"></div>
+    </div>`;
+
+  document.getElementById('levelup-repair-form')?.querySelectorAll('.levelup-repair-btn').forEach(btn => {
+    btn.addEventListener('click', () => repairClass(charId, char, btn.dataset.class));
+  });
+  document.getElementById('levelup-repair-apply')?.addEventListener('click', () => {
+    repairClass(charId, char, document.getElementById('levelup-repair-input')?.value.trim());
+  });
+}
+
+async function repairClass(charId, char, className) {
+  const errorEl = document.getElementById('levelup-repair-error');
+  if (!className) {
+    if (errorEl) errorEl.textContent = 'Enter a class name first.';
+    return;
+  }
+  if (errorEl) errorEl.textContent = 'Repairing...';
+  try {
+    await api(`/api/characters/${charId}/quick-update`, 'POST', { class: className });
+  } catch (error) {
+    const hints = error.data?.suggestions || [];
+    if (errorEl) errorEl.textContent = `${error.message}${hints.length ? `. Try: ${hints.join(', ')}` : ''}`;
+    return;
+  }
+  loadCharacters();
+  loadLevelInfo(charId, char);
 }
 
 export async function submitStructuredLevelUp(charId) {
@@ -119,11 +286,13 @@ export async function submitStructuredLevelUp(charId) {
         class_name: document.getElementById('levelup-class')?.value,
         ability_increases: abilityIncreases,
         feat: asi === 'feat' ? document.getElementById('levelup-feat')?.value : '',
-        subclass: document.getElementById('levelup-subclass')?.value || '',
+        subclass: readSubclassChoice(),
         spells: document.getElementById('levelup-spells')?.value || ''
       }
     });
-    document.getElementById('modal-chat-messages').innerHTML = `<div class="chat-message assistant"><div class="message-content">${escapeHtml(result.message)}</div></div>`;
+    // The slot warning is advisory — the level up already went through.
+    const warning = result.slotWarning ? `<p class="form-hint">Note: ${escapeHtml(result.slotWarning)}</p>` : '';
+    document.getElementById('modal-chat-messages').innerHTML = `<div class="chat-message assistant"><div class="message-content">${escapeHtml(result.message)}${warning}</div></div>`;
     if (result.complete) {
       loadCharacters();
       showNotification(`${result.character.character_name} is now level ${result.character.level}!`);

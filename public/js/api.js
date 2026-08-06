@@ -39,7 +39,12 @@ export async function api(endpoint, method = 'GET', body = null) {
   const data = await response.json();
 
   if (!response.ok) {
-    throw new Error(data.error || `Request failed: ${response.status}`);
+    // Keep the status and the parsed body on the error so callers can react to
+    // structured failures (409 unresolved_class, 400 with suggestions, ...).
+    const error = new Error(data.error || `Request failed: ${response.status}`);
+    error.status = response.status;
+    error.data = data;
+    throw error;
   }
 
   return data;
