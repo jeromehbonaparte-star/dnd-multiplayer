@@ -19,7 +19,17 @@ const {
   POV_IMAGE_DIRECTOR_PROMPT,
   POV_IMAGE_PROMPT_MAX_WORDS,
   buildRequestBody,
+  buildCombatTurnContext,
+  adjudicateCombatAction,
+  generateEnemyCombatTurn,
+  COMBAT_ADJUDICATOR_PROMPT,
+  COMBAT_ENEMY_TURN_PROMPT,
 } = require('../server/services/aiService.js');
+const {
+  createCombat,
+  rollInitiative,
+  buildEnemyPreRolls,
+} = require('../server/services/combatService.js');
 
 describe('extractFinishReason', () => {
   test('reads OpenAI finish_reason from choices[0]', () => {
@@ -208,6 +218,284 @@ describe('generation length budgets', () => {
   test('output token caps are bounded enough to avoid runaway generations', () => {
     assert.ok(NARRATION_MAX_TOKENS <= 3500);
     assert.ok(POV_MAX_TOKENS <= 2400);
+  });
+});
+
+describe('narrative combat AI', () => {
+  const party = [
+    {
+      id: 'fighter',
+      character_name: 'Mara',
+      class: 'Fighter',
+      level: 3,
+      hp: 28,
+      max_hp: 28,
+      ac: 16,
+      strength: 16,
+      dexterity: 12,
+      inventory: JSON.stringify([{ name: 'Potion of Healing', quantity: 2 }, { name: 'Rope', quantity: 1 }]),
+      class_features: 'Second Wind, Action Surge',
+      class_resources: '{"secondWind":{"max":1}}'
+    },
+    {
+      id: 'wizard',
+      character_name: 'Orrin',
+      class: 'Wizard',
+      level: 3,
+      hp: 18,
+      max_hp: 18,
+      ac: 12,
+      dexterity: 14,
+      intelligence: 16,
+      spells: 'Fire Bolt, Magic Missile',
+      spell_slots: JSON.stringify({ 1: { current: 2, max: 2 } }),
+      inventory: '[]'
+    }
+  ];
+  const enemies = [{ id: 'goblin', name: 'Goblin', hp: 14, ac: 12, attackBonus: 4, damageDie: 6, damageBonus: 2 }];
+  const aiConfig = { endpoint: 'https://example.com/v1/chat/completions', api_key: 'k', model: 'test-model' };
+
+  function startCombat() {
+    const state = createCombat({ name: 'Ambush', environment: 'forest', characters: party, enemies, seed: 77 });
+    rollInitiative(state, 'pc:fighter', 20);
+    rollInitiative(state, 'pc:wizard', 3);
+    return state;
+  }
+
+  /** Records the call and replays a canned assistant message. */
+  function stubCall(content, extra = {}) {
+    const calls = [];
+    const callFn = async (config, messages, options) => {
+      calls.push({ config, messages, options });
+      return { choices: [{ message: { content }, finish_reason: 'stop', ...extra }] };
+    };
+    return { calls, callFn };
+  }
+
+  const CLEAN_ADJUDICATION = JSON.stringify({
+    narration: 'Mara drives her shoulder into the goblin and follows it with the axe.',
+    costs: { ap: 1, bp: 0 },
+    effects: [{ type: 'damage', target: 'Goblin', amount: 9 }],
+    turnEnds: true
+  });
+
+  test('prompts pin the cost economy, slot rules, and dice authority', () => {
+    assert.match(COMBAT_ADJUDICATOR_PROMPT, /"ap":1,"bp":0/);
+    assert.match(COMBAT_ADJUDICATOR_PROMPT, /Nothing mechanically meaningful is ever \{"ap":0,"bp":0\}/);
+    assert.match(COMBAT_ADJUDICATOR_PROMPT, /A leveled spell REQUIRES a matching \{"type":"spendSlot"/);
+    assert.match(COMBAT_ADJUDICATOR_PROMPT, /Cantrips NEVER spend a slot/);
+    assert.match(COMBAT_ADJUDICATOR_PROMPT, /\[DICE ROLL: d20 = X \+Y STAT \(score Z\) = TOTAL\]/);
+    assert.match(COMBAT_ADJUDICATOR_PROMPT, /Total 13-17: solid success/);
+    assert.match(COMBAT_ADJUDICATOR_PROMPT, /Total 23\+: extraordinary/);
+    assert.match(COMBAT_ADJUDICATOR_PROMPT, /UNCONSCIOUS and dying, never killed outright/);
+    assert.match(COMBAT_ENEMY_TURN_PROMPT, /attackRoll\.total is compared against the AC/);
+    assert.match(COMBAT_ENEMY_TURN_PROMPT, /damageRoll\.total is the damage dealt on a hit/);
+    assert.match(COMBAT_ENEMY_TURN_PROMPT, /NEVER invent new combatants/);
+  });
+
+  test('turn context carries the full sheet: points, slots, inventory, resources', () => {
+    const state = startCombat();
+
+    const maraContext = buildCombatTurnContext(state, 'pc:fighter');
+    assert.equal(maraContext.encounter.name, 'Ambush');
+    assert.equal(maraContext.encounter.round, 1);
+    assert.equal(maraContext.actor.name, 'Mara');
+    assert.equal(maraContext.actor.ap, 1);
+    assert.equal(maraContext.actor.bp, 1);
+    assert.equal(maraContext.actor.hp, 28);
+    assert.equal(maraContext.actor.ac, 16);
+    assert.deepEqual(maraContext.actor.inventory, [
+      { name: 'Potion of Healing', quantity: 2 },
+      { name: 'Rope', quantity: 1 }
+    ]);
+    assert.match(maraContext.actor.classFeatures, /Second Wind/);
+    assert.match(maraContext.actor.classResources, /secondWind/);
+    assert.ok(maraContext.actor.powers.some(power => power.name === 'Second Wind' && power.usesLeft === 1));
+    assert.deepEqual(maraContext.allies.map(ally => ally.name), ['Orrin']);
+    assert.deepEqual(maraContext.enemies.map(foe => foe.name), ['Goblin']);
+    assert.equal(maraContext.enemies[0].hp, 14);
+    assert.ok(maraContext.recentLog.length > 0);
+
+    const orrinContext = buildCombatTurnContext(state, 'pc:wizard');
+    assert.deepEqual(orrinContext.actor.spellSlots, { 1: { current: 2, max: 2 } });
+    assert.match(orrinContext.actor.knownSpells, /Magic Missile/);
+  });
+
+  test('turn context omits sheet fields a migrated unit never carried', () => {
+    const state = startCombat();
+    // Mara has no spell list and no slot table; Orrin's inventory is empty.
+    const maraContext = buildCombatTurnContext(state, 'pc:fighter');
+    assert.equal(Object.hasOwn(maraContext.actor, 'spellSlots'), false);
+    assert.equal(Object.hasOwn(maraContext.actor, 'knownSpells'), false);
+
+    const orrinContext = buildCombatTurnContext(state, 'pc:wizard');
+    assert.equal(Object.hasOwn(orrinContext.actor, 'inventory'), false);
+    assert.equal(Object.hasOwn(orrinContext.actor, 'classFeatures'), false);
+    assert.equal(Object.hasOwn(orrinContext.actor, 'classResources'), false);
+
+    // A fully stripped (schema-1 migrated) unit still produces a usable context.
+    const stripped = state.units.find(unit => unit.id === 'pc:wizard');
+    stripped.spellSlots = null;
+    stripped.spellsText = null;
+    stripped.inventory = null;
+    stripped.powers = null;
+    const bare = buildCombatTurnContext(state, 'pc:wizard');
+    assert.equal(bare.actor.name, 'Orrin');
+    assert.equal(Object.hasOwn(bare.actor, 'spellSlots'), false);
+    assert.equal(Object.hasOwn(bare.actor, 'powers'), false);
+  });
+
+  test('turn context reports an unknown combatant instead of throwing', () => {
+    assert.match(buildCombatTurnContext(startCombat(), 'pc:nobody').error, /not in this fight/);
+    assert.ok(buildCombatTurnContext(null, 'pc:fighter').error);
+  });
+
+  test('adjudicateCombatAction returns the parsed adjudication and sends the roll verbatim', async () => {
+    const state = startCombat();
+    const { calls, callFn } = stubCall(CLEAN_ADJUDICATION);
+
+    const result = await adjudicateCombatAction({
+      state,
+      actingUnitId: 'pc:fighter',
+      actionText: 'I charge the goblin and swing my axe. [DICE ROLL: d20 = 18 +3 STR (score 16) = 21]',
+      config: aiConfig,
+      callFn
+    });
+
+    assert.equal(result.narration.startsWith('Mara drives her shoulder'), true);
+    assert.deepEqual(result.costs, { ap: 1, bp: 0 });
+    assert.deepEqual(result.effects, [{ type: 'damage', target: 'Goblin', amount: 9 }]);
+    assert.equal(result.turnEnds, true);
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].messages[0].role, 'system');
+    assert.equal(calls[0].messages[0].content, COMBAT_ADJUDICATOR_PROMPT);
+    const userMessage = calls[0].messages[1].content;
+    assert.match(userMessage, /\[DICE ROLL: d20 = 18 \+3 STR \(score 16\) = 21\]/);
+    assert.match(userMessage, /"name": "Goblin"/);
+    assert.match(userMessage, /Potion of Healing/);
+    assert.match(userMessage, /ACTING COMBATANT: Mara — 1 AP and 1 BP remaining/);
+    assert.equal(calls[0].options.temperature, 0.4);
+    assert.equal(calls[0].options.maxTokens, 3000);
+  });
+
+  test('adjudicateCombatAction unwraps a fenced JSON response', async () => {
+    const { callFn } = stubCall('Here you go:\n```json\n' + CLEAN_ADJUDICATION + '\n```\nHope that works.');
+    const result = await adjudicateCombatAction({
+      state: startCombat(),
+      actingUnitId: 'pc:fighter',
+      actionText: 'I swing.',
+      config: aiConfig,
+      callFn
+    });
+    assert.equal(result.error, undefined);
+    assert.match(result.narration, /Mara drives her shoulder/);
+    assert.equal(result.effects[0].amount, 9);
+  });
+
+  test('adjudicateCombatAction recovers a bare JSON object wrapped in chatter', async () => {
+    const { callFn } = stubCall(`Sure thing. ${CLEAN_ADJUDICATION} Let me know if you want a reroll.`);
+    const result = await adjudicateCombatAction({
+      state: startCombat(),
+      actingUnitId: 'pc:fighter',
+      actionText: 'I swing.',
+      config: aiConfig,
+      callFn
+    });
+    assert.match(result.narration, /Mara drives her shoulder/);
+  });
+
+  test('adjudicateCombatAction reports unparseable output instead of guessing', async () => {
+    const { callFn } = stubCall('I am afraid I cannot resolve that action right now.');
+    const result = await adjudicateCombatAction({
+      state: startCombat(),
+      actingUnitId: 'pc:fighter',
+      actionText: 'I swing.',
+      config: aiConfig,
+      callFn
+    });
+    assert.equal(result.error, 'unparseable');
+    assert.match(result.raw, /cannot resolve that action/);
+  });
+
+  test('adjudicateCombatAction rejects JSON without narration', async () => {
+    const { callFn } = stubCall(JSON.stringify({ costs: { ap: 1, bp: 0 }, effects: [], turnEnds: true }));
+    const result = await adjudicateCombatAction({
+      state: startCombat(),
+      actingUnitId: 'pc:fighter',
+      actionText: 'I swing.',
+      config: aiConfig,
+      callFn
+    });
+    assert.equal(result.error, 'unparseable');
+  });
+
+  test('adjudicateCombatAction refuses to call the AI for an unknown unit', async () => {
+    const { calls, callFn } = stubCall(CLEAN_ADJUDICATION);
+    const result = await adjudicateCombatAction({
+      state: startCombat(),
+      actingUnitId: 'pc:ghost',
+      actionText: 'I swing.',
+      config: aiConfig,
+      callFn
+    });
+    assert.equal(result.error, 'unknown-unit');
+    assert.equal(calls.length, 0);
+  });
+
+  test('adjudicateCombatAction surfaces a failed API call', async () => {
+    const callFn = async () => { throw new Error('AI API error: 500'); };
+    const result = await adjudicateCombatAction({
+      state: startCombat(),
+      actingUnitId: 'pc:fighter',
+      actionText: 'I swing.',
+      config: aiConfig,
+      callFn
+    });
+    assert.equal(result.error, 'request-failed');
+    assert.match(result.message, /500/);
+  });
+
+  test('generateEnemyCombatTurn hands the pre-rolled dice to the prompt and parses the reply', async () => {
+    const state = startCombat();
+    // Same rngState, so the preview rolls match what the real call will consume.
+    const expected = buildEnemyPreRolls(JSON.parse(JSON.stringify(state)), 'npc:goblin');
+
+    const enemyAdjudication = JSON.stringify({
+      narration: 'The goblin darts under Mara guard and buries its blade in her thigh.',
+      costs: { ap: 1, bp: 0 },
+      effects: [{ type: 'damage', target: 'Mara', amount: expected.damageRoll.total }],
+      turnEnds: true
+    });
+    const { calls, callFn } = stubCall(enemyAdjudication);
+
+    const result = await generateEnemyCombatTurn({ state, enemyUnitId: 'npc:goblin', config: aiConfig, callFn });
+
+    assert.equal(result.error, undefined);
+    assert.match(result.narration, /The goblin darts/);
+    assert.equal(result.effects[0].amount, expected.damageRoll.total);
+    assert.equal(result.turnEnds, true);
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].messages[0].content, COMBAT_ENEMY_TURN_PROMPT);
+    const userMessage = calls[0].messages[1].content;
+    assert.match(userMessage, new RegExp(`Attack roll: d20 ${expected.attackRoll.d20} \\+ ${expected.attackRoll.bonus} = TOTAL ${expected.attackRoll.total}`));
+    assert.match(userMessage, new RegExp(`Damage on a hit: .* = TOTAL ${expected.damageRoll.total}`));
+    assert.match(userMessage, /ACTING ENEMY: Goblin — 14\/14 HP, AC 12/);
+    assert.match(userMessage, /targetSuggestion \(a hint only\)/);
+    assert.equal(calls[0].options.temperature, 0.4);
+  });
+
+  test('generateEnemyCombatTurn refuses a party unit', async () => {
+    const { calls, callFn } = stubCall(CLEAN_ADJUDICATION);
+    const result = await generateEnemyCombatTurn({
+      state: startCombat(),
+      enemyUnitId: 'pc:fighter',
+      config: aiConfig,
+      callFn
+    });
+    assert.equal(result.error, 'unknown-unit');
+    assert.equal(calls.length, 0);
   });
 });
 

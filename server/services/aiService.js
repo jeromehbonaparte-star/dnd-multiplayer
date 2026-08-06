@@ -7,6 +7,8 @@ const logger = require('../lib/logger');
 const dns = require('dns').promises;
 const net = require('net');
 const { estimateTokens } = require('../lib/tokens');
+const { extractMarkerJson } = require('../lib/markerJson');
+const combatService = require('./combatService');
 
 const NARRATION_WORD_LIMIT = 650;
 const POV_WORD_LIMIT = 450;
@@ -1076,6 +1078,396 @@ async function generateStateTags(aiConfig, sceneContent, partyState) {
   return '';
 }
 
+/* ------------------------------------------------------------------ *
+ * Narrative Turn-Based Combat (NTC) — adjudicator + enemy turns
+ *
+ * The combat engine in combatService.js is pure and DB-free; this section is
+ * the AI layer that sits on top of it. Two calls exist:
+ *   - adjudicateCombatAction()  — a player's freeform action for their turn
+ *   - generateEnemyCombatTurn() — the AI plays one enemy for one turn
+ * Both return the same Adjudication JSON contract, which
+ * combatService.applyAdjudication() validates and applies. Neither function
+ * throws: failures come back as `{ error }` so a turn can degrade gracefully.
+ * ------------------------------------------------------------------ */
+
+const COMBAT_ADJUDICATION_MAX_TOKENS = 3000;
+const COMBAT_ADJUDICATION_TEMPERATURE = 0.4;
+const COMBAT_AI_TIMEOUT_MS = 120000;
+const COMBAT_SHEET_FIELD_MAX_CHARS = 900;
+const COMBAT_ACTION_MAX_CHARS = 2000;
+const COMBAT_LOG_ENTRIES = 8;
+const COMBAT_LOG_ENTRY_MAX_CHARS = 300;
+const COMBAT_RAW_ERROR_MAX_CHARS = 2000;
+
+const COMBAT_EFFECT_GRAMMAR = `### effects — the ONLY entries the engine understands
+- {"type":"damage","target":"<combatant name>","amount":7}
+- {"type":"heal","target":"<combatant name>","amount":5}
+- {"type":"condition","target":"<combatant name>","add":"prone"}
+- {"type":"condition","target":"<combatant name>","remove":"prone"}
+- {"type":"spendSlot","target":"<caster name>","level":2}
+- {"type":"useItem","target":"<user name>","item":"Potion of Healing"}
+- {"type":"useAbility","target":"<user name>","ability":"Second Wind"}
+- {"type":"spendResource","target":"<user name>","resource":"Ki","amount":1}
+- {"type":"endCombat","outcome":"victory","reason":"short reason"}   // outcome is exactly one of victory | defeat | resolved
+
+TARGETING: "target" is a combatant's NAME copied EXACTLY from COMBAT STATE (an id works too). Never target a name that is not listed — the engine drops the effect and the moment is lost. One effect per thing that happens: two wounded foes are two damage entries, never one combined entry. Use "effects": [] when nothing mechanical changed. Any other type, or extra free-form keys, is discarded.`;
+
+const COMBAT_OUTCOME_BANDS = `**Outcome scaling (a natural 1 or a natural 20 overrides the total):**
+- **Natural 1**: catastrophic — the attempt goes comically or dangerously wrong, whatever the total
+- **Natural 20**: critical — the best plausible result, whatever the total
+- Total 2-7: fails or backfires
+- Total 8-12: partial success with a complication
+- Total 13-17: solid success
+- Total 18-22: better than hoped
+- Total 23+: extraordinary`;
+
+const COMBAT_NARRATION_RULES = `- Present tense, third person, concrete and physical: distance, footing, the weight of a swing, what a blow does to armor, stone, and bodies. Choreograph the exchange — an opening, an exploit, a counter — never a vague "they trade blows".
+- NO stat-speak anywhere in the prose. Never write hit points, AC, DC, "the check", "damage roll", "action point", "bonus action", or any number from your JSON. A wound is felt, not counted; let the reader sense when someone is bloodied without ever counting it.
+- Never write "you" or "you feel" — the shared stream is third person.
+- Never act, speak, think, or decide for a player character beyond the action they declared. Narrate that action, then the world's and the enemies' answer to it.
+- Wounds are specific and persist; a torn shoulder stays torn for the rest of the fight. Show adrenaline, fear, and desperation through body and action.
+- Vary sentence rhythm. Cut machine tics: reflexive "not X, but Y", "served as", "a testament to", trailing "..., highlighting her resolve" summaries, rule-of-three padding, filler vocabulary (delve, tapestry, palpable, "sent shivers down her spine").
+- A blank line between paragraphs. No bracketed tags of any kind, no headers, no labels, no commentary.`;
+
+/**
+ * Combat adjudicator — resolves ONE declared player action into the
+ * Adjudication JSON contract that combatService.applyAdjudication consumes.
+ */
+const COMBAT_ADJUDICATOR_PROMPT = `You are the COMBAT ADJUDICATOR for a multiplayer D&D 5e game running narrative, text-based turn combat. One player has declared one action on their character's turn. You decide what it costs, what it does, and you write the beat of prose that shows it happening. A separate engine applies your JSON to the live combat state, so the JSON must be exact and the prose must be worth reading.
+
+## OUTPUT — STRICT JSON ONLY
+Return ONE JSON object and nothing else. No prose outside it, no markdown, no code fences, no explanation, no trailing notes.
+
+{
+  "narration": "1-3 tight paragraphs of action prose",
+  "costs": { "ap": 1, "bp": 0 },
+  "effects": [],
+  "turnEnds": false
+}
+
+${COMBAT_EFFECT_GRAMMAR}
+
+## COSTS — AP and BP ARE THE WHOLE ECONOMY
+Every turn a combatant has Action Points (AP) and Bonus Points (BP); COMBAT STATE shows exactly how many are left right now.
+- A main action costs {"ap":1,"bp":0}: any attack, casting a spell as an action, dashing, disengaging, grappling, shoving, drinking a potion, hauling an ally out of danger, forcing a door.
+- A 5e-style bonus-action-shaped act costs {"ap":0,"bp":1}: an offhand strike, Healing Word, misty step, Rage, Second Wind, Cunning Action, a bonus-action class trick.
+- An action AND a bonus action in one declaration costs {"ap":1,"bp":1}.
+- ONLY trivial talk or observation is free: a shouted word, a glance across the room, a taunt. Nothing mechanically meaningful is ever {"ap":0,"bp":0} — if it changes the fight, it costs something.
+- Respect what the actor has LEFT. If they declare more than their remaining points can pay for, resolve the part they can afford, charge only that, and say plainly in the narration that the rest never happened (their guard was already committed, the moment closed, the window shut).
+- Set "turnEnds": true when the actor is spent or the declaration is clearly their whole turn; false when points remain and they may act again.
+
+## SPELLCASTING
+- A leveled spell REQUIRES a matching {"type":"spendSlot","target":"<caster>","level":N} effect at the level it is cast. No spendSlot means no spell.
+- COMBAT STATE lists the caster's remaining slots per level. If they have no slot left at that level (and no higher slot they could upcast from), the cast FIZZLES: narrate the failure honestly — the words go hollow, the weave will not answer — emit no damage/heal/condition effects and no spendSlot, and charge the action cost anyway.
+- Cantrips NEVER spend a slot. Do not emit spendSlot for them.
+- Upcasting is allowed when the caster spends a higher slot: emit spendSlot at the level actually spent and scale the effect.
+
+## ITEMS, ABILITIES, RESOURCES
+- Any consumable used REQUIRES {"type":"useItem",...} with the item name copied from the actor's inventory. Not in the inventory means they do not have it — narrate them coming up empty.
+- Class abilities (Rage, Second Wind, Channel Divinity, Wild Shape, Bardic Inspiration, Flurry of Blows...) REQUIRE {"type":"useAbility",...} with the ability name. If the listed uses are exhausted, the attempt fails.
+- Use spendResource for pooled resources (Ki, sorcery points, superiority dice) with an integer amount.
+
+## THE DICE ARE LAW
+The declared action may carry the player's roll in the form [DICE ROLL: d20 = X +Y STAT (score Z) = TOTAL]. That TOTAL is AUTHORITATIVE for whether the attempt lands. Never recalculate it, never overrule it, never ask for another roll, never invent a second one.
+
+${COMBAT_OUTCOME_BANDS}
+
+If NO roll is present, adjudicate on the fiction and the acting unit's stats and land middle-of-the-road (a partial-to-solid result): something real happens, nothing spectacular.
+
+## AMOUNTS
+Roll the appropriate 5e dice in your head and output FLAT INTEGERS. A dagger is d4+mod, a shortsword d6+mod, a longsword d8+mod, a greataxe d12+mod; Fire Bolt d10, Magic Missile 3d4+3, Fireball 8d6, Cure Wounds d8+mod, Healing Word d4+mod. Then scale the number to the band above: a failure deals 0 (the blow misses or is turned aside — emit no damage effect at all), a partial lands a low roll, a solid success lands an average roll, a natural 20 doubles the dice. Damage and healing are whole numbers between 0 and 500.
+
+## THE FIGHT IS REAL
+- Enemies stay dangerous and act on real intent. No reflexive mercy, no conveniently missing, no beaten foe strolling away unless sparing is genuinely in character.
+- A player character reduced to 0 HP is UNCONSCIOUS and dying, never killed outright. Do not narrate a PC's death.
+- NEVER invent new combatants, reinforcements, or bystanders. Only the units listed in COMBAT STATE exist.
+- Emit endCombat ONLY when the fight is truly decided (a side can no longer fight) or the party successfully flees, surrenders, or negotiates its way out. A single dramatic hit is not an ending.
+- Continuity is law: honor current HP, conditions, the environment, and what the recent log already established.
+
+## NARRATION (1-3 tight paragraphs)
+${COMBAT_NARRATION_RULES}`;
+
+/**
+ * Enemy turn — the AI plays ONE enemy for one turn using server pre-rolled dice.
+ */
+const COMBAT_ENEMY_TURN_PROMPT = `You are the COMBAT ADJUDICATOR for a multiplayer D&D 5e game running narrative, text-based turn combat. This turn belongs to ONE enemy, and you play it. Decide what it does, resolve it against the pre-rolled dice you are given, and write the beat. A separate engine applies your JSON to the live combat state, so the JSON must be exact.
+
+## OUTPUT — STRICT JSON ONLY
+Return ONE JSON object and nothing else. No prose outside it, no markdown, no code fences, no explanation.
+
+{
+  "narration": "1-2 tight paragraphs of action prose",
+  "costs": { "ap": 1, "bp": 0 },
+  "effects": [],
+  "turnEnds": true
+}
+
+Enemy turns conventionally cost {"ap":1,"bp":0} with "turnEnds": true — one enemy, one action, then the turn passes.
+
+${COMBAT_EFFECT_GRAMMAR}
+
+## PLAY THIS ENEMY HONESTLY
+- Act like this creature would: a wolf flanks and drags a wounded target down; a bandit picks the easy purse and the exposed throat; a knight duels and presses honor; a mindless thing simply closes and kills; a spellcaster keeps distance. Tactics must be credible for its nature, not optimal chess.
+- You may attack ANY listed foe. The targetSuggestion is a hint (usually the most wounded), not an order — pick the target this creature would actually pick.
+- You may instead take a non-attack action when the situation calls for it: regroup, drag a fallen ally clear, take cover, raise an alarm, threaten or demand surrender. Emit endCombat ONLY when the state genuinely justifies it — the last enemy breaks and flees, or a surrender/parley truly ends the fight. Never end a fight the enemies are winning.
+- NEVER invent new combatants, reinforcements, or bystanders. Only the units listed exist.
+- A player character reduced to 0 HP is UNCONSCIOUS and dying, never killed outright. Do not narrate a PC's death. Downed foes are already out — do not attack them without a reason the fiction demands.
+
+## THE PRE-ROLLED DICE ARE LAW
+The server already rolled this turn's dice; they are AUTHORITATIVE and you may not re-roll, replace, or ignore them.
+- attackRoll.total is compared against the AC of the target YOU choose. Total >= AC is a hit; total < AC is a miss and you emit NO damage effect — narrate the miss with the same care as a hit (the blade skates off a pauldron, the lunge comes up short).
+- damageRoll.total is the damage dealt on a hit. Emit it as {"type":"damage","target":"<chosen foe>","amount":<damageRoll.total>}. Adjust it only with an in-fiction reason you actually narrate (a glancing blow, resistance, a shield taking most of it) — halving is the usual adjustment, and it must be visible in the prose.
+- A critical (natural 20) already has its extra die included; land it as a devastating, fight-turning blow.
+- A non-attack action ignores the dice entirely.
+
+## NARRATION (1-2 tight paragraphs)
+${COMBAT_NARRATION_RULES}`;
+
+/** Public, at-a-glance view of one combatant — exact numbers, the adjudicator needs them. */
+function combatUnitPublicView(unit) {
+  const view = {
+    name: unit.name,
+    hp: Math.max(0, Number(unit.hp) || 0),
+    maxHp: Math.max(0, Number(unit.maxHp) || 0),
+    ac: Number(unit.ac) || 0
+  };
+  const conditions = (Array.isArray(unit.conditions) ? unit.conditions : []).filter(Boolean);
+  if (conditions.length) view.conditions = conditions;
+  if (!combatService.isActionable(unit)) view.down = true;
+  return view;
+}
+
+/** Remaining slots per level; omitted entirely when the unit has no slot table. */
+function combatSlotView(spellSlots) {
+  if (!spellSlots || typeof spellSlots !== 'object' || Array.isArray(spellSlots)) return null;
+  const view = {};
+  for (const [level, slot] of Object.entries(spellSlots)) {
+    const max = Number(slot?.max) || 0;
+    if (max <= 0) continue;
+    view[String(level)] = { current: Math.max(0, Number(slot?.current) || 0), max };
+  }
+  return Object.keys(view).length ? view : null;
+}
+
+/** Powers with uses left; `usesLeft: null` means "no per-combat cap". */
+function combatPowerView(powers, powerUses) {
+  if (!Array.isArray(powers) || !powers.length) return null;
+  const uses = powerUses && typeof powerUses === 'object' ? powerUses : {};
+  const view = powers
+    .filter(power => power && power.name)
+    .map(power => {
+      const spent = Number(uses[power.id] || uses[power.name] || 0);
+      const entry = { name: power.name, slotLevel: Number(power.slotLevel) || 0 };
+      entry.usesLeft = power.maxUses == null ? null : Math.max(0, Number(power.maxUses) - spent);
+      return entry;
+    });
+  return view.length ? view : null;
+}
+
+/**
+ * Compact, prompt-ready snapshot of a PARTY unit's turn: their full sheet plus
+ * public info on everyone else. Null/missing sheet fields (schema-1 migrated
+ * units) are omitted rather than emitted as nulls.
+ *
+ * @param {Object} state - NTC combat state (schema 2)
+ * @param {string} actingUnitId - id of the party unit whose turn it is
+ * @returns {Object} context object, or `{ error }` when the unit is unknown
+ */
+function buildCombatTurnContext(state, actingUnitId) {
+  if (!state || typeof state !== 'object' || !Array.isArray(state.units)) {
+    return { error: 'No combat is loaded.' };
+  }
+  const unit = state.units.find(candidate => candidate.id === actingUnitId);
+  if (!unit) return { error: 'That combatant is not in this fight.' };
+
+  const actor = {
+    ...combatUnitPublicView(unit),
+    side: unit.side,
+    ap: Math.max(0, Number(unit.ap) || 0),
+    apMax: Math.max(0, Number(unit.apMax) || 0),
+    bp: Math.max(0, Number(unit.bp) || 0),
+    bpMax: Math.max(0, Number(unit.bpMax) || 0),
+    attackBonus: Number(unit.attackBonus) || 0,
+    damageDie: Number(unit.damageDie) || 0,
+    damageBonus: Number(unit.damageBonus) || 0
+  };
+
+  const spellSlots = combatSlotView(unit.spellSlots);
+  if (spellSlots) actor.spellSlots = spellSlots;
+  if (Array.isArray(unit.inventory) && unit.inventory.length) {
+    actor.inventory = unit.inventory.map(entry => ({ name: entry.name, quantity: Number(entry.quantity) || 0 }));
+  }
+  const powers = combatPowerView(unit.powers, unit.powerUses);
+  if (powers) actor.powers = powers;
+
+  const spellsText = truncatePromptText(unit.spellsText, COMBAT_SHEET_FIELD_MAX_CHARS);
+  if (spellsText) actor.knownSpells = spellsText;
+  const classFeatures = truncatePromptText(unit.classFeatures, COMBAT_SHEET_FIELD_MAX_CHARS);
+  if (classFeatures) actor.classFeatures = classFeatures;
+  const classResources = truncatePromptText(unit.classResourcesRaw, COMBAT_SHEET_FIELD_MAX_CHARS);
+  if (classResources) actor.classResources = classResources;
+
+  const allySide = unit.side === 'enemy' ? 'enemy' : 'party';
+  const foeSide = allySide === 'party' ? 'enemy' : 'party';
+
+  return {
+    encounter: {
+      name: state.name,
+      environment: state.environment,
+      round: Number(state.round) || 1
+    },
+    actor,
+    allies: state.units.filter(other => other.side === allySide && other.id !== unit.id).map(combatUnitPublicView),
+    enemies: state.units.filter(other => other.side === foeSide).map(combatUnitPublicView),
+    recentLog: (Array.isArray(state.log) ? state.log : []).slice(-COMBAT_LOG_ENTRIES).map(entry => ({
+      round: entry?.round,
+      type: entry?.type,
+      text: truncatePromptText(entry?.text, COMBAT_LOG_ENTRY_MAX_CHARS)
+    })).filter(entry => entry.text)
+  };
+}
+
+/** Shallow contract check — combatService.applyAdjudication does the real validation. */
+function looksLikeAdjudication(value) {
+  return Boolean(value)
+    && typeof value === 'object'
+    && !Array.isArray(value)
+    && typeof value.narration === 'string'
+    && value.narration.trim().length > 0;
+}
+
+/**
+ * Parse chain: whole trimmed body → fenced ```json block → brace-balanced scan.
+ * Returns the parsed adjudication, or null when nothing usable was found.
+ */
+function parseAdjudicationResponse(rawText) {
+  const text = String(rawText == null ? '' : rawText).trim();
+  if (!text) return null;
+
+  try {
+    const whole = JSON.parse(text);
+    if (looksLikeAdjudication(whole)) return whole;
+  } catch (error) { /* fall through to the fenced / brace-scan fallbacks */ }
+
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced && fenced[1]) {
+    try {
+      const parsed = JSON.parse(fenced[1].trim());
+      if (looksLikeAdjudication(parsed)) return parsed;
+    } catch (error) { /* fall through */ }
+  }
+
+  const scanned = extractMarkerJson(text, '');
+  if (scanned) {
+    try {
+      const parsed = JSON.parse(scanned);
+      if (looksLikeAdjudication(parsed)) return parsed;
+    } catch (error) { /* fall through */ }
+  }
+
+  return null;
+}
+
+/** Shared call/parse tail for both combat AI calls. Never throws. */
+async function runCombatAdjudicationCall(label, config, messages, callFn) {
+  const call = typeof callFn === 'function' ? callFn : callAI;
+  let data;
+  try {
+    data = await call(config, messages, {
+      maxTokens: COMBAT_ADJUDICATION_MAX_TOKENS,
+      temperature: COMBAT_ADJUDICATION_TEMPERATURE,
+      timeoutMs: COMBAT_AI_TIMEOUT_MS
+    });
+  } catch (error) {
+    logger.warn(`${label} call failed`, { error: error.message });
+    return { error: 'request-failed', message: error.message };
+  }
+
+  if (isLengthFinish(extractFinishReason(data))) {
+    logger.warn(`${label} hit the token cap (${COMBAT_ADJUDICATION_MAX_TOKENS}) — the adjudication may be truncated`);
+  }
+
+  const raw = extractAIMessage(data);
+  const parsed = parseAdjudicationResponse(raw);
+  if (!parsed) {
+    logger.warn(`${label} returned an unparseable adjudication`);
+    return { error: 'unparseable', raw: String(raw == null ? '' : raw).slice(0, COMBAT_RAW_ERROR_MAX_CHARS) };
+  }
+  return parsed;
+}
+
+/**
+ * Adjudicate one player's freeform combat action.
+ * Returns the Adjudication JSON as the model produced it (combatService does
+ * the clamping/validation), or `{ error }` on an unknown unit, a failed call,
+ * or an unparseable response.
+ *
+ * @param {Object} params
+ * @param {Object} params.state - NTC combat state
+ * @param {string} params.actingUnitId - the acting party unit
+ * @param {string} params.actionText - the player's raw action (may embed a [DICE ROLL: ...] tag)
+ * @param {Object} params.config - agent-role API config
+ * @param {Function} [params.callFn] - injectable callAI (tests)
+ */
+async function adjudicateCombatAction({ state, actingUnitId, actionText, config, callFn } = {}) {
+  const context = buildCombatTurnContext(state, actingUnitId);
+  if (!context || context.error) return { error: 'unknown-unit', message: context?.error };
+
+  const action = truncatePromptText(actionText, COMBAT_ACTION_MAX_CHARS);
+  const userContent = [
+    `COMBAT STATE (JSON):\n${JSON.stringify(context, null, 2)}`,
+    `ACTING COMBATANT: ${context.actor.name} — ${context.actor.ap} AP and ${context.actor.bp} BP remaining this turn.`,
+    `DECLARED ACTION (verbatim from the player):\n${action || '(the player submitted no action text)'}`,
+    'Adjudicate this action now. Output only the Adjudication JSON object.'
+  ].join('\n\n');
+
+  return runCombatAdjudicationCall('Combat adjudication', config, [
+    { role: 'system', content: COMBAT_ADJUDICATOR_PROMPT },
+    { role: 'user', content: userContent }
+  ], callFn);
+}
+
+/**
+ * Play one enemy's turn. The engine's seeded pre-rolls (consumed here via
+ * combatService.getEnemyTurnContext) are handed to the model as authoritative
+ * dice. Same Adjudication JSON contract and same failure shapes as
+ * adjudicateCombatAction.
+ *
+ * @param {Object} params
+ * @param {Object} params.state - NTC combat state (mutated: pre-rolls advance the RNG)
+ * @param {string} params.enemyUnitId - the enemy whose turn it is
+ * @param {Object} params.config - agent-role API config
+ * @param {Function} [params.callFn] - injectable callAI (tests)
+ */
+async function generateEnemyCombatTurn({ state, enemyUnitId, config, callFn } = {}) {
+  const context = combatService.getEnemyTurnContext(state, enemyUnitId);
+  if (!context || context.error) return { error: 'unknown-unit', message: context?.error };
+
+  const { attackRoll, damageRoll, targetSuggestion } = context.preRolls || {};
+  const diceLines = [];
+  if (attackRoll) {
+    diceLines.push(`- Attack roll: d20 ${attackRoll.d20} + ${attackRoll.bonus} = TOTAL ${attackRoll.total} — compare this total against the AC of the foe you choose.`);
+  }
+  if (damageRoll) {
+    diceLines.push(`- Damage on a hit: ${damageRoll.rolls.join(' + ')} + ${damageRoll.bonus} = TOTAL ${damageRoll.total}${damageRoll.critical ? ' (natural 20 — critical hit, the extra die is already included)' : ''}.`);
+  }
+  if (targetSuggestion) {
+    diceLines.push(`- targetSuggestion (a hint only): ${targetSuggestion.name} at ${targetSuggestion.hp}/${targetSuggestion.maxHp} HP, AC ${targetSuggestion.ac}.`);
+  }
+
+  const userContent = [
+    `COMBAT STATE (JSON):\n${JSON.stringify(context, null, 2)}`,
+    `ACTING ENEMY: ${context.enemy.name} — ${context.enemy.hp}/${context.enemy.maxHp} HP, AC ${context.enemy.ac}.`,
+    diceLines.length ? `AUTHORITATIVE PRE-ROLLED DICE FOR THIS TURN:\n${diceLines.join('\n')}` : 'No dice were pre-rolled for this turn; take a non-attack action.',
+    `Play ${context.enemy.name}'s turn now. Output only the Adjudication JSON object.`
+  ].join('\n\n');
+
+  return runCombatAdjudicationCall('Enemy combat turn', config, [
+    { role: 'system', content: COMBAT_ENEMY_TURN_PROMPT },
+    { role: 'user', content: userContent }
+  ], callFn);
+}
+
 module.exports = {
   getActiveApiConfig,
   callAI,
@@ -1101,6 +1493,13 @@ module.exports = {
   generateTurnResolution,
   generatePOVImagePrompt,
   generateStateTags,
+  buildCombatTurnContext,
+  adjudicateCombatAction,
+  generateEnemyCombatTurn,
+  COMBAT_ADJUDICATOR_PROMPT,
+  COMBAT_ENEMY_TURN_PROMPT,
+  COMBAT_ADJUDICATION_MAX_TOKENS,
+  COMBAT_ADJUDICATION_TEMPERATURE,
   DEFAULT_SYSTEM_PROMPT,
   CHARACTER_CREATION_PROMPT,
   POV_CONVERSION_PROMPT,
