@@ -56,9 +56,9 @@ import { initKeyboardNavigation, updateTabAriaStates } from './utils/keyboard.js
 import { initWeather, cycleWeather, setWeather } from './modules/weather.js';
 import { initCharacterBuilder, saveNewCharacter, resetBuilder } from './modules/characterBuilder.js';
 import {
-  openTacticalCombatSetup, closeTacticalCombatSetup, startTacticalCombat,
-  selectTacticalAction, selectTacticalPower, tacticalTileClick, tacticalDefend, tacticalEndTurn, endTacticalCombat
-} from './modules/tacticalCombat.js';
+  openCombatSetup, closeCombatSetup, startEncounter,
+  rollRemainingInitiative, endEncounter
+} from './modules/combat.js';
 import { toggleDJPlayback, muteDJPlayback, setDJVolume, setDJTrack, stopDJTrack } from './modules/youtubeDj.js';
 
 // ============================================
@@ -125,15 +125,11 @@ window.toggleStoryLogs = toggleStoryLogs;
 window.toggleStoryMinimize = toggleStoryMinimize;
 window.toggleStoryExpand = toggleStoryExpand;
 window.retryTurn = retryTurn;
-window.openTacticalCombatSetup = openTacticalCombatSetup;
-window.closeTacticalCombatSetup = closeTacticalCombatSetup;
-window.startTacticalCombat = startTacticalCombat;
-window.selectTacticalAction = selectTacticalAction;
-window.selectTacticalPower = selectTacticalPower;
-window.tacticalTileClick = tacticalTileClick;
-window.tacticalDefend = tacticalDefend;
-window.tacticalEndTurn = tacticalEndTurn;
-window.endTacticalCombat = endTacticalCombat;
+window.openCombatSetup = openCombatSetup;
+window.closeCombatSetup = closeCombatSetup;
+window.startEncounter = startEncounter;
+window.rollRemainingInitiative = rollRemainingInitiative;
+window.endEncounter = endEncounter;
 window.toggleDJPlayback = toggleDJPlayback;
 window.muteDJPlayback = muteDJPlayback;
 window.setDJVolume = setDJVolume;

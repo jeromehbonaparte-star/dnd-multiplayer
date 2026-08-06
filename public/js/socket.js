@@ -6,7 +6,7 @@ import { getState, setState } from './state.js';
 import { showConnectionStatus, hideConnectionStatus, showNotification, showNarratorTyping, hideNarratorTyping } from './utils/dom.js';
 import { loadCharacters } from './modules/characters.js';
 import { loadSessions, loadSession, updatePendingActions, updateActionFormState, appendStreamChunk, finalizeStreamedContent, displayChoices, showTurnError } from './modules/sessions.js';
-import { handleCombatUpdate } from './modules/tacticalCombat.js';
+import { handleCombatUpdate, appendCombatBeat } from './modules/combat.js';
 import { renderYouTubeDJ } from './modules/youtubeDj.js';
 import { loadSessionSummary } from './modules/settings.js';
 
@@ -229,13 +229,23 @@ export function initSocket() {
     }
   });
 
+  // Narrative combat state. `combat: null` means the fight is over — the
+  // handler tears the tracker down and hands the action bar back to the story.
   socket.off('combat_updated');
-  socket.on('combat_updated', ({ sessionId, combat, automatic, events, version }) => {
+  socket.on('combat_updated', (payload) => {
+    const currentSession = getState('currentSession');
+    if (currentSession && currentSession.id === payload?.sessionId) {
+      handleCombatUpdate(payload);
+      updateActionFormState();
+    }
+  });
+
+  // One resolved combat beat — appended live to the story stream.
+  socket.off('combat_turn_narration');
+  socket.on('combat_turn_narration', ({ sessionId, unitName, narration, round, warnings }) => {
     const currentSession = getState('currentSession');
     if (currentSession && currentSession.id === sessionId) {
-      handleCombatUpdate(sessionId, combat, events, version);
-      updateActionFormState();
-      if (automatic && combat) showNotification(`Tactical combat begins: ${combat.name}`);
+      appendCombatBeat({ unitName, narration, round, warnings });
     }
   });
 

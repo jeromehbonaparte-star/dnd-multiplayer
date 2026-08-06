@@ -112,7 +112,9 @@
         <details class="drawer-section utility-menu">
           <summary>Tools</summary>
           <div class="utility-buttons">
-            <button onclick="openTacticalCombatSetup()" class="btn-secondary">Start Encounter</button>
+            <button onclick="openCombatSetup()" class="btn-secondary">Start Encounter</button>
+            <button onclick="setDJTrack()" class="btn-secondary">Set Music</button>
+            <button onclick="stopDJTrack()" class="btn-secondary">Stop Music</button>
             <button onclick="forceProcessTurn()" class="btn-secondary">Force Process Turn</button>
             <button onclick="rerollLastResponse()" class="btn-secondary">Reroll Last</button>
             <button onclick="recalculateXP()" class="btn-secondary">Recalc XP</button>
@@ -134,7 +136,7 @@
           <div id="music-dj-player" class="music-dj-player" hidden></div>
         </div>
 
-        <section id="tactical-combat-panel" class="tactical-combat-panel" hidden aria-label="Tactical encounter"></section>
+        <section id="combat-tracker-panel" class="combat-tracker-panel" hidden aria-label="Initiative tracker"></section>
 
         <div id="story-container">
           <canvas id="weather-canvas" aria-hidden="true"></canvas>
@@ -669,32 +671,27 @@
     </div>
   </div>
 
-  <!-- Character Edit/Level Up Modal -->
-  <div id="combat-setup-modal" class="modal" role="dialog" aria-modal="true" aria-label="Start tactical encounter">
+  <!-- Encounter setup (GM) -->
+  <div id="combat-setup-modal" class="modal" role="dialog" aria-modal="true" aria-label="Start encounter">
     <div class="modal-content combat-setup-modal-content">
-      <button class="modal-close" onclick="closeTacticalCombatSetup()" aria-label="Close dialog">&times;</button>
+      <button class="modal-close" onclick="closeCombatSetup()" aria-label="Close dialog">&times;</button>
       <h2>Start Encounter</h2>
       <div class="form-group">
         <label for="combat-name">Encounter Name</label>
-        <input type="text" id="combat-name" value="Tactical Encounter" maxlength="120">
+        <input type="text" id="combat-name" value="Combat Encounter" maxlength="120">
       </div>
       <div class="form-group">
-        <label for="combat-environment">Battlefield</label>
-        <select id="combat-environment">
-          <option value="plains">Plains</option>
-          <option value="forest">Forest</option>
-          <option value="dungeon">Dungeon</option>
-          <option value="ruins">Ruins</option>
-          <option value="water">Coast / Water</option>
-          <option value="city">City</option>
-        </select>
+        <label for="combat-environment">Scene</label>
+        <input type="text" id="combat-environment" value="a rough clearing" maxlength="50" placeholder="Where the fight happens">
+        <p class="settings-note">Flavor only — it colours the DM's descriptions.</p>
       </div>
       <div class="form-group">
         <label for="combat-enemies">Enemies</label>
         <textarea id="combat-enemies" rows="6" placeholder="Goblin | 12 | 13 | 4 | 6 | 2&#10;Goblin | 12 | 13 | 4 | 6 | 2"></textarea>
         <p class="settings-note">One per line: Name | HP | AC | Attack Bonus | Damage Die | Damage Bonus</p>
       </div>
-      <button onclick="startTacticalCombat()" class="btn-primary" id="start-combat-btn">Begin Encounter</button>
+      <p class="settings-note">Everyone rolls a d20 for initiative once the encounter opens.</p>
+      <button onclick="startEncounter()" class="btn-primary" id="start-combat-btn">Begin Encounter</button>
       <p id="combat-setup-status" class="settings-note"></p>
     </div>
   </div>

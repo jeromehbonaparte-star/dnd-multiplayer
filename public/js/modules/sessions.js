@@ -6,7 +6,10 @@
 // ============================================
 
 import { getState, setState } from '../state.js';
-import { renderTacticalCombat } from './tacticalCombat.js';
+import {
+  renderCombatTracker, renderCombatHistoryEntry, getCombatActionMode,
+  postInitiativeRoll, postCombatTurnAction, handleCombatApiError
+} from './combat.js';
 import { renderYouTubeDJ } from './youtubeDj.js';
 import { api } from '../api.js';
 import { escapeHtml, formatContent } from '../utils/formatters.js';
@@ -250,15 +253,16 @@ export async function loadSession(id) {
     setState({
       currentSession: data.session,
       sessionCharacters: data.sessionCharacters || [],
-      activeCombat: data.combat || null,
       povImageEnabled: !!data.features?.povImageEnabled
     });
 
     updateCharacterSelect();
     updatePartyList();
     updateInspirationDisplay();
+    // Normalizes the REST envelope into the public combat state, stores it in
+    // `activeCombat` and refreshes the action bar for the current combat mode.
+    renderCombatTracker(data.combat || null);
     updateActionFormState();
-    renderTacticalCombat(data.combat || null);
     let music = {};
     try { music = JSON.parse(data.session.music_state || '{}'); } catch (error) { music = {}; }
     renderYouTubeDJ(music);
@@ -463,6 +467,19 @@ function latestNarrationIndex() {
   return -1;
 }
 
+/**
+ * The entry that holds the story "stage" — the only one the compact view shows.
+ * Combat beats count: during a fight they ARE the current scene.
+ */
+function latestStageIndex() {
+  for (let index = _fullRenderedHistory.length - 1; index >= 0; index--) {
+    const entry = _fullRenderedHistory[index];
+    if (!entry || entry.hidden || entry.type === 'context') continue;
+    if (entry.type === 'combat_turn' || entry.role === 'assistant' || entry.type === 'narration') return index;
+  }
+  return -1;
+}
+
 function renderSceneControls(entry, globalIndex, selectedChar, canIllustrate, isActiveScene) {
   const sceneUrl = selectedChar ? safeSceneUrl(entry, selectedChar.id) : '';
   const controls = [];
@@ -515,13 +532,25 @@ export function renderStoryHistory(history, indexOffset = 0) {
   let html = '';
   let turnActions = [];
   let turnActionIndices = [];
-  const activeNarrationIndex = latestNarrationIndex();
+  const activeNarrationIndex = latestStageIndex();
 
   for (let i = 0; i < history.length; i++) {
     const entry = history[i];
     const globalIndex = indexOffset + i;
 
     if (entry.hidden || entry.type === 'context') continue;
+
+    // Combat beats carry no `role` — render them as their own styled entry so a
+    // history reload shows the same stream the live socket append produced.
+    if (entry.type === 'combat_turn') {
+      if (turnActions.length > 0) {
+        html += renderPlayerActionsGroup(turnActions, turnActionIndices);
+        turnActions = [];
+        turnActionIndices = [];
+      }
+      html += renderCombatHistoryEntry(entry, globalIndex, globalIndex === activeNarrationIndex);
+      continue;
+    }
 
     if (entry.type === 'action') {
       turnActions.push(entry);
@@ -1501,9 +1530,10 @@ function rollDice(expression) {
  * Check if the action text is a slash command and handle it.
  * @param {string} text - The action text
  * @param {string} characterId - The selected character ID
+ * @param {boolean} [inCombat] - Blocks commands that would post a story turn
  * @returns {boolean} True if it was handled as a slash command
  */
-function handleSlashCommand(text, characterId) {
+function handleSlashCommand(text, characterId, inCombat = false) {
   const trimmed = text.trim();
   if (!trimmed.startsWith('/')) return false;
 
@@ -1534,6 +1564,10 @@ function handleSlashCommand(text, characterId) {
 
     case '/rest': {
       // Submit rest action directly — no dice roll needed for resting
+      if (inCombat) {
+        showNotification('You cannot rest in the middle of a fight.');
+        return true;
+      }
       if (!characterId) {
         showNotification('Select a character first');
         return true;
@@ -1587,6 +1621,84 @@ function handleSlashCommand(text, characterId) {
 // Actions & turn processing
 // ============================================
 
+/** The `[DICE ROLL: ...]` appendix the narrator (and the combat adjudicator) reads. */
+function buildRollTag(roll) {
+  if (roll.stat) {
+    const sign = roll.modifier >= 0 ? '+' : '';
+    return `[DICE ROLL: d20 = ${roll.value} ${sign}${roll.modifier} ${roll.stat} (score ${roll.score}) = ${roll.total}]`;
+  }
+  return `[DICE ROLL: d20 = ${roll.value}]`;
+}
+
+/** Flash the "you have to roll first" affordance on the dice + submit button. */
+function demandDiceRoll(message) {
+  showNotification(message);
+  document.getElementById('dice-roller')?.classList.add('must-roll');
+  document.getElementById('submit-action-btn')?.classList.add('needs-roll');
+}
+
+/**
+ * Combat routing for the shared action bar. Initiative phase reports the raw
+ * d20; the active phase posts the freeform action with the same [DICE ROLL]
+ * appendix story turns use, plus the state version for optimistic concurrency.
+ */
+async function submitCombatAction(combat) {
+  const actionTextarea = document.getElementById('action-text');
+
+  if (combat.mode === 'initiative') {
+    if (!_currentDiceRoll) return demandDiceRoll('Roll the d20 for initiative!');
+    const rolled = _currentDiceRoll.value;
+    const initiativeBtn = document.getElementById('submit-action-btn');
+    if (initiativeBtn) {
+      initiativeBtn.disabled = true;
+      initiativeBtn.textContent = 'Rolling...';
+    }
+    try {
+      await postInitiativeRoll(combat.characterId, rolled);
+      resetDiceRoll();
+      showNotification(`Initiative submitted (d20: ${rolled})`);
+    } catch (error) {
+      console.error('Failed to submit initiative:', error);
+      handleCombatApiError(error, 'Unable to submit initiative.');
+    } finally {
+      updateActionFormState();
+    }
+    return;
+  }
+
+  if (combat.mode !== 'turn') {
+    showNotification(combat.banner || 'It is not your turn yet.');
+    return;
+  }
+
+  const action = actionTextarea ? actionTextarea.value : '';
+  if (!action.trim()) { alert('Describe what your character does'); return; }
+  if (!_currentDiceRoll) return demandDiceRoll('Roll the d20 before taking your combat action!');
+
+  const roll = _currentDiceRoll;
+  const actionWithRoll = `${action}\n${buildRollTag(roll)}`;
+  const submitBtn = document.getElementById('submit-action-btn');
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Resolving...';
+  }
+
+  try {
+    const result = await postCombatTurnAction(combat.characterId, actionWithRoll, combat.version);
+    // Success mirrors the story flow: clear the box, reset the dice, drop choices.
+    if (actionTextarea) actionTextarea.value = '';
+    resetDiceRoll();
+    dismissChoices();
+    if (Array.isArray(result?.warnings) && result.warnings.length) showNotification(result.warnings[0]);
+  } catch (error) {
+    console.error('Failed to submit combat action:', error);
+    // 502 = the adjudicator stumbled; the action is untouched, so keep it typed.
+    handleCombatApiError(error, 'Combat action failed.');
+  } finally {
+    updateActionFormState();
+  }
+}
+
 export async function submitAction() {
   const currentSession = getState('currentSession');
   if (!currentSession) { alert('Please select a session first'); return; }
@@ -1599,6 +1711,18 @@ export async function submitAction() {
   const characterId = document.getElementById('action-character').value;
   const actionTextarea = document.getElementById('action-text');
   const action = actionTextarea.value;
+
+  const combat = getCombatActionMode();
+  if (combat.active) {
+    if (!characterId) { alert('Please select your character'); return; }
+    // /roll and /inv still work mid-fight; /rest does not.
+    if (action.trim().startsWith('/') && handleSlashCommand(action, characterId, true)) {
+      actionTextarea.value = '';
+      return;
+    }
+    await submitCombatAction(combat);
+    return;
+  }
 
   if (!characterId) { alert('Please select your character'); return; }
   if (!action.trim()) { alert('Please enter an action'); return; }
@@ -1618,24 +1742,13 @@ export async function submitAction() {
 
   // Enforce dice roll before submission
   if (!_currentDiceRoll) {
-    showNotification('Roll the d20 before submitting your action!');
-    const roller = document.getElementById('dice-roller');
-    const submitBtn = document.getElementById('submit-action-btn');
-    if (roller) roller.classList.add('must-roll');
-    if (submitBtn) submitBtn.classList.add('needs-roll');
+    demandDiceRoll('Roll the d20 before submitting your action!');
     return;
   }
 
   // Build action text with dice roll + stat modifier included
   const roll = _currentDiceRoll;
-  let rollTag;
-  if (roll.stat) {
-    const sign = roll.modifier >= 0 ? '+' : '';
-    rollTag = `[DICE ROLL: d20 = ${roll.value} ${sign}${roll.modifier} ${roll.stat} (score ${roll.score}) = ${roll.total}]`;
-  } else {
-    rollTag = `[DICE ROLL: d20 = ${roll.value}]`;
-  }
-  const actionWithRoll = `${action}\n${rollTag}`;
+  const actionWithRoll = `${action}\n${buildRollTag(roll)}`;
 
   actionTextarea.value = '';
   resetDiceRoll();
@@ -1740,7 +1853,7 @@ export function updateActionFormState() {
   const diceBtn = document.getElementById('dice-roll-btn');
   const statSelect = document.getElementById('dice-stat-select');
   const viewOnlyBanner = document.getElementById('view-only-banner');
-  const combatActive = !!getState('activeCombat');
+  const combat = getCombatActionMode();
 
   // Determine if the currently-selected character is owned by the logged-in user.
   // Non-owned characters are view-only (POV switching works, but no input/actions).
@@ -1750,17 +1863,31 @@ export function updateActionFormState() {
     : (user.is_admin || selectedChar.user_id === user.id || !selectedChar.user_id);
   const viewOnly = !isOwned;
 
+  // In combat the bar only opens for the character the engine says may act:
+  // 'initiative' → roll the d20, 'turn' → freeform action, 'waiting' → locked.
+  const canRollInitiative = combat.active && combat.mode === 'initiative';
+  const canTakeTurn = combat.active && combat.mode === 'turn';
+  const canRoll = combat.active ? (canRollInitiative || canTakeTurn) : !viewOnly;
+  const textDisabled = combat.active ? !canTakeTurn : viewOnly;
+
   if (viewOnlyBanner) {
-    viewOnlyBanner.style.display = (viewOnly || combatActive) ? '' : 'none';
-    viewOnlyBanner.textContent = combatActive
-      ? 'A tactical encounter is active. Use the battlefield controls.'
-      : 'You can switch to this character to read their POV, but you can only act as characters you own.';
+    const message = combat.active
+      ? combat.banner
+      : (viewOnly ? 'You can switch to this character to read their POV, but you can only act as characters you own.' : '');
+    viewOnlyBanner.style.display = message ? '' : 'none';
+    viewOnlyBanner.textContent = message;
+    viewOnlyBanner.classList.toggle('combat-turn-banner', combat.active);
+    viewOnlyBanner.classList.toggle('your-turn', canRollInitiative || canTakeTurn);
   }
 
   if (submitBtn) {
-    if (combatActive) {
-      submitBtn.disabled = true;
-      submitBtn.textContent = 'Combat active';
+    if (combat.active) {
+      submitBtn.disabled = !canRoll || isTurnProcessing;
+      submitBtn.textContent = canRollInitiative
+        ? 'Roll Initiative'
+        : canTakeTurn
+        ? (isTurnProcessing ? 'Resolving...' : 'Take Action')
+        : 'Waiting...';
     } else if (viewOnly) {
       submitBtn.disabled = true;
       submitBtn.textContent = 'View only';
@@ -1774,20 +1901,20 @@ export function updateActionFormState() {
   }
 
   if (actionTextarea) {
-    actionTextarea.disabled = viewOnly || isTurnProcessing || combatActive;
-    actionTextarea.placeholder = combatActive
-      ? 'Resolve the tactical encounter first.'
+    actionTextarea.disabled = textDisabled || isTurnProcessing;
+    actionTextarea.placeholder = combat.active
+      ? (canTakeTurn
+        ? 'Describe what you do — the DM decides what it costs.'
+        : canRollInitiative
+        ? 'Roll the d20 to take your place in the order.'
+        : combat.banner)
       : viewOnly
       ? 'View only — you do not control this character.'
       : (isTurnProcessing ? 'Please wait for the Narrator to finish...' : 'What do you do?');
   }
 
   if (diceBtn) {
-    if (combatActive) {
-      diceBtn.disabled = true;
-    } else if (viewOnly) {
-      diceBtn.disabled = true;
-    } else if (isTurnProcessing) {
+    if (!canRoll || isTurnProcessing) {
       diceBtn.disabled = true;
     } else if (_rollCount < 2) {
       diceBtn.disabled = false;
@@ -1805,7 +1932,8 @@ export function updateActionFormState() {
     }
   }
   if (statSelect) {
-    statSelect.disabled = viewOnly || isTurnProcessing || combatActive;
+    // Initiative reports the raw d20 — the server adds the DEX bonus itself.
+    statSelect.disabled = isTurnProcessing || (combat.active ? !canTakeTurn : viewOnly);
   }
 }
 

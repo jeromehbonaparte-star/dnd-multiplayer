@@ -47,7 +47,7 @@ const state = {
 
   // AI-generated choices for current turn
   pendingChoices: null,
-  activeCombat: null,
+  activeCombat: null, // normalized public combat state (NTC), or null outside a fight
   activeMusic: null,
   povImageEnabled: false,
 };

@@ -24,9 +24,8 @@ export async function api(endpoint, method = 'GET', body = null) {
     throw new Error('Authentication required');
   }
 
-  if (response.status === 403) {
-    throw new Error('Forbidden');
-  }
+  // 403 falls through to the structured error path below so callers see the
+  // server's reason ("It is not that character's turn.") instead of "Forbidden".
 
   // Check content type before parsing
   const contentType = response.headers.get('content-type');
