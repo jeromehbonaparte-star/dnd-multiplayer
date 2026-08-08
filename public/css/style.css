@@ -858,13 +858,18 @@ details.drawer-section.utility-menu > summary:hover { color: var(--accent-hover)
 .combat-unit.enemy .combat-hp-bar span { background: var(--danger-hover); }
 
 .combat-unit-conditions { display: flex; gap: 4px; flex-wrap: wrap; }
-.combat-condition-chip { padding: 1px 5px; border: 1px solid var(--border-color); border-radius: 999px; background: var(--spell-bg); color: var(--spell-color); font-family: var(--font-mono); font-size: 9px; text-transform: lowercase; }
+.combat-condition-chip { padding: 1px 5px; border: 1px solid var(--border-color); border-radius: 999px; background: var(--spell-bg); color: var(--spell-color); font-family: var(--font-mono); font-size: 10px; text-transform: lowercase; }
 
 .combat-unit-points { display: flex; gap: 10px; align-items: center; }
 .combat-point-group { display: flex; align-items: center; gap: 3px; }
-.combat-point-group em { color: var(--text-dim); font-family: var(--font-mono); font-size: 9px; font-style: normal; }
+.combat-point-group em { color: var(--text-dim); font-family: var(--font-mono); font-size: 10px; font-style: normal; }
 .combat-pip { width: 7px; height: 7px; border-radius: 50%; border: 1px solid var(--accent-dim); background: transparent; }
 .combat-pip.filled { background: var(--accent); }
+
+/* The collapse toggle and the chip strip are the phone's compact tracker; a
+   desktop panel has the room for the full list and never collapses. */
+.combat-tracker-toggle,
+.combat-chip-strip { display: none; }
 
 /* One resolved combat beat inside the story stream. */
 .story-entry.combat-beat {
@@ -877,7 +882,7 @@ details.drawer-section.utility-menu > summary:hover { color: var(--accent-hover)
 .combat-beat-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .combat-beat-title { flex: 1; min-width: 0; color: var(--accent); font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; }
 .combat-beat-controls { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
-.combat-beat .content { font-size: 0.96em; }
+.combat-beat .content { font-size: 1em; }
 .combat-beat-warnings { margin-top: 7px; color: var(--text-muted); font-family: var(--font-mono); font-size: 10px; }
 .combat-beat-live { animation: fadeIn 0.4s var(--ease-out); }
 
@@ -915,12 +920,154 @@ details.drawer-section.utility-menu > summary:hover { color: var(--accent-hover)
   .story-topbar { display: block; }
   .music-dj-player { margin: 7px 0 0; max-width: none; }
   .combat-tracker-panel { padding: 8px 10px 10px; max-height: 34vh; }
-  .combat-tracker-head { gap: 6px; }
+  .combat-tracker-head { gap: 6px; margin-bottom: 6px; }
   .combat-tracker-meta { margin-left: 0; }
   .combat-gm-actions { margin-left: 0; width: 100%; }
   .combat-gm-actions button { flex: 1; }
-  .combat-unit-line { flex-wrap: wrap; gap: 2px 8px; }
-  .combat-unit-name { flex: 1 1 100%; }
+
+  /* Readability floor: nothing combat-related renders below 11px on a phone.
+     The eyebrow is pure decoration, so it buys back a whole line instead. */
+  .combat-eyebrow { display: none; }
+  .combat-tracker-title { flex: 1 1 auto; }
+  .combat-tracker-title h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .combat-environment { font-size: 12px; }
+  .combat-phase-badge { font-size: 11px; }
+  .combat-tracker-status { font-size: 12px; }
+  .combat-unit-slot { font-size: 11px; }
+  .combat-unit-name { font-size: 14px; }
+  .combat-unit-numbers { font-size: 12px; }
+  .combat-condition-chip { font-size: 11px; }
+  .combat-point-group em { font-size: 11px; }
+  .combat-strip-label { font-size: 11px; }
+  .combat-strip-empty { font-size: 11px; }
+  .initiative-chip { font-size: 12px; }
+  .combat-beat-title { font-size: 12.5px; }
+  .combat-beat-warnings { font-size: 11px; }
+
+  /* One row per unit: the name ellipsizes, the numbers never wrap. INIT is
+     dropped because list position already spells out the turn order. */
+  .combat-unit { padding: 6px 8px; gap: 7px; }
+  .combat-unit-line { gap: 8px; }
+  .combat-unit-init { display: none; }
+
+  /* index.html sets font-size/opacity inline on the view-only banner, and an
+     inline style beats a selector, so the combat states have to shout. */
+  .action-bar .view-only-banner.combat-turn-banner { font-size: 14px !important; }
+  .action-bar .view-only-banner.combat-turn-banner.your-turn { opacity: 1 !important; }
+
+  .combat-tracker-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 40px;
+    height: 40px;
+    margin-left: auto;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--bg-light);
+    color: var(--accent);
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .combat-tracker-panel.collapsed .combat-unit-list,
+  .combat-tracker-panel.collapsed .combat-initiative-strip,
+  .combat-tracker-panel.collapsed .combat-gm-actions,
+  .combat-tracker-panel.collapsed .combat-environment { display: none; }
+  .combat-tracker-panel.collapsed { padding: 6px 10px 8px; }
+  .combat-tracker-panel.collapsed .combat-chip-strip { display: flex; }
+
+  /* Collapsed head is one nowrap row: name, phase + status, toggle. Whatever
+     does not fit ellipsizes rather than wrapping the panel taller. */
+  .combat-tracker-panel.collapsed .combat-tracker-head {
+    flex-wrap: nowrap;
+    gap: 8px;
+    margin-bottom: 0;
+  }
+  .combat-tracker-panel.collapsed .combat-tracker-title,
+  .combat-tracker-panel.collapsed .combat-tracker-meta { flex: 1 1 auto; min-width: 0; }
+  .combat-tracker-panel.collapsed .combat-tracker-status {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Turn order as one swipeable row: avatar, first name, HP underbar. */
+  .combat-chip-strip {
+    align-items: stretch;
+    gap: 6px;
+    margin-top: 6px;
+    padding-bottom: 2px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .combat-chip-strip::-webkit-scrollbar { display: none; }
+
+  .combat-chip {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex: 0 0 auto;
+    padding: 4px 8px 7px;
+    border: 1px solid var(--border-subtle);
+    border-left: 3px solid var(--ac-color);
+    border-radius: var(--radius-sm);
+    background: var(--bg-card);
+  }
+  .combat-chip.enemy { border-left-color: var(--danger); }
+  .combat-chip.acting {
+    border-color: var(--accent);
+    border-left-color: var(--accent);
+    background: rgba(var(--accent-rgb), 0.1);
+  }
+  .combat-chip.down { opacity: 0.5; filter: grayscale(0.7); }
+  .combat-chip.waiting { opacity: 0.6; }
+
+  .combat-chip-avatar {
+    flex: 0 0 auto;
+    width: 26px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border-accent);
+    border-radius: 50%;
+    background-color: var(--bg-light);
+    background-size: cover;
+    background-position: center;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .combat-chip.acting .combat-chip-avatar { border-color: var(--accent); }
+
+  .combat-chip-name {
+    max-width: 64px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-bright);
+    font-family: var(--font-display);
+    font-size: 12px;
+  }
+  .combat-chip-init { color: var(--text-dim); font-family: var(--font-mono); font-size: 11px; }
+
+  .combat-chip-hp {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: block;
+    height: 3px;
+    background: rgba(0, 0, 0, 0.35);
+    overflow: hidden;
+  }
+  .combat-chip-hp span { display: block; height: 100%; background: var(--hp-color); }
+  .combat-chip.enemy .combat-chip-hp span { background: var(--danger-hover); }
 }
 
 .story-topbar {
@@ -4901,7 +5048,16 @@ button { cursor: pointer; }
     -webkit-overflow-scrolling: touch;
   }
 
+  /* A collapsed tracker is one chip row; expanded it keeps its own scroll, which
+     is now an explicit choice the player made rather than the default. */
   .combat-mode-active .combat-tracker-panel { max-height: 30vh; }
+  .combat-mode-active .combat-tracker-panel.collapsed { max-height: 120px; }
+
+  /* The compact tracker hands the reclaimed height straight to the beat on the
+     stage — combat is text, so the text gets the room. */
+  #story-container:not(.logs-open) .active-scene-entry.combat-beat {
+    max-height: min(52svh, 100%);
+  }
 }
 
 /* ---------------------------------------------------------------

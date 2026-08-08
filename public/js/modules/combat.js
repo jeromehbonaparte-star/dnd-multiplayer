@@ -20,6 +20,11 @@ const OUTCOME_MESSAGES = {
 const MAX_PIPS = 8;
 const SWORDS = '⚔';
 
+// Phones open the tracker collapsed (chip strip only) so the story stream keeps
+// the screen. `renderCombatTracker` rebuilds `panel.innerHTML` on every socket
+// update, so the flag has to live outside the DOM. Desktop ignores it entirely.
+let trackerCollapsed = true;
+
 // ============================================
 // State access + normalization
 // ============================================
@@ -224,9 +229,15 @@ function renderGmControls(state) {
   return `<div class="combat-gm-actions">${rollRemaining}<button type="button" class="combat-end-btn" onclick="endEncounter()">End Encounter</button></div>`;
 }
 
+/** Unit ids that still owe a d20 — empty outside the initiative phase. */
+function pendingInitiativeIds(state) {
+  if (state.phase !== 'initiative' || !Array.isArray(state.pendingInitiative)) return [];
+  return state.pendingInitiative;
+}
+
 function renderPendingInitiative(state) {
   if (state.phase !== 'initiative') return '';
-  const pendingIds = Array.isArray(state.pendingInitiative) ? state.pendingInitiative : [];
+  const pendingIds = pendingInitiativeIds(state);
   const pending = pendingIds.map(id => findUnit(state, id)).filter(Boolean);
   const rolled = state.units.filter(unit => unit.side === 'party' && unit.initiative != null);
   return `
@@ -241,11 +252,47 @@ function renderPendingInitiative(state) {
     </div>`;
 }
 
+/**
+ * Turn order as a single scrollable row of chips. Always built; only the mobile
+ * collapsed panel shows it, so it has to stay cheap.
+ */
+function renderChipStrip(state) {
+  const pendingIds = pendingInitiativeIds(state);
+  const chips = orderedUnits(state).map(unit => {
+    const image = safeImageUrl(unit.imageUrl);
+    const waiting = pendingIds.includes(unit.id);
+    const classes = [
+      'combat-chip',
+      unit.side === 'enemy' ? 'enemy' : 'party',
+      state.currentUnitId === unit.id ? 'acting' : '',
+      unit.down ? 'down' : '',
+      waiting ? 'waiting' : ''
+    ].filter(Boolean).join(' ');
+    const name = String(unit.name || '?');
+    const short = name.trim().split(/\s+/)[0] || '?';
+    return `
+      <span class="${classes}" title="${escapeHtml(name)}">
+        <span class="combat-chip-avatar"${image ? ` style="background-image:url('${image}')"` : ''} aria-hidden="true">${image ? '' : escapeHtml(initials(name))}</span>
+        <span class="combat-chip-name">${unit.down ? '☠ ' : ''}${escapeHtml(short)}</span>
+        ${waiting ? '<span class="combat-chip-init">--</span>' : ''}
+        <span class="combat-chip-hp"><span style="width:${healthPercent(unit)}%"></span></span>
+      </span>`;
+  }).join('');
+  return `<div class="combat-chip-strip" aria-label="Turn order">${chips}</div>`;
+}
+
+function renderTrackerToggle() {
+  const label = trackerCollapsed ? 'Show the full initiative tracker' : 'Collapse the initiative tracker';
+  return `<button type="button" class="combat-tracker-toggle" onclick="toggleCombatTracker()" aria-expanded="${trackerCollapsed ? 'false' : 'true'}" aria-label="${label}" title="${label}">${trackerCollapsed ? '▾' : '▴'}</button>`;
+}
+
 function buildTrackerHtml(state) {
   const phaseLabel = state.phase === 'initiative' ? 'Initiative' : 'Round ' + (Number(state.round) || 1);
   const acting = findUnit(state, state.currentUnitId);
+  const pendingCount = pendingInitiativeIds(state).length;
+  // Collapsed panels hide the "Still rolling" strip, so the count rides the status line.
   const status = state.phase === 'initiative'
-    ? 'Everyone rolls a d20'
+    ? `Everyone rolls a d20${pendingCount ? ` (${pendingCount} waiting)` : ''}`
     : acting
       ? `${acting.name} is acting`
       : 'Resolving...';
@@ -261,12 +308,25 @@ function buildTrackerHtml(state) {
         <span class="combat-phase-badge ${state.phase === 'initiative' ? 'phase-initiative' : 'phase-active'}">${escapeHtml(phaseLabel)}</span>
         <span class="combat-tracker-status">${escapeHtml(status)}</span>
       </div>
+      ${renderTrackerToggle()}
       ${renderGmControls(state)}
     </div>
+    ${renderChipStrip(state)}
     ${renderPendingInitiative(state)}
     <ol class="combat-unit-list">
       ${orderedUnits(state).map((unit, index) => renderUnitRow(state, unit, index + 1)).join('')}
     </ol>`;
+}
+
+/** Mobile collapse toggle; a no-op when there is no fight to re-render. */
+export function toggleCombatTracker() {
+  const state = getCombatState();
+  if (!state) return;
+  trackerCollapsed = !trackerCollapsed;
+  const panel = document.getElementById('combat-tracker-panel');
+  if (!panel) return;
+  panel.classList.toggle('collapsed', trackerCollapsed);
+  panel.innerHTML = buildTrackerHtml(state);
 }
 
 /**
@@ -293,6 +353,7 @@ export function renderCombatTracker(input) {
   if (panel) {
     if (state) {
       panel.hidden = false;
+      panel.classList.toggle('collapsed', trackerCollapsed);
       panel.innerHTML = buildTrackerHtml(state);
     } else {
       panel.hidden = true;
