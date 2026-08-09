@@ -284,7 +284,14 @@ describe('narrative combat AI', () => {
     assert.match(COMBAT_ADJUDICATOR_PROMPT, /Nothing mechanically meaningful is ever \{"ap":0,"bp":0\}/);
     assert.match(COMBAT_ADJUDICATOR_PROMPT, /A leveled spell REQUIRES a matching \{"type":"spendSlot"/);
     assert.match(COMBAT_ADJUDICATOR_PROMPT, /Cantrips NEVER spend a slot/);
-    assert.match(COMBAT_ADJUDICATOR_PROMPT, /\[DICE ROLL: d20 = X \+Y STAT \(score Z\) = TOTAL\]/);
+    assert.match(COMBAT_ADJUDICATOR_PROMPT, /PLAYER'S DICE ROLL block/);
+    assert.match(COMBAT_ADJUDICATOR_PROMPT, /never re-roll, never invent a second roll/);
+    assert.match(COMBAT_ADJUDICATOR_PROMPT, /ONLY when the player applied no stat modifier of their own/);
+    assert.match(COMBAT_ADJUDICATOR_PROMPT, /Total >= AC and the attack HITS/);
+    assert.match(COMBAT_ADJUDICATOR_PROMPT, /Total < AC and it MISSES: emit NO damage effect/);
+    assert.match(COMBAT_ADJUDICATOR_PROMPT, /natural 1 always misses/);
+    assert.match(COMBAT_ADJUDICATOR_PROMPT, /natural 20 always hits and doubles the damage dice/);
+    assert.match(COMBAT_ADJUDICATOR_PROMPT, /A miss reads like a miss/);
     assert.match(COMBAT_ADJUDICATOR_PROMPT, /Total 13-17: solid success/);
     assert.match(COMBAT_ADJUDICATOR_PROMPT, /Total 23\+: extraordinary/);
     assert.match(COMBAT_ADJUDICATOR_PROMPT, /UNCONSCIOUS and dying, never killed outright/);
@@ -377,6 +384,94 @@ describe('narrative combat AI', () => {
     assert.match(userMessage, /ACTING COMBATANT: Mara — 1 AP and 1 BP remaining/);
     assert.equal(calls[0].options.temperature, 0.4);
     assert.equal(calls[0].options.maxTokens, 3000);
+  });
+
+  test('adjudicateCombatAction gives the structured roll its own authoritative block', async () => {
+    const { calls, callFn } = stubCall(CLEAN_ADJUDICATION);
+
+    await adjudicateCombatAction({
+      state: startCombat(),
+      actingUnitId: 'pc:fighter',
+      actionText: 'I charge the goblin and swing my axe.',
+      roll: { natural: 14, modifier: 3, stat: 'DEX', score: 16, total: 17 },
+      config: aiConfig,
+      callFn
+    });
+
+    const userMessage = calls[0].messages[1].content;
+    assert.match(
+      userMessage,
+      /PLAYER'S DICE ROLL \(AUTHORITATIVE\): natural d20 = 14; modifier \+3 DEX \(score 16\); TOTAL = 17; outcome band: solid success\./
+    );
+    // The block sits after the declared action and before the closing instruction.
+    assert.ok(userMessage.indexOf('DECLARED ACTION') < userMessage.indexOf("PLAYER'S DICE ROLL"));
+    assert.ok(userMessage.indexOf("PLAYER'S DICE ROLL") < userMessage.indexOf('Adjudicate this action now'));
+  });
+
+  test('adjudicateCombatAction reports a natural 1 and a natural 20 by their band', async () => {
+    const fumble = stubCall(CLEAN_ADJUDICATION);
+    await adjudicateCombatAction({
+      state: startCombat(),
+      actingUnitId: 'pc:fighter',
+      actionText: 'I swing.',
+      roll: { natural: 1, modifier: 3, stat: 'STR', score: 16, total: 4 },
+      config: aiConfig,
+      callFn: fumble.callFn
+    });
+    assert.match(fumble.calls[0].messages[1].content, /TOTAL = 4; outcome band: critical failure\./);
+
+    const crit = stubCall(CLEAN_ADJUDICATION);
+    await adjudicateCombatAction({
+      state: startCombat(),
+      actingUnitId: 'pc:fighter',
+      actionText: 'I swing.',
+      roll: { natural: 20, modifier: 3, stat: 'STR', score: 16, total: 23 },
+      config: aiConfig,
+      callFn: crit.callFn
+    });
+    assert.match(crit.calls[0].messages[1].content, /TOTAL = 23; outcome band: critical success\./);
+  });
+
+  test('adjudicateCombatAction flags a roll with no stat modifier so attackBonus may apply', async () => {
+    const { calls, callFn } = stubCall(CLEAN_ADJUDICATION);
+    await adjudicateCombatAction({
+      state: startCombat(),
+      actingUnitId: 'pc:fighter',
+      actionText: 'I swing.',
+      roll: { natural: 12, modifier: 0, stat: null, score: null, total: 12 },
+      config: aiConfig,
+      callFn
+    });
+    assert.match(
+      calls[0].messages[1].content,
+      /PLAYER'S DICE ROLL \(AUTHORITATIVE\): natural d20 = 12; no stat modifier was chosen by the player; TOTAL = 12; outcome band: partial success\./
+    );
+  });
+
+  test('adjudicateCombatAction says plainly when no roll was submitted', async () => {
+    const { calls, callFn } = stubCall(CLEAN_ADJUDICATION);
+    await adjudicateCombatAction({
+      state: startCombat(),
+      actingUnitId: 'pc:fighter',
+      actionText: 'I look for a way around the goblin.',
+      config: aiConfig,
+      callFn
+    });
+    assert.match(calls[0].messages[1].content, /PLAYER'S DICE ROLL: none was submitted\./);
+  });
+
+  test('adjudicateCombatAction still reads a tag the caller failed to strip', async () => {
+    const { calls, callFn } = stubCall(CLEAN_ADJUDICATION);
+    await adjudicateCombatAction({
+      state: startCombat(),
+      actingUnitId: 'pc:fighter',
+      actionText: 'I charge. [DICE ROLL: d20 = 18 +3 STR (score 16) = 21]',
+      config: aiConfig,
+      callFn
+    });
+    const userMessage = calls[0].messages[1].content;
+    assert.match(userMessage, /natural d20 = 18; modifier \+3 STR \(score 16\); TOTAL = 21; outcome band: better than hoped\./);
+    assert.match(userMessage, /\[DICE ROLL: d20 = 18 \+3 STR \(score 16\) = 21\]/, 'the untouched action text still goes through verbatim');
   });
 
   test('adjudicateCombatAction unwraps a fenced JSON response', async () => {

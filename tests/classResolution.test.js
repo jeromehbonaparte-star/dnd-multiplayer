@@ -14,6 +14,7 @@ const {
   normalizeClassesMap,
   parseClasses,
   planClassRepair,
+  planSpellSlotBackfill,
   resolveClassAndSubclass,
   slotsToState,
   suggestClassNames
@@ -328,5 +329,110 @@ describe('planClassRepair', () => {
     const plan = planClassRepair({ id: 'c6', class: 'Wizard', classes: 'not json', class_choices: 'nope' });
     assert.equal(plan.changed, false);
     assert.equal(plan.className, 'Wizard');
+  });
+});
+
+// ============================================
+// Spell-slot backfill plan
+// ============================================
+//
+// The rule the startup migration and the ai-create enrichment both run. The
+// migration loop itself needs SQLite (which cannot load here), so the DECISION
+// is tested through this pure planner and the loop is a thin wrapper over it.
+
+describe('planSpellSlotBackfill', () => {
+  test('fills the level-appropriate table for a caster whose column is empty', () => {
+    const plan = planSpellSlotBackfill({
+      id: 'violeta', class: 'Sorcerer', classes: '{"Sorcerer":3}', level: 3, spell_slots: '{}'
+    });
+    assert.equal(plan.fill, true);
+    assert.equal(plan.reason, 'fill');
+    assert.deepEqual(plan.state, { 1: { max: 4, current: 4 }, 2: { max: 2, current: 2 } });
+    assert.equal(plan.json, JSON.stringify(plan.state));
+  });
+
+  test('every filled level comes back at full capacity — a fresh long rest', () => {
+    const plan = planSpellSlotBackfill({ class: 'Wizard', classes: '{"Wizard":9}', level: 9, spell_slots: null });
+    assert.equal(plan.fill, true);
+    for (const [level, slot] of Object.entries(plan.state)) {
+      assert.equal(slot.current, slot.max, `level ${level} must be restored to full`);
+    }
+  });
+
+  test('resolves a free-text multiclass key through the same ladder as level-up', () => {
+    const plan = planSpellSlotBackfill({
+      class: 'Wild Magic Sorcerer', classes: '{"Wild Magic Sorcerer":3}', level: 3, spell_slots: ''
+    });
+    assert.deepEqual(plan.classLevels, { Sorcerer: 3 });
+    assert.deepEqual(plan.state, { 1: { max: 4, current: 4 }, 2: { max: 2, current: 2 } });
+  });
+
+  test('falls back to the class column when the classes map is unusable', () => {
+    const plan = planSpellSlotBackfill({ class: 'Bard', classes: '{}', level: 2, spell_slots: '{}' });
+    assert.deepEqual(plan.classLevels, { Bard: 2 });
+    assert.deepEqual(plan.state, { 1: { max: 3, current: 3 } });
+  });
+
+  test('uses the multiclass caster level, and pact magic for a pure Warlock', () => {
+    const mixed = planSpellSlotBackfill({
+      class: 'Fighter', classes: '{"Fighter":3,"Wizard":2}', level: 5, spell_slots: '{}'
+    });
+    assert.equal(mixed.casterLevel, 2);
+    assert.deepEqual(mixed.state, { 1: { max: 3, current: 3 } });
+
+    const warlock = planSpellSlotBackfill({ class: 'Warlock', classes: '{"Warlock":5}', level: 5, spell_slots: '{}' });
+    assert.equal(warlock.casterLevel, 0, 'pact magic is not part of the multiclass caster level');
+    assert.deepEqual(warlock.state, { 3: { max: 2, current: 2 } });
+  });
+
+  test('NEVER overwrites a table that already has entries', () => {
+    for (const stored of [
+      '{"1":{"max":4,"current":1}}',
+      '{"1":{"max":0,"current":0}}',
+      { 2: { max: 3, current: 3 } }
+    ]) {
+      const plan = planSpellSlotBackfill({ class: 'Sorcerer', classes: '{"Sorcerer":3}', level: 3, spell_slots: stored });
+      assert.equal(plan.fill, false);
+      assert.equal(plan.reason, 'has-slots');
+      assert.equal(plan.json, null);
+    }
+  });
+
+  test('a second run over a repaired row is a no-op', () => {
+    const row = { class: 'Sorcerer', classes: '{"Sorcerer":3}', level: 3, spell_slots: '{}' };
+    const first = planSpellSlotBackfill(row);
+    assert.equal(first.fill, true);
+    const second = planSpellSlotBackfill({ ...row, spell_slots: first.json });
+    assert.equal(second.fill, false);
+    assert.equal(second.reason, 'has-slots');
+  });
+
+  test('treats every silently-degrading stored shape as empty', () => {
+    for (const stored of [undefined, null, '', '{}', 'not json', '[]', '[{"max":2}]', '{"1st":{"max":2}}', 7]) {
+      const plan = planSpellSlotBackfill({ class: 'Cleric', classes: '{"Cleric":1}', level: 1, spell_slots: stored });
+      assert.equal(plan.fill, true, `stored ${JSON.stringify(stored)} should count as an empty table`);
+      assert.deepEqual(plan.state, { 1: { max: 2, current: 2 } });
+    }
+  });
+
+  test('skips non-casters and rows whose class cannot be resolved', () => {
+    const fighter = planSpellSlotBackfill({ class: 'Fighter', classes: '{"Fighter":5}', level: 5, spell_slots: '{}' });
+    assert.equal(fighter.fill, false);
+    assert.equal(fighter.reason, 'non-caster');
+
+    const paladin1 = planSpellSlotBackfill({ class: 'Paladin', classes: '{"Paladin":1}', level: 1, spell_slots: '{}' });
+    assert.equal(paladin1.fill, false, 'a half caster has no slots at level 1');
+    assert.equal(paladin1.reason, 'non-caster');
+
+    const junk = planSpellSlotBackfill({ class: 'Frost Mage', classes: '{"Frost Mage":3}', level: 3, spell_slots: '{}' });
+    assert.equal(junk.fill, false);
+    assert.equal(junk.reason, 'unresolved-class');
+    assert.deepEqual(junk.unresolved, ['Frost Mage']);
+
+    const nameless = planSpellSlotBackfill({ class: '', classes: '{}', level: 3, spell_slots: '{}' });
+    assert.equal(nameless.fill, false);
+    assert.equal(nameless.reason, 'no-class');
+
+    assert.equal(planSpellSlotBackfill().fill, false);
   });
 });

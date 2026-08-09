@@ -455,6 +455,82 @@ function planClassRepair(row = {}) {
   return result;
 }
 
+/**
+ * How many slot LEVELS a stored `spell_slots` column actually carries.
+ * Anything that is not a numeric key pointing at an object is not a slot level:
+ * `'{}'`, `null`, unparseable text, an array, and `{"1st":{...}}`-style keys all
+ * count as zero, which is exactly the set of shapes that silently degrade to an
+ * empty table everywhere else in the app.
+ */
+function countStoredSlotLevels(raw) {
+  const parsed = safeParseObject(raw);
+  return Object.keys(parsed).filter(key =>
+    /^\d+$/.test(key) && parsed[key] && typeof parsed[key] === 'object' && !Array.isArray(parsed[key])
+  ).length;
+}
+
+function clampClassLevel(value) {
+  return Math.min(20, Math.max(1, Math.floor(Number(value) || 0)));
+}
+
+/**
+ * Pure "should this row's spell-slot table be filled in, and with what?" plan.
+ * Shared by the ai-create enrichment path and the startup backfill migration so
+ * the two can never diverge (same contract as `planClassRepair`; nothing here
+ * touches the DB). `row` needs { class, classes, level, spell_slots }.
+ *
+ * `fill` is true only when ALL of these hold:
+ *   - the stored table carries no slot level at all (see countStoredSlotLevels);
+ *     a table that already has entries is NEVER overwritten
+ *   - every class string resolves through the ladder — an unresolvable row is
+ *     reported and skipped, never guessed at
+ *   - the resolved classes actually grant slots at their levels
+ *
+ * The slot source is picked exactly the way /levelup picks it: the multiclass
+ * caster table when any full/half caster is present, otherwise the highest
+ * single class's own table (which is what carries pact magic for a Warlock).
+ * Shaping goes through `computeSlotState` with an empty stored state, so every
+ * level comes back with `current === max` — a fresh long rest.
+ *
+ * @param {Object} row - stored `characters` row (or the fields listed above)
+ * @returns {{fill: boolean, state: Object|null, json: string|null, reason: string,
+ *            classLevels: Object, casterLevel: number, unresolved: string[]}}
+ */
+function planSpellSlotBackfill(row = {}) {
+  const result = { fill: false, state: null, json: null, reason: 'has-slots', classLevels: {}, casterLevel: 0, unresolved: [] };
+  if (countStoredSlotLevels(row.spell_slots) > 0) return result;
+
+  const normalized = normalizeClassesMap(row.classes);
+  if (normalized.unresolved.length) {
+    return { ...result, reason: 'unresolved-class', unresolved: normalized.unresolved };
+  }
+
+  const classLevels = {};
+  for (const [name, level] of Object.entries(normalized.classes)) {
+    if (Number(level) >= 1) classLevels[name] = clampClassLevel(level);
+  }
+  if (!Object.keys(classLevels).length) {
+    // No usable `classes` map: fall back to the primary class column at the
+    // character's total level, the same fallback parseClasses() makes.
+    const rawClass = typeof row.class === 'string' ? row.class.trim() : '';
+    if (!rawClass) return { ...result, reason: 'no-class' };
+    const resolved = resolveClassAndSubclass(rawClass);
+    if (!resolved.className) return { ...result, reason: 'unresolved-class', unresolved: [rawClass] };
+    classLevels[resolved.className] = clampClassLevel(row.level);
+  }
+
+  const casterLevel = calculateMulticlassSpellcasterLevel(classLevels);
+  const primary = Object.entries(classLevels).sort((a, b) => b[1] - a[1])[0];
+  const slots = casterLevel > 0
+    ? (FULL_CASTER_SLOTS[Math.min(20, casterLevel)] || [])
+    : getSpellSlots(primary[0], primary[1]);
+  const state = slotsToState(slots, {});
+  if (!Object.keys(state).length) {
+    return { ...result, reason: 'non-caster', classLevels, casterLevel };
+  }
+  return { fill: true, state, json: JSON.stringify(state), reason: 'fill', classLevels, casterLevel, unresolved: [] };
+}
+
 function getProgression(className, level) {
   const name = getClassName(className);
   if (!name || level < 1 || level > 20) return null;
@@ -728,6 +804,7 @@ module.exports = {
   normalizeClassesMap,
   parseClasses,
   planClassRepair,
+  planSpellSlotBackfill,
   resolveClassAndSubclass,
   slotsToState,
   suggestClassNames,

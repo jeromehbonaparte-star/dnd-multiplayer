@@ -41,6 +41,107 @@ function normalizeCombatAction(raw) {
   return { action };
 }
 
+/* ------------------------------------------------------------------ *
+ * Player dice rolls
+ *
+ * The client appends the player's own d20 to the action text as
+ * `[DICE ROLL: d20 = 14 +3 DEX (score 16) = 17]`. Left buried in freeform prose
+ * the number was effectively ignored — nothing echoed it, nothing compared it to
+ * an AC. These helpers lift it out into structured data the route can log, echo
+ * to every client and hand to the adjudicator as its own block.
+ * ------------------------------------------------------------------ */
+
+/** Every `[DICE ROLL: ...]` tag in a blob; the LAST one is the live roll. */
+const DICE_TAG_PATTERN = /\[\s*dice\s+roll\s*:[^\]]*\]/gi;
+/** `d20 = N [+M STAT (score S)] [= TOTAL]`, whitespace already collapsed. */
+const DICE_BODY_PATTERN = /^d\s?20\s?=\s?(\d{1,3})(?:\s?([+-]\s?\d{1,3})\s?([a-z]{2,16})?\s?(?:\(\s?score\s?(\d{1,3})\s?\))?)?(?:\s?=\s?(-?\d{1,4}))?$/i;
+
+function toInteger(value, fallback = null) {
+  const text = String(value == null ? '' : value).replace(/\s+/g, '');
+  if (!text) return fallback;
+  const number = Number(text);
+  return Number.isFinite(number) ? Math.trunc(number) : fallback;
+}
+
+function clampInteger(value, minimum, maximum, fallback = null) {
+  const number = toInteger(value, null);
+  if (number == null) return fallback;
+  return Math.max(minimum, Math.min(maximum, number));
+}
+
+/**
+ * Pulls the player's roll out of their action text.
+ *
+ * Accepts the full tag and the bare `[DICE ROLL: d20 = 14]` form, is
+ * case-insensitive, tolerates stray whitespace and negative modifiers, and
+ * returns null for anything it cannot read rather than guessing a number.
+ *
+ * @param {string} text - action text that may carry one or more tags
+ * @returns {{natural:number, modifier:number, stat:(string|null), score:(number|null), total:number, raw:string}|null}
+ */
+function parseDiceRollTag(text) {
+  const source = String(text == null ? '' : text);
+  if (!source) return null;
+  const tags = source.match(DICE_TAG_PATTERN);
+  if (!tags || !tags.length) return null;
+
+  const raw = tags[tags.length - 1];
+  const body = raw
+    .replace(/^\[\s*dice\s+roll\s*:/i, '')
+    .replace(/\]\s*$/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const parts = body.match(DICE_BODY_PATTERN);
+  if (!parts) return null;
+
+  const natural = clampInteger(parts[1], 1, 20);
+  if (natural == null) return null;
+  const modifier = parts[2] == null ? 0 : clampInteger(parts[2], -99, 99, 0);
+  const stat = parts[3] ? parts[3].toUpperCase() : null;
+  const score = parts[4] == null ? null : clampInteger(parts[4], 0, 99);
+  const total = parts[5] == null ? natural + modifier : clampInteger(parts[5], -99, 999, natural + modifier);
+
+  return { natural, modifier, stat, score, total, raw };
+}
+
+/** The action text with every `[DICE ROLL: ...]` tag removed and spacing tidied. */
+function stripDiceRollTag(text) {
+  return String(text == null ? '' : text)
+    .replace(DICE_TAG_PATTERN, ' ')
+    .replace(/[^\S\n]+/g, ' ')
+    .replace(/ ?\n ?/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/** Band label for a d20 result — one table, owned by the engine. */
+function describeRollBand(total, natural) {
+  return combatService.describeRollBand(total, natural);
+}
+
+/**
+ * Integer-clamped, echo-safe copy of a roll for a socket payload or a history
+ * entry. Returns null when there is no usable d20 face to report. The `raw` tag
+ * is deliberately dropped and the band label added, so a client can render the
+ * roll without re-deriving anything.
+ */
+function normalizePlayerRoll(roll) {
+  if (!roll || typeof roll !== 'object' || Array.isArray(roll)) return null;
+  const natural = clampInteger(roll.natural, 1, 20);
+  if (natural == null) return null;
+  const modifier = clampInteger(roll.modifier, -99, 99, 0);
+  const statText = roll.stat == null ? '' : String(roll.stat).replace(/[^A-Za-z]/g, '').slice(0, 16).toUpperCase();
+  const total = clampInteger(roll.total, -99, 999, natural + modifier);
+  return {
+    natural,
+    modifier,
+    stat: statText || null,
+    score: clampInteger(roll.score, 0, 99),
+    total,
+    band: describeRollBand(total, natural)
+  };
+}
+
 /** @returns {{roll:number}|{error:string}} — the d20 the player physically rolled. */
 function normalizeInitiativeRoll(raw) {
   const value = Number(raw);
@@ -119,6 +220,10 @@ function unitsNeedingHydration(state) {
  * spell-slot object at all (writing `{}` there wiped the sheet's slots). Only
  * the columns the unit actually carries appear in the statement.
  *
+ * An empty slot table is treated as that same sentinel: `{}` is truthy, so it
+ * used to slip through and stamp `spell_slots = '{}'` over the sheet every turn.
+ * Combat never needs to CLEAR a character's slot table, only to spend from it.
+ *
  * @param {Array} writebacks
  * @returns {Array<{characterId:string, sql:string, args:Array}>}
  */
@@ -129,7 +234,8 @@ function buildCharacterWritebackStatements(writebacks) {
     .map(entry => {
       const assignments = ['hp = ?'];
       const args = [Math.max(0, Math.floor(Number(entry.hp) || 0))];
-      if (entry.spellSlots && typeof entry.spellSlots === 'object' && !Array.isArray(entry.spellSlots)) {
+      if (entry.spellSlots && typeof entry.spellSlots === 'object'
+        && !Array.isArray(entry.spellSlots) && Object.keys(entry.spellSlots).length) {
         assignments.push('spell_slots = ?');
         args.push(JSON.stringify(entry.spellSlots));
       }
@@ -227,14 +333,20 @@ function buildCombatUpdatedPayload({ sessionId, combatId, state, events, automat
   };
 }
 
-/** `combat_turn_narration` payload — the live story-stream append. */
-function buildNarrationPayload({ sessionId, unitName, narration, round, warnings } = {}) {
+/**
+ * `combat_turn_narration` payload — the live story-stream append. `roll` is the
+ * player's own d20 echoed back so the table can see the number that drove the
+ * beat; it is omitted entirely when no roll was submitted (enemy turns).
+ */
+function buildNarrationPayload({ sessionId, unitName, narration, round, warnings, roll } = {}) {
+  const normalizedRoll = normalizePlayerRoll(roll);
   return {
     sessionId,
     unitName: unitName ? String(unitName).slice(0, 84) : '',
     narration: String(narration == null ? '' : narration).slice(0, COMBAT_NARRATION_MAX_CHARS),
     round: Math.max(1, Math.floor(Number(round) || 1)),
-    warnings: Array.isArray(warnings) ? warnings.filter(Boolean).map(String) : []
+    warnings: Array.isArray(warnings) ? warnings.filter(Boolean).map(String) : [],
+    ...(normalizedRoll ? { roll: normalizedRoll } : {})
   };
 }
 
@@ -243,14 +355,19 @@ function buildNarrationPayload({ sessionId, unitName, narration, round, warnings
  * `role`, so `buildConversationMessages` skips it (the narrator learns the
  * outcome from the combat-conclusion summary instead) and the compaction token
  * estimate is unaffected.
+ *
+ * `roll` rides along when the beat came from a player's own d20, so a replayed
+ * history still shows the number behind the outcome; it is omitted otherwise.
  */
-function buildCombatHistoryEntry({ content, unitName, round } = {}) {
+function buildCombatHistoryEntry({ content, unitName, round, roll } = {}) {
+  const normalizedRoll = normalizePlayerRoll(roll);
   return {
     type: 'combat_turn',
     content: String(content == null ? '' : content).slice(0, COMBAT_NARRATION_MAX_CHARS),
     unitName: unitName ? String(unitName).slice(0, 84) : '',
     round: Math.max(1, Math.floor(Number(round) || 1)),
-    ts: new Date().toISOString()
+    ts: new Date().toISOString(),
+    ...(normalizedRoll ? { roll: normalizedRoll } : {})
   };
 }
 
@@ -359,17 +476,21 @@ module.exports = {
   buildCombatUpdatedPayload,
   buildEnemyFallbackAdjudication,
   buildNarrationPayload,
+  describeRollBand,
   forceTurnEnd,
   hydrateMigratedUnit,
   nextTurnActionCount,
   normalizeCombatAction,
   normalizeInitiativeRoll,
+  normalizePlayerRoll,
+  parseDiceRollTag,
   parseStoredInventory,
   passTurn,
   publicCombatState,
   publicCombatUnit,
   sheetContext,
   shouldForceTurnEnd,
+  stripDiceRollTag,
   turnActionCount,
   unitsNeedingHydration
 };

@@ -242,10 +242,10 @@ export function initSocket() {
 
   // One resolved combat beat — appended live to the story stream.
   socket.off('combat_turn_narration');
-  socket.on('combat_turn_narration', ({ sessionId, unitName, narration, round, warnings }) => {
+  socket.on('combat_turn_narration', ({ sessionId, unitName, narration, round, roll, warnings }) => {
     const currentSession = getState('currentSession');
     if (currentSession && currentSession.id === sessionId) {
-      appendCombatBeat({ unitName, narration, round, warnings });
+      appendCombatBeat({ unitName, narration, round, roll, warnings });
     }
   });
 

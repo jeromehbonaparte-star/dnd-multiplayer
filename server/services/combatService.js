@@ -12,6 +12,11 @@
  * `collectCharacterWriteback` can sync it back to the database every turn.
  */
 
+// The only dependency this module takes: a pure console logger, no DB. Party
+// units are built from character rows here, and a caster whose stored slot
+// table degrades to nothing has to be visible BEFORE a spell fizzles mid-fight.
+const logger = require('../lib/logger');
+
 const COMBAT_SCHEMA_VERSION = 2;
 const MAX_COMBATANTS_PER_SIDE = 12;
 const MAX_LOG_ENTRIES = 80;
@@ -338,10 +343,38 @@ function normalizeAutoCombatSetup(value) {
   return { name, environment, enemies };
 }
 
+/**
+ * A character who knows spells but resolves to zero slot levels is broken, not
+ * exotic: `parseSpellSlots` degrades bad JSON, an array and a missing column all
+ * to `{}` without a word, `buildPowers` then advertises every leveled spell at
+ * the `lowestAvailableSlot` fallback of 1, and the adjudicator's `spendSlot
+ * level 1` is rejected in front of the table. Say so at load time instead.
+ * Logging only — no DB read, nothing added to the unit.
+ */
+function warnOnEmptySlotTable(character, spellSlots) {
+  const spells = splitNames(character.spells);
+  if (!spells.length || Object.keys(spellSlots).length) return;
+  const leveled = spells.filter(name => !CANTRIPS.has(name.toLowerCase()));
+  logger.warn(
+    `${character.character_name || 'A party member'} enters combat with spells but no spell slots; ` +
+    'leveled casting will be rejected until the sheet is repaired.',
+    {
+      characterId: character.id,
+      class: character.class,
+      level: character.level,
+      storedSpellSlots: typeof character.spell_slots === 'string'
+        ? character.spell_slots.slice(0, 120)
+        : JSON.stringify(character.spell_slots || null),
+      leveledSpells: leveled.slice(0, 10)
+    }
+  );
+}
+
 function partyUnit(character) {
   const profile = classProfile(character);
   const spellSlots = parseSpellSlots(character.spell_slots);
   const hp = Math.max(0, Number(character.hp) || 0);
+  warnOnEmptySlotTable(character, spellSlots);
   const unit = {
     id: `pc:${character.id}`,
     sourceCharacterId: character.id,
@@ -913,8 +946,14 @@ function applyAdjudication(state, actingUnitId, adjudication) {
     draft.version = (Number(draft.version) || 0) + 1;
     checkOutcome(draft);
 
-    const spent = actor.ap <= 0 && actor.bp <= 0;
-    const done = parsed.turnEnds || spent || actor.side === 'enemy' || !isActionable(actor);
+    // Spending the action point ENDS the turn, even with bonus points left over.
+    // Requiring both pools to be empty deadlocked a live fight: the adjudicator
+    // returned turnEnds:false for a player sitting on 0 AP and 1 BP, the turn
+    // never advanced, and the enemy turns (which only run when a route advances
+    // the turn) never came. A player who wants their bonus action declares it in
+    // the same message and the adjudicator charges ap 1 + bp 1. A free (0-cost)
+    // action still leaves the turn open, so talk and glances cost nothing.
+    const done = parsed.turnEnds || actor.ap <= 0 || actor.side === 'enemy' || !isActionable(actor);
     if (!draft.outcome && done) {
       advanceToNextActor(draft);
       turnAdvanced = true;
@@ -928,6 +967,64 @@ function applyAdjudication(state, actingUnitId, adjudication) {
 }
 
 /* ------------------------------------------------------------------ *
+ * Player dice rolls
+ * ------------------------------------------------------------------ */
+
+/**
+ * Outcome band for a d20 result, in the exact words the combat adjudicator
+ * prompt is written against. A natural 1 or 20 overrides the total.
+ *
+ * The engine owns this table because the roll log line needs it; the pure
+ * integration layer re-exports it rather than keeping a second copy that could
+ * drift away from the prompt.
+ */
+function describeRollBand(total, natural) {
+  const face = Math.floor(Number(natural) || 0);
+  if (face === 1) return 'critical failure';
+  if (face === 20) return 'critical success';
+  const value = Math.floor(Number(total) || 0);
+  if (value <= 7) return 'failure';
+  if (value <= 12) return 'partial success';
+  if (value <= 17) return 'solid success';
+  if (value <= 22) return 'better than hoped';
+  return 'extraordinary';
+}
+
+/**
+ * Logs the d20 a player physically rolled, e.g.
+ * `Violeta rolls 14 +3 DEX = 17 (solid success).`
+ *
+ * Players reported their rolls being ignored: the number was buried in freeform
+ * action text and nothing ever echoed it. Writing it into the shared log puts it
+ * in front of the table AND inside the recent-log slice the adjudicator reads,
+ * so the roll is on the record before anything is resolved. Call it BEFORE
+ * adjudication. Does not bump `version` — the adjudication that follows does.
+ *
+ * @param {Object} state - NTC combat state
+ * @param {string} unitId - the rolling unit
+ * @param {Object|null} roll - `{natural, modifier, stat, total}` (a parsed tag)
+ * @returns {Object|null} the appended log entry, or null when nothing was logged
+ */
+function logPlayerRoll(state, unitId, roll) {
+  if (!state || !Array.isArray(state.log) || !roll || typeof roll !== 'object') return null;
+  const unit = findUnit(state, unitId);
+  if (!unit) return null;
+
+  const natural = clamp(Math.floor(Number(roll.natural) || 0), 1, 20);
+  const modifier = clamp(Math.floor(Number(roll.modifier) || 0), -99, 99);
+  const total = Number.isFinite(Number(roll.total)) ? Math.floor(Number(roll.total)) : natural + modifier;
+  const stat = roll.stat ? sanitizeText(roll.stat, 16).toUpperCase() : '';
+
+  const modifierText = modifier === 0 && !stat
+    ? ''
+    : ` ${modifier < 0 ? '-' : '+'}${Math.abs(modifier)}${stat ? ` ${stat}` : ''} = ${total}`;
+  const text = `${unit.name} rolls ${natural}${modifierText} (${describeRollBand(total, natural)}).`;
+
+  appendLog(state, { type: 'roll', text, unitId: unit.id });
+  return state.log[state.log.length - 1] || null;
+}
+
+/* ------------------------------------------------------------------ *
  * Character-sheet writeback
  * ------------------------------------------------------------------ */
 
@@ -938,6 +1035,12 @@ function applyAdjudication(state, actingUnitId, adjudication) {
  * overwrite the stored column in that case. `inventory: null` covers migrated
  * schema-1 units; `spellSlots: null` covers a unit with no spell-slot object at
  * all (coercing that to `{}` used to blank the sheet's stored slots).
+ *
+ * An EMPTY slot table reports `null` for the same reason. It is truthy, so it
+ * used to pass the caller's "did this unit carry slots?" check and stamp
+ * `spell_slots = '{}'` back over the sheet on every single turn action — which
+ * re-broke a sheet the moment after a backfill repaired it. Combat only ever
+ * spends slots, so it has nothing to say about a unit that has none.
  */
 function collectCharacterWriteback(state) {
   if (!state || !Array.isArray(state.units)) return [];
@@ -946,7 +1049,8 @@ function collectCharacterWriteback(state) {
     .map(unit => ({
       characterId: unit.sourceCharacterId,
       hp: Math.max(0, Number(unit.hp) || 0),
-      spellSlots: unit.spellSlots && typeof unit.spellSlots === 'object' && !Array.isArray(unit.spellSlots)
+      spellSlots: unit.spellSlots && typeof unit.spellSlots === 'object'
+        && !Array.isArray(unit.spellSlots) && Object.keys(unit.spellSlots).length
         ? clone(unit.spellSlots)
         : null,
       inventory: Array.isArray(unit.inventory) ? clone(unit.inventory) : null
@@ -1099,6 +1203,7 @@ module.exports = {
   collectCharacterWriteback,
   createCombat,
   currentUnit,
+  describeRollBand,
   deserialize,
   findUnit,
   fromTacticalState,
@@ -1106,6 +1211,7 @@ module.exports = {
   getEnemyTurnContext,
   isActionable,
   isPlayerTurn,
+  logPlayerRoll,
   normalizeAutoCombatSetup,
   rollInitiative,
   rollRemainingInitiative,

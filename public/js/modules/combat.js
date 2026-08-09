@@ -19,6 +19,7 @@ const OUTCOME_MESSAGES = {
 
 const MAX_PIPS = 8;
 const SWORDS = '⚔';
+const DIE = '🎲';
 
 // Phones open the tracker collapsed (chip strip only) so the story stream keeps
 // the screen. `renderCombatTracker` rebuilds `panel.innerHTML` on every socket
@@ -79,7 +80,7 @@ function findUnit(state, unitId) {
  * Action-bar mode for the currently selected character.
  * @returns {{active:boolean, mode:'story'|'initiative'|'turn'|'waiting', banner:string,
  *            characterId?:string, unit?:Object, currentUnit?:Object, version?:number,
- *            phase?:string, round?:number}}
+ *            phase?:string, round?:number, actionSpent?:boolean}}
  */
 export function getCombatActionMode() {
   const state = getCombatState();
@@ -115,10 +116,19 @@ export function getCombatActionMode() {
   }
 
   if (unit && controls && state.currentUnitId === unit.id && !unit.down) {
+    // The server ends a turn the moment AP hits zero, so a leftover bonus point is
+    // not something to wait around for. Say it out loud: a player sitting on BP
+    // while the order stalls is exactly how the fight froze on mobile.
+    const ap = Number(unit.ap);
+    const actionSpent = Number.isFinite(ap) && ap <= 0;
+    const points = `AP ${unit.ap}/${unit.apMax} · BP ${unit.bp}/${unit.bpMax}`;
     return {
       ...base,
       mode: 'turn',
-      banner: `Your turn — Round ${base.round} — AP ${unit.ap}/${unit.apMax} · BP ${unit.bp}/${unit.bpMax}`
+      actionSpent,
+      banner: actionSpent
+        ? `Your turn — Round ${base.round} — ${points} — action spent; End Turn when you're done.`
+        : `Your turn — Round ${base.round} — ${points}`
     };
   }
 
@@ -141,6 +151,15 @@ function safeImageUrl(url) {
   if (!value || /["'<>\\\s]/.test(value)) return '';
   if (/^\/[^/]/.test(value)) return value;
   return /^https?:\/\//i.test(value) ? value : '';
+}
+
+/**
+ * `escapeHtml` round-trips through textContent → innerHTML, which leaves quotes
+ * untouched — fine inside an element, not fine inside a "..." attribute. Unit
+ * names are player-authored, so attribute values get the extra pass.
+ */
+function escapeAttr(value) {
+  return escapeHtml(String(value ?? '')).replace(/"/g, '&quot;');
 }
 
 function initials(name) {
@@ -226,7 +245,13 @@ function renderGmControls(state) {
   const rollRemaining = state.phase === 'initiative'
     ? '<button type="button" onclick="rollRemainingInitiative()">Roll Remaining</button>'
     : '';
-  return `<div class="combat-gm-actions">${rollRemaining}<button type="button" class="combat-end-btn" onclick="endEncounter()">End Encounter</button></div>`;
+  // The unstick button: a turn nobody can (or will) end used to freeze the whole
+  // order, and the enemies then never move. Only meaningful once turns are running.
+  const acting = state.phase === 'active' ? findUnit(state, state.currentUnitId) : null;
+  const skipTurn = state.phase === 'active'
+    ? `<button type="button" class="combat-skip-btn" onclick="skipCombatTurn()" title="${escapeAttr(acting ? `Skip ${acting.name}'s turn` : 'Skip the current turn')}">Skip Turn</button>`
+    : '';
+  return `<div class="combat-gm-actions">${rollRemaining}${skipTurn}<button type="button" class="combat-end-btn" onclick="endEncounter()">End Encounter</button></div>`;
 }
 
 /** Unit ids that still owe a d20 — empty outside the initiative phase. */
@@ -388,7 +413,32 @@ function stageControls() {
     <button class="story-expand-btn" onclick="toggleStoryExpand(this)" aria-expanded="${expanded ? 'true' : 'false'}" title="${expanded ? 'Restore the compact story window' : 'Expand the story window'}">${expanded ? 'Restore' : 'Expand'}</button>`;
 }
 
-function combatBeatHtml({ unitName, content, round, warnings = [], globalIndex = null, live = false, active = false }) {
+/**
+ * The d20 the player rolled travels to the server inside the action text, so
+ * without this chip a resolved beat gives no sign the roll was used at all —
+ * which is exactly what "it's not taking our dice into consideration" looked
+ * like at the table. Reads `🎲 14 +3 DEX = 17 · solid success`; a bare roll with
+ * no stat behind it drops the math and reads `🎲 14`.
+ * @param {{natural:number, modifier:number, stat:?string, score:?number, total:number, band:string}|null} roll
+ */
+function combatRollChipHtml(roll) {
+  if (!roll || typeof roll !== 'object') return '';
+  const natural = Number(roll.natural);
+  if (!Number.isFinite(natural)) return '';
+
+  let text = `${DIE} ${natural}`;
+  if (roll.stat) {
+    const modifier = Number(roll.modifier) || 0;
+    text += ` ${modifier >= 0 ? '+' : ''}${modifier} ${roll.stat}`;
+    const total = Number(roll.total);
+    if (Number.isFinite(total)) text += ` = ${total}`;
+  }
+  if (roll.band) text += ` · ${roll.band}`;
+
+  return `<span class="combat-beat-roll" title="The d20 this beat was resolved with">${escapeHtml(text)}</span>`;
+}
+
+function combatBeatHtml({ unitName, content, round, roll = null, warnings = [], globalIndex = null, live = false, active = false }) {
   const heading = unitName
     ? `${SWORDS} ${escapeHtml(unitName)} — Round ${escapeHtml(String(round))}`
     : `${SWORDS} Combat — Round ${escapeHtml(String(round))}`;
@@ -405,6 +455,7 @@ function combatBeatHtml({ unitName, content, round, warnings = [], globalIndex =
     <div class="${classes.join(' ')}"${globalIndex == null ? '' : ` data-index="${globalIndex}"`}>
       <div class="combat-beat-header">
         <span class="combat-beat-title">${heading}</span>
+        ${combatRollChipHtml(roll)}
         <div class="combat-beat-controls">${active ? stageControls() : ''}${deleteBtn}</div>
       </div>
       <div class="content">${formatContent(content)}</div>
@@ -418,13 +469,14 @@ export function renderCombatHistoryEntry(entry, globalIndex, active = false) {
     unitName: entry?.unitName || '',
     content: entry?.content || '',
     round: Number(entry?.round) || 1,
+    roll: entry?.roll || null,
     globalIndex,
     active
   });
 }
 
 /** Live append from the `combat_turn_narration` socket event. */
-export function appendCombatBeat({ unitName, narration, round, warnings } = {}) {
+export function appendCombatBeat({ unitName, narration, round, roll, warnings } = {}) {
   const historyContainer = document.getElementById('story-history');
   if (!historyContainer) return;
   // The newest beat takes the stage, exactly like a fresh narration does.
@@ -434,6 +486,7 @@ export function appendCombatBeat({ unitName, narration, round, warnings } = {}) 
     unitName: unitName || '',
     content: narration || '',
     round: Number(round) || 1,
+    roll: roll || null,
     warnings: Array.isArray(warnings) ? warnings : [],
     live: true,
     active: true
@@ -543,6 +596,37 @@ export async function rollRemainingInitiative() {
     showNotification(result.rolled ? `Rolled initiative for ${result.rolled} combatant(s).` : 'Everyone had already rolled.');
   } catch (error) {
     handleCombatApiError(error, 'Unable to roll the remaining initiative.');
+  }
+}
+
+/**
+ * Force-end whoever is acting, player or enemy. The GM's release valve for a
+ * stalled order: nothing else in the UI can move a turn on behalf of someone
+ * who has walked away (or is holding a bonus point they will never spend).
+ */
+export async function skipCombatTurn() {
+  const session = getState('currentSession');
+  const state = getCombatState();
+  if (!session || !state) return;
+  const acting = findUnit(state, state.currentUnitId);
+  const name = acting?.name || 'this combatant';
+  if (!window.confirm(`Skip ${name}'s turn? Their turn ends immediately and play moves on.`)) return;
+
+  const button = document.querySelector('.combat-gm-actions .combat-skip-btn');
+  if (button) button.disabled = true;
+  try {
+    const result = await api(`/api/sessions/${session.id}/combat/skip-turn`, 'POST', {
+      ...(Number.isInteger(state.version) ? { version: state.version } : {})
+    });
+    renderCombatTracker(result.combat || null);
+    showNotification(`${name}'s turn was skipped.`);
+  } catch (error) {
+    handleCombatApiError(error, 'Unable to skip the turn.');
+  } finally {
+    // Both paths above re-render the tracker, so the element held above is gone;
+    // re-query to release whatever button the fresh markup put there.
+    const current = document.querySelector('.combat-gm-actions .combat-skip-btn');
+    if (current) current.disabled = false;
   }
 }
 

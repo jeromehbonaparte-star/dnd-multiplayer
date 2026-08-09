@@ -25,6 +25,7 @@ const {
   normalizeClassesMap,
   parseClasses,
   planClassRepair,
+  planSpellSlotBackfill,
   resolveClassAndSubclass,
   suggestClassNames
 } = require('../services/classProgressionService');
@@ -190,6 +191,27 @@ function createCharacterRoutes(deps) {
     }
   }
 
+  /**
+   * Normalize an AI-authored `spell_slots` value onto an update statement.
+   * Same boundary the player-facing quick-update enforces; the AI path drops
+   * instead of rejecting, because a bad slot blob must never fail the whole
+   * edit. Writing model output verbatim used to let an array or "1st"-style
+   * keys reach the column and collapse the character's slots to an empty table.
+   */
+  function applyAiSpellSlots(editData, character, updates, values) {
+    if (editData.spell_slots === undefined || editData.spell_slots === null) return;
+    const coerced = coerceSpellSlotsForWrite(editData.spell_slots);
+    if (!coerced.ok || coerced.droppedEveryKey) {
+      logger.warn('AI editor emitted an unusable spell_slots value; dropping field', {
+        characterId: character.id,
+        reason: coerced.ok ? 'no recognizable slot levels' : coerced.error
+      });
+      return;
+    }
+    updates.push('spell_slots = ?');
+    values.push(coerced.json);
+  }
+
   // XP thresholds for each level (D&D 5e)
   const XP_THRESHOLDS = [0, 300, 900, 2700, 6500, 14000, 23000, 34000, 48000, 64000, 85000, 100000, 120000, 140000, 165000, 195000, 225000, 265000, 305000, 355000];
 
@@ -214,6 +236,50 @@ function createCharacterRoutes(deps) {
       };
     }
     return normalized;
+  }
+
+  /**
+   * Single spell-slot write boundary. Accepts the stored JSON string or a plain
+   * object and returns the JSON to persist; rejects the shapes that silently
+   * degrade to an empty table (arrays, non-objects, unparseable text). Callers
+   * pick the failure mode: the player-facing quick-update answers 400, the
+   * AI-authored editor drops the field with a WARN the way it drops an
+   * unresolvable class.
+   *
+   * `droppedEveryKey` flags input that parsed fine but whose keys were ALL
+   * thrown away by normalizeSpellSlots ("1st"/"level 1" style keys). That is a
+   * silent sheet-wipe rather than an edit, so the AI paths refuse it; an
+   * explicit player write keeps its historical behaviour.
+   *
+   * @returns {{ok: true, json: string, droppedEveryKey: boolean} | {ok: false, error: string}}
+   */
+  function coerceSpellSlotsForWrite(value) {
+    let parsed;
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed === '') {
+        parsed = {};
+      } else {
+        try {
+          parsed = JSON.parse(trimmed);
+        } catch (e) {
+          return { ok: false, error: 'spell_slots must be valid JSON' };
+        }
+      }
+    } else if (value && typeof value === 'object') {
+      parsed = value;
+    } else {
+      return { ok: false, error: 'spell_slots must be an object or JSON string' };
+    }
+    if (Array.isArray(parsed) || !parsed || typeof parsed !== 'object') {
+      return { ok: false, error: 'spell_slots must be a JSON object keyed by slot level' };
+    }
+    const normalized = normalizeSpellSlots(parsed);
+    return {
+      ok: true,
+      json: JSON.stringify(normalized),
+      droppedEveryKey: Object.keys(parsed).length > 0 && Object.keys(normalized).length === 0
+    };
   }
 
   const CLASS_FEATURES_L1 = {
@@ -291,6 +357,23 @@ function createCharacterRoutes(deps) {
 
     // Initiative
     updates.initiative_bonus = dexMod;
+
+    // Spell slots — the ai-create INSERT does not list this column, so an
+    // AI-built caster used to land on the `'{}'` table default and stay there:
+    // the combat engine then advertised every leveled spell at the fallback
+    // slot level 1 and rejected the spendSlot it had invited, and the sheet UI
+    // hid the section entirely. `planSpellSlotBackfill` is the same plan the
+    // startup backfill migration runs, so the two can never disagree; it fills
+    // only a table with no slot levels at all and never touches one that
+    // already has entries.
+    const slotPlan = planSpellSlotBackfill(character);
+    if (slotPlan.fill) {
+      updates.spell_slots = slotPlan.json;
+    } else if (slotPlan.reason === 'unresolved-class') {
+      logger.warn('Skipped spell-slot fill: class strings did not resolve', {
+        characterId: id, unresolved: slotPlan.unresolved
+      });
+    }
 
     // Class features + racial traits
     const classFeatures = CLASS_FEATURES_L1[className] || '';
@@ -732,27 +815,9 @@ function createCharacterRoutes(deps) {
       }
 
       if (field === 'spell_slots') {
-        let parsed;
-        if (typeof value === 'string') {
-          const trimmed = value.trim();
-          if (trimmed === '') {
-            parsed = {};
-          } else {
-            try {
-              parsed = JSON.parse(trimmed);
-            } catch (e) {
-              return res.status(400).json({ error: 'spell_slots must be valid JSON' });
-            }
-          }
-        } else if (value && typeof value === 'object') {
-          parsed = value;
-        } else {
-          return res.status(400).json({ error: 'spell_slots must be an object or JSON string' });
-        }
-        if (Array.isArray(parsed) || !parsed || typeof parsed !== 'object') {
-          return res.status(400).json({ error: 'spell_slots must be a JSON object keyed by slot level' });
-        }
-        value = JSON.stringify(normalizeSpellSlots(parsed));
+        const coerced = coerceSpellSlotsForWrite(value);
+        if (!coerced.ok) return res.status(400).json({ error: coerced.error });
+        value = coerced.json;
       }
 
       updates.push(`${field} = ?`);
@@ -1364,10 +1429,7 @@ IMPORTANT: Output EDIT_COMPLETE: immediately followed by the JSON on ONE line. N
               }
             });
 
-            if (editData.spell_slots !== undefined) {
-              updates.push('spell_slots = ?');
-              values.push(typeof editData.spell_slots === 'string' ? editData.spell_slots : JSON.stringify(editData.spell_slots));
-            }
+            applyAiSpellSlots(editData, character, updates, values);
 
             applyAiClassFields(editData, character, updates, values);
 
@@ -1410,10 +1472,7 @@ IMPORTANT: Output EDIT_COMPLETE: immediately followed by the JSON on ONE line. N
                 values.push(editData[field]);
               }
             });
-            if (editData.spell_slots !== undefined) {
-              updates.push('spell_slots = ?');
-              values.push(typeof editData.spell_slots === 'string' ? editData.spell_slots : JSON.stringify(editData.spell_slots));
-            }
+            applyAiSpellSlots(editData, character, updates, values);
             applyAiClassFields(editData, character, updates, values);
             if (updates.length > 0) {
               values.push(req.params.id);

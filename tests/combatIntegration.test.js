@@ -90,6 +90,103 @@ test('normalizeInitiativeRoll accepts only an integer d20 face', () => {
 });
 
 /* ------------------------------------------------------------------ *
+ * Player dice rolls
+ * ------------------------------------------------------------------ */
+
+test('parseDiceRollTag reads the full client tag', () => {
+  assert.deepEqual(
+    combatIntegration.parseDiceRollTag('I charge the goblin. [DICE ROLL: d20 = 14 +3 DEX (score 16) = 17]'),
+    { natural: 14, modifier: 3, stat: 'DEX', score: 16, total: 17, raw: '[DICE ROLL: d20 = 14 +3 DEX (score 16) = 17]' }
+  );
+});
+
+test('parseDiceRollTag reads the bare natural-only tag', () => {
+  const roll = combatIntegration.parseDiceRollTag('[DICE ROLL: d20 = 14]');
+  assert.equal(roll.natural, 14);
+  assert.equal(roll.modifier, 0);
+  assert.equal(roll.stat, null);
+  assert.equal(roll.score, null);
+  assert.equal(roll.total, 14, 'with no modifier the total is the face value');
+});
+
+test('parseDiceRollTag is case-insensitive, whitespace-tolerant and handles negative modifiers', () => {
+  const roll = combatIntegration.parseDiceRollTag('  [dice roll:   d20  =  9  - 1  STR  ( score  8 )  =  8 ]  ');
+  assert.equal(roll.natural, 9);
+  assert.equal(roll.modifier, -1);
+  assert.equal(roll.stat, 'STR');
+  assert.equal(roll.score, 8);
+  assert.equal(roll.total, 8);
+});
+
+test('parseDiceRollTag uses the LAST tag when several are present', () => {
+  const roll = combatIntegration.parseDiceRollTag('[DICE ROLL: d20 = 3] I hesitate, then commit. [DICE ROLL: d20 = 20 +5 STR (score 20) = 25]');
+  assert.equal(roll.natural, 20);
+  assert.equal(roll.total, 25);
+});
+
+test('parseDiceRollTag clamps an impossible d20 face and rejects malformed tags', () => {
+  assert.equal(combatIntegration.parseDiceRollTag('[DICE ROLL: d20 = 25 +3 DEX (score 16) = 28]').natural, 20);
+  assert.equal(combatIntegration.parseDiceRollTag('[DICE ROLL: banana]'), null);
+  assert.equal(combatIntegration.parseDiceRollTag('[DICE ROLL: 17]'), null);
+  assert.equal(combatIntegration.parseDiceRollTag('I swing with no roll at all.'), null);
+  assert.equal(combatIntegration.parseDiceRollTag(''), null);
+  assert.equal(combatIntegration.parseDiceRollTag(null), null);
+  assert.equal(combatIntegration.parseDiceRollTag(42), null);
+});
+
+test('stripDiceRollTag removes every tag and tidies the leftover whitespace', () => {
+  assert.equal(
+    combatIntegration.stripDiceRollTag('I swing at the goblin.\n[DICE ROLL: d20 = 14 +3 DEX (score 16) = 17]'),
+    'I swing at the goblin.'
+  );
+  assert.equal(combatIntegration.stripDiceRollTag('  [DICE ROLL: d20 = 4]  I   duck away.  '), 'I duck away.');
+  assert.equal(
+    combatIntegration.stripDiceRollTag('[DICE ROLL: d20 = 4] I feint [DICE ROLL: d20 = 11] and lunge.'),
+    'I feint and lunge.'
+  );
+  assert.equal(combatIntegration.stripDiceRollTag('[DICE ROLL: d20 = 4]'), '');
+  assert.equal(combatIntegration.stripDiceRollTag(null), '');
+});
+
+test('describeRollBand matches the bands written into the adjudicator prompt', () => {
+  assert.equal(combatIntegration.describeRollBand(30, 1), 'critical failure');
+  assert.equal(combatIntegration.describeRollBand(2, 20), 'critical success');
+  assert.equal(combatIntegration.describeRollBand(7, 5), 'failure');
+  assert.equal(combatIntegration.describeRollBand(8, 5), 'partial success');
+  assert.equal(combatIntegration.describeRollBand(13, 10), 'solid success');
+  assert.equal(combatIntegration.describeRollBand(18, 15), 'better than hoped');
+  assert.equal(combatIntegration.describeRollBand(23, 18), 'extraordinary');
+});
+
+test('normalizePlayerRoll clamps into a safe echo-able shape', () => {
+  assert.deepEqual(
+    combatIntegration.normalizePlayerRoll({ natural: '14', modifier: '3', stat: 'dex!', score: 16, total: '17', raw: '[...]' }),
+    { natural: 14, modifier: 3, stat: 'DEX', score: 16, total: 17, band: 'solid success' }
+  );
+  assert.deepEqual(
+    combatIntegration.normalizePlayerRoll({ natural: 99, modifier: 9999, total: 1e9 }),
+    { natural: 20, modifier: 99, stat: null, score: null, total: 999, band: 'critical success' }
+  );
+  assert.deepEqual(
+    combatIntegration.normalizePlayerRoll({ natural: 12 }),
+    { natural: 12, modifier: 0, stat: null, score: null, total: 12, band: 'partial success' }
+  );
+  assert.equal(combatIntegration.normalizePlayerRoll(null), null);
+  assert.equal(combatIntegration.normalizePlayerRoll({}), null);
+  assert.equal(combatIntegration.normalizePlayerRoll([{ natural: 5 }]), null);
+  assert.equal(combatIntegration.normalizePlayerRoll('14'), null);
+});
+
+test('a parsed tag round-trips through the log line the players see', () => {
+  const state = makeActiveState();
+  const unit = combatService.currentUnit(state);
+  const roll = combatIntegration.parseDiceRollTag('I lunge. [DICE ROLL: d20 = 14 +3 DEX (score 16) = 17]');
+  const entry = combatService.logPlayerRoll(state, unit.id, roll);
+  assert.equal(entry.type, 'roll');
+  assert.equal(entry.text, `${unit.name} rolls 14 +3 DEX = 17 (solid success).`);
+});
+
+/* ------------------------------------------------------------------ *
  * Schema-1 migration hydration
  * ------------------------------------------------------------------ */
 
@@ -164,8 +261,21 @@ test('buildCharacterWritebackStatements writes inventory only when the unit trac
   assert.equal(statements.length, 2);
   assert.match(statements[0].sql, /SET hp = \?, spell_slots = \?, inventory = \? WHERE id = \?$/);
   assert.deepEqual(statements[0].args, [11, '{"1":{"current":1,"max":2}}', '[{"name":"Rope","quantity":1}]', 'a']);
-  assert.match(statements[1].sql, /SET hp = \?, spell_slots = \? WHERE id = \?$/);
-  assert.deepEqual(statements[1].args, [0, '{}', 'b']);
+  // An empty slot table is a sentinel, not an edit: it must not reach the column.
+  assert.match(statements[1].sql, /SET hp = \? WHERE id = \?$/);
+  assert.deepEqual(statements[1].args, [0, 'b']);
+});
+
+test('buildCharacterWritebackStatements never stamps an empty slot table over the sheet', () => {
+  const [statement] = combatIntegration.buildCharacterWritebackStatements([
+    { characterId: 'a', hp: 9, spellSlots: {}, inventory: [{ name: 'Rope', quantity: 1 }] }
+  ]);
+  assert.ok(
+    !statement.sql.includes('spell_slots'),
+    "an empty slot table is truthy, but writing '{}' every turn re-blanked a repaired sheet"
+  );
+  assert.match(statement.sql, /SET hp = \?, inventory = \? WHERE id = \?$/);
+  assert.deepEqual(statement.args, [9, '[{"name":"Rope","quantity":1}]', 'a']);
 });
 
 test('buildCharacterWritebackStatements floors HP and skips rows without a character id', () => {
@@ -198,6 +308,18 @@ test('collectCharacterWriteback reports null spellSlots for a unit lacking the k
   unit.spellSlots = { 1: { current: 0, max: 2 } };
   const [withSlots] = combatService.collectCharacterWriteback(state);
   assert.deepEqual(withSlots.spellSlots, { 1: { current: 0, max: 2 } });
+});
+
+test('collectCharacterWriteback reports null for an EMPTY slot table, not {}', () => {
+  const state = makeActiveState({ characters: [makeCharacter({ spell_slots: '{}' })] });
+  const unit = state.units.find(candidate => candidate.side === 'party');
+  assert.deepEqual(unit.spellSlots, {}, 'the unit still carries the empty table for the adjudicator');
+
+  const [writeback] = combatService.collectCharacterWriteback(state);
+  assert.equal(writeback.spellSlots, null, 'an empty table must not be persisted back over the sheet');
+
+  const [statement] = combatIntegration.buildCharacterWritebackStatements([writeback]);
+  assert.ok(!statement.sql.includes('spell_slots'));
 });
 
 test('collectCharacterWriteback + buildCharacterWritebackStatements round-trip a live combat', () => {
@@ -307,6 +429,20 @@ test('buildNarrationPayload normalizes the live story-stream append', () => {
   assert.equal(combatIntegration.buildNarrationPayload({}).round, 1);
 });
 
+test('buildNarrationPayload echoes the player roll and omits it entirely when there is none', () => {
+  const payload = combatIntegration.buildNarrationPayload({
+    sessionId: 's',
+    unitName: 'Ayla',
+    narration: 'The axe comes down.',
+    round: 2,
+    roll: combatIntegration.parseDiceRollTag('[DICE ROLL: d20 = 14 +3 DEX (score 16) = 17]')
+  });
+  assert.deepEqual(payload.roll, { natural: 14, modifier: 3, stat: 'DEX', score: 16, total: 17, band: 'solid success' });
+  assert.equal(payload.roll.raw, undefined, 'the raw tag is not echoed back to clients');
+  assert.equal(Object.hasOwn(combatIntegration.buildNarrationPayload({ sessionId: 's' }), 'roll'), false);
+  assert.equal(Object.hasOwn(combatIntegration.buildNarrationPayload({ sessionId: 's', roll: {} }), 'roll'), false);
+});
+
 /* ------------------------------------------------------------------ *
  * History entries
  * ------------------------------------------------------------------ */
@@ -320,6 +456,17 @@ test('buildCombatHistoryEntry is a visible, role-less combat_turn entry', () => 
   assert.equal(entry.hidden, undefined, 'combat beats are visible history');
   assert.equal(entry.role, undefined, 'no role keeps it out of the narrator prompt');
   assert.equal(typeof entry.ts, 'string');
+  assert.equal(Object.hasOwn(entry, 'roll'), false, 'no roll, no key');
+});
+
+test('buildCombatHistoryEntry carries the player roll when the beat came from one', () => {
+  const entry = combatIntegration.buildCombatHistoryEntry({
+    content: 'Steel meets bone.',
+    unitName: 'Ayla',
+    round: 2,
+    roll: { natural: 20, modifier: 3, stat: 'STR', score: 16, total: 23 }
+  });
+  assert.deepEqual(entry.roll, { natural: 20, modifier: 3, stat: 'STR', score: 16, total: 23, band: 'critical success' });
 });
 
 test('combat_turn entries never reach the narrator prompt or the compaction trigger', () => {

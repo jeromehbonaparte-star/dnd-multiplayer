@@ -745,6 +745,12 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
    * action (it may embed a [DICE ROLL] tag) goes to the combat adjudicator; the
    * engine applies the returned Adjudication JSON, the sheet is written back and
    * any enemy turns that follow resolve before the response returns.
+   *
+   * The dice tag is lifted out of the text first: the roll is logged in the
+   * player's name BEFORE adjudication (so it is on the shared record and inside
+   * the log slice the adjudicator reads), handed to the adjudicator as its own
+   * authoritative block, and echoed back on the narration payload and the
+   * history entry so the table can see the number that drove the beat.
    */
   router.post('/:id/combat/turn-action', requireUser, withCombatLock(async (req, res) => {
     const sessionId = req.params.id;
@@ -790,10 +796,14 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
     const config = getRoleApiConfig('agent');
     if (!config?.api_key) return res.status(400).json({ error: 'No agent API configuration. Choose one in Settings.' });
 
+    const roll = combatIntegration.parseDiceRollTag(parsedAction.action);
+    const declaredAction = combatIntegration.stripDiceRollTag(parsedAction.action) || parsedAction.action;
+    if (roll) combatService.logPlayerRoll(state, actor.unit.id, roll);
+
     let adjudication;
     try {
       adjudication = await aiService.adjudicateCombatAction({
-        state, actingUnitId: actor.unit.id, actionText: parsedAction.action, config
+        state, actingUnitId: actor.unit.id, actionText: declaredAction, roll, config
       });
     } catch (error) {
       logger.error('Combat adjudication threw', { sessionId, error: error.message });
@@ -820,9 +830,9 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
     persistCombatWriteback(state);
     saveCombat(combat, state);
     const narration = String(adjudication.narration || '');
-    appendCombatHistory(sessionId, { content: narration, unitName: actor.unit.name, round });
+    appendCombatHistory(sessionId, { content: narration, unitName: actor.unit.name, round, roll });
     sendToSession(sessionId, 'combat_turn_narration', combatIntegration.buildNarrationPayload({
-      sessionId, unitName: actor.unit.name, narration, round, warnings: result.warnings
+      sessionId, unitName: actor.unit.name, narration, round, warnings: result.warnings, roll
     }));
     emitCombatUpdate(sessionId, combat, state);
 
@@ -883,6 +893,51 @@ Do NOT use [CHOICE:] tags or any tracking tags ([HP:], [XP:], etc.) — this is 
       conclusion = await continueCombat(sessionId, combat, state);
     } catch (error) {
       logger.error('Combat could not continue after a player ended their turn', { sessionId, error: error.message });
+    }
+
+    res.json({
+      combat: state.outcome ? null : toPublicCombat(combat, state),
+      turnAdvanced: true,
+      version: state.version,
+      outcome: state.outcome || null,
+      ...(conclusion || {})
+    });
+  }));
+
+  /**
+   * POST /api/sessions/:id/combat/skip-turn
+   * The GM's unstick button. Mirrors /combat/end-turn, but admin-only and with
+   * no ownership and no "is it your turn" gate: it force-ends whoever is
+   * currently acting, whichever side they are on, so a fight that has parked on
+   * one combatant can always be moved along. Enemy turns that follow resolve
+   * before the response returns, exactly as end-turn does.
+   *
+   * 409 when there is no turn to skip: initiative is still open, or the
+   * encounter already has an outcome.
+   */
+  router.post('/:id/combat/skip-turn', requireAdmin, withCombatLock(async (req, res) => {
+    const sessionId = req.params.id;
+    const combat = getActiveCombat(sessionId);
+    if (!combat) return res.status(404).json({ error: 'No active encounter.' });
+    const state = combat.state;
+    if (state.outcome) return res.status(409).json({ error: 'This encounter has already ended.' });
+    if (state.phase !== 'active') return res.status(409).json({ error: 'Initiative is still being rolled; there is no turn to skip yet.' });
+    if (Number.isInteger(req.body?.version) && req.body.version !== state.version) {
+      return res.status(409).json({ error: 'The combat changed. Reloading the latest state.', combat: toPublicCombat(combat, state) });
+    }
+
+    const skipped = combatService.currentUnit(state);
+    const who = skipped?.name || 'The combatant';
+    combatIntegration.forceTurnEnd(state, { reason: 'skip', message: `${who}'s turn is skipped by the GM.` });
+    persistCombatWriteback(state);
+    saveCombat(combat, state);
+    emitCombatUpdate(sessionId, combat, state);
+
+    let conclusion = null;
+    try {
+      conclusion = await continueCombat(sessionId, combat, state);
+    } catch (error) {
+      logger.error('Combat could not continue after the GM skipped a turn', { sessionId, error: error.message });
     }
 
     res.json({

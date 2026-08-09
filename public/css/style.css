@@ -788,6 +788,7 @@ details.drawer-section.utility-menu > summary:hover { color: var(--accent-hover)
 .music-dj-controls button { border-radius: 3px; }
 .combat-gm-actions button:hover, .music-dj-controls button:hover { border-color: var(--accent); color: var(--accent); }
 .combat-gm-actions .combat-end-btn { color: var(--danger); }
+.combat-gm-actions .combat-skip-btn { color: var(--warning); }
 
 .music-dj-player,
 .music-dj-controls {
@@ -879,9 +880,27 @@ details.drawer-section.utility-menu > summary:hover { color: var(--accent-hover)
   border-radius: var(--radius-md);
   background: rgba(var(--bg-medium-rgb), 0.55);
 }
-.combat-beat-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-.combat-beat-title { flex: 1; min-width: 0; color: var(--accent); font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; }
+/* The header wraps at every width, and the heading carries a readable floor: it is
+   the only shrinkable item on the row, so without one a column too narrow for the
+   chip plus the stage controls squeezed it to zero width and wrapped the heading
+   one character per line. A tight column now breaks the row instead. */
+.combat-beat-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+.combat-beat-title { flex: 1; min-width: 12em; color: var(--accent); font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; }
 .combat-beat-controls { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
+/* The d20 that decided this beat — same muted monospace numerals as the tracker's
+   stat text, so it reads as a record rather than as another control. */
+.combat-beat-roll {
+  flex: 0 1 auto;
+  white-space: nowrap;
+  padding: 1px 7px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--bg-light);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
 .combat-beat .content { font-size: 1em; }
 .combat-beat-warnings { margin-top: 7px; color: var(--text-muted); font-family: var(--font-mono); font-size: 10px; }
 .combat-beat-live { animation: fadeIn 0.4s var(--ease-out); }
@@ -941,8 +960,22 @@ details.drawer-section.utility-menu > summary:hover { color: var(--accent-hover)
   .combat-strip-label { font-size: 11px; }
   .combat-strip-empty { font-size: 11px; }
   .initiative-chip { font-size: 12px; }
-  .combat-beat-title { font-size: 12.5px; }
   .combat-beat-warnings { font-size: 11px; }
+
+  /* 11px is the phone readability floor, so the chip cannot shrink its way out of
+     a tight header. Two deliberate rows instead: the heading owns row one and
+     ellipsizes, the chip and the stage controls share row two (169 + 8 + 94 fits
+     a 347px content box). Letting them fight over one row cost the capped stage
+     beat 22px of narration, because the heading wrapped to two lines. */
+  .combat-beat-header { flex-wrap: wrap; }
+  .combat-beat-title {
+    flex-basis: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12.5px;
+  }
+  .combat-beat-roll { margin-right: auto; font-size: 11px; }
 
   /* One row per unit: the name ellipsizes, the numbers never wrap. INIT is
      dropped because list position already spells out the turn order. */
@@ -1735,6 +1768,26 @@ details.drawer-section.utility-menu > summary:hover { color: var(--accent-hover)
   border-color: var(--accent);
   color: var(--accent);
   box-shadow: none;
+}
+
+/* AP is spent: the turn cannot go any further, so End Turn stops being the quiet
+   option and becomes the one thing left to do. A slow breath, not a klaxon. */
+.btn-end-turn.end-turn-ready {
+  border-color: var(--accent);
+  color: var(--accent);
+  animation: end-turn-ready-pulse 2.4s var(--ease-out) infinite;
+}
+
+@keyframes end-turn-ready-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--accent-rgb), 0); }
+  50% { box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.22); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn-end-turn.end-turn-ready {
+    animation: none;
+    box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.28);
+  }
 }
 
 /* ---------------------------------------------------------------

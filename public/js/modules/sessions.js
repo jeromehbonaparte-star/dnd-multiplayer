@@ -1942,13 +1942,18 @@ export function updateActionFormState() {
   if (endTurnBtn) {
     endTurnBtn.style.display = canTakeTurn ? '' : 'none';
     endTurnBtn.disabled = !canTakeTurn || isTurnProcessing;
+    // AP spent means the turn cannot go any further — highlight the only move
+    // left, because a player waiting on a bonus point stalls the whole order.
+    endTurnBtn.classList.toggle('end-turn-ready', !!(canTakeTurn && combat.actionSpent && !isTurnProcessing));
   }
 
   if (actionTextarea) {
     actionTextarea.disabled = textDisabled || isTurnProcessing;
     actionTextarea.placeholder = combat.active
       ? (canTakeTurn
-        ? 'Describe what you do — the DM decides what it costs.'
+        // One message per turn: the server ends the turn as soon as the action
+        // is spent, so a bonus action has to be declared in the same breath.
+        ? 'Describe your whole turn — action and bonus action together.'
         : canRollInitiative
         ? 'Roll the d20 to take your place in the order.'
         : combat.banner)

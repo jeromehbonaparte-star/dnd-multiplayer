@@ -57,7 +57,7 @@ import { initWeather, cycleWeather, setWeather } from './modules/weather.js';
 import { initCharacterBuilder, saveNewCharacter, resetBuilder } from './modules/characterBuilder.js';
 import {
   openCombatSetup, closeCombatSetup, startEncounter,
-  rollRemainingInitiative, endEncounter, toggleCombatTracker
+  rollRemainingInitiative, endEncounter, skipCombatTurn, toggleCombatTracker
 } from './modules/combat.js';
 import { toggleDJPlayback, muteDJPlayback, setDJVolume, setDJTrack, stopDJTrack } from './modules/youtubeDj.js';
 
@@ -131,6 +131,7 @@ window.closeCombatSetup = closeCombatSetup;
 window.startEncounter = startEncounter;
 window.rollRemainingInitiative = rollRemainingInitiative;
 window.endEncounter = endEncounter;
+window.skipCombatTurn = skipCombatTurn;
 window.toggleCombatTracker = toggleCombatTracker;
 window.toggleDJPlayback = toggleDJPlayback;
 window.muteDJPlayback = muteDJPlayback;

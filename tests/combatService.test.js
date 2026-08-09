@@ -7,12 +7,14 @@ const {
   collectCharacterWriteback,
   createCombat,
   currentUnit,
+  describeRollBand,
   deserialize,
   findUnit,
   fromTacticalState,
   getCombatSummary,
   getEnemyTurnContext,
   isPlayerTurn,
+  logPlayerRoll,
   normalizeAutoCombatSetup,
   rollInitiative,
   rollRemainingInitiative
@@ -267,29 +269,71 @@ test('adjudications from a combatant who is not up are rejected without touching
   assert.equal(currentUnit(state).id, 'pc:fighter');
 });
 
-test('a turn can hold multiple actions until the point budget is spent', () => {
+test('a turn can hold several actions until the action point is spent', () => {
   const state = startCombat();
   const first = applyAdjudication(state, 'pc:fighter', {
-    narration: 'Mara hacks at the goblin.',
-    costs: { ap: 1, bp: 0 },
+    narration: 'Mara shoves the goblin back with her shield.',
+    costs: { ap: 0, bp: 1 },
     effects: [{ type: 'damage', target: 'Goblin', amount: 4 }],
     turnEnds: false
   });
   assert.equal(first.ok, true);
   assert.equal(first.turnAdvanced, false);
   assert.equal(currentUnit(state).id, 'pc:fighter');
-  assert.equal(findUnit(state, 'pc:fighter').ap, 0);
-  assert.equal(findUnit(state, 'pc:fighter').bp, 1);
+  assert.equal(findUnit(state, 'pc:fighter').ap, 1);
+  assert.equal(findUnit(state, 'pc:fighter').bp, 0);
   assert.equal(findUnit(state, 'npc:goblin').hp, 10);
   assert.equal(state.version, 4);
 
   const second = applyAdjudication(state, 'pc:fighter', {
-    narration: 'She shoves the goblin back with her shield.',
-    costs: { ap: 0, bp: 1 }
+    narration: 'She follows it with the axe.',
+    costs: { ap: 1, bp: 0 }
   });
   assert.equal(second.turnAdvanced, true);
   assert.notEqual(currentUnit(state).id, 'pc:fighter');
   assert.ok(state.log.some(entry => entry.type === 'action' && /shoves/.test(entry.text)));
+});
+
+test('spending the action point ends the turn even when the adjudicator says it does not', () => {
+  const state = startCombat();
+  const result = applyAdjudication(state, 'pc:fighter', {
+    narration: 'Mara hacks at the goblin.',
+    costs: { ap: 1, bp: 0 },
+    effects: [{ type: 'damage', target: 'Goblin', amount: 4 }],
+    turnEnds: false
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.turnAdvanced, true, 'a leftover bonus point must never hold the turn open');
+  assert.equal(findUnit(state, 'pc:fighter').ap, 0);
+  assert.equal(findUnit(state, 'pc:fighter').bp, 1, 'the unspent bonus point is simply lost');
+  assert.notEqual(currentUnit(state).id, 'pc:fighter');
+});
+
+test('a free action costs nothing and never advances the turn', () => {
+  const state = startCombat();
+  const result = applyAdjudication(state, 'pc:fighter', {
+    narration: 'Mara shouts a warning across the clearing.',
+    costs: { ap: 0, bp: 0 },
+    turnEnds: false
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.turnAdvanced, false);
+  assert.equal(currentUnit(state).id, 'pc:fighter');
+  assert.equal(findUnit(state, 'pc:fighter').ap, 1);
+  assert.equal(findUnit(state, 'pc:fighter').bp, 1);
+});
+
+test('a bonus-only action leaves the turn with the actor while the action point remains', () => {
+  const state = startCombat();
+  const result = applyAdjudication(state, 'pc:fighter', {
+    narration: 'Mara catches her second wind.',
+    costs: { ap: 0, bp: 1 },
+    turnEnds: false
+  });
+  assert.equal(result.turnAdvanced, false);
+  assert.equal(currentUnit(state).id, 'pc:fighter');
+  assert.equal(findUnit(state, 'pc:fighter').ap, 1);
+  assert.equal(findUnit(state, 'pc:fighter').bp, 0);
 });
 
 test('costs are clamped to the points the actor actually has', () => {
@@ -364,6 +408,8 @@ test('conditions are deduped, normalized and removable', () => {
     ]
   });
   assert.deepEqual(findUnit(state, 'npc:goblin').conditions, ['prone']);
+  // The action point above ended Mara's turn; hand it back to her for the second beat.
+  focus(state, 'pc:fighter');
   applyAdjudication(state, 'pc:fighter', {
     narration: 'The goblin scrambles upright.',
     costs: { ap: 0, bp: 1 },
@@ -578,6 +624,38 @@ test('collectCharacterWriteback exposes per-character sheet deltas', () => {
   assert.notEqual(wizard.spellSlots, findUnit(state, 'pc:wizard').spellSlots);
 });
 
+/** Swallows the service's WARN lines and hands them back for assertions. */
+function captureWarnings(run) {
+  const original = console.warn;
+  const lines = [];
+  console.warn = (...args) => lines.push(args.join(' '));
+  try {
+    return { result: run(), lines };
+  } finally {
+    console.warn = original;
+  }
+}
+
+test('a caster with spells but no slot table is warned about at load time', () => {
+  const broken = { ...party[1], spell_slots: '{}' };
+  const { result, lines } = captureWarnings(() => newCombat({ characters: [party[0], broken] }));
+  assert.deepEqual(findUnit(result, 'pc:wizard').spellSlots, {});
+  assert.equal(lines.length, 1, 'only the broken sheet warns; Mara has no spells at all');
+  assert.match(lines[0], /Orrin enters combat with spells but no spell slots/);
+  assert.match(lines[0], /"leveledSpells":\["Magic Missile"\]/);
+
+  // Every silent degradation path in parseSpellSlots is covered, not just '{}'.
+  for (const stored of ['not json', '[]', null, undefined]) {
+    const { lines: degraded } = captureWarnings(() => newCombat({ characters: [{ ...party[1], spell_slots: stored }] }));
+    assert.equal(degraded.length, 1, `stored ${JSON.stringify(stored)} must not fail silently`);
+  }
+});
+
+test('a healthy sheet and a spell-less party member stay quiet', () => {
+  const { lines } = captureWarnings(() => newCombat());
+  assert.deepEqual(lines, []);
+});
+
 test('the turn walker skips downed units and rolls the round over', () => {
   const state = startCombat();
   findUnit(state, 'pc:wizard').hp = 0;
@@ -619,6 +697,44 @@ test('the combat log stays capped at 80 entries', () => {
   }
   assert.equal(state.log.length, 80);
   assert.match(state.log[state.log.length - 1].text, /round 99/);
+});
+
+test('logPlayerRoll puts the player\'s own d20 on the shared record', () => {
+  const state = startCombat();
+  const entry = logPlayerRoll(state, 'pc:fighter', { natural: 14, modifier: 3, stat: 'DEX', score: 16, total: 17 });
+  assert.equal(entry.type, 'roll');
+  assert.equal(entry.unitId, 'pc:fighter');
+  assert.equal(entry.text, 'Mara rolls 14 +3 DEX = 17 (solid success).');
+  assert.equal(state.log[state.log.length - 1].text, entry.text);
+
+  assert.equal(logPlayerRoll(state, 'pc:fighter', { natural: 14 }).text, 'Mara rolls 14 (solid success).');
+  assert.equal(
+    logPlayerRoll(state, 'pc:fighter', { natural: 1, modifier: -1, stat: 'STR', total: 0 }).text,
+    'Mara rolls 1 -1 STR = 0 (critical failure).'
+  );
+  assert.equal(logPlayerRoll(state, 'pc:fighter', null), null);
+  assert.equal(logPlayerRoll(state, 'pc:nobody', { natural: 9 }), null);
+});
+
+test('logPlayerRoll respects the log cap', () => {
+  const state = startCombat();
+  for (let step = 0; step < 120; step++) logPlayerRoll(state, 'pc:fighter', { natural: 12, modifier: 1, stat: 'DEX', total: 13 });
+  assert.equal(state.log.length, 80);
+  assert.equal(state.log[state.log.length - 1].type, 'roll');
+});
+
+test('describeRollBand matches the bands the adjudicator prompt is written against', () => {
+  assert.equal(describeRollBand(30, 1), 'critical failure');
+  assert.equal(describeRollBand(2, 20), 'critical success');
+  assert.equal(describeRollBand(5, 4), 'failure');
+  assert.equal(describeRollBand(7, 4), 'failure');
+  assert.equal(describeRollBand(8, 4), 'partial success');
+  assert.equal(describeRollBand(12, 9), 'partial success');
+  assert.equal(describeRollBand(13, 9), 'solid success');
+  assert.equal(describeRollBand(17, 14), 'solid success');
+  assert.equal(describeRollBand(18, 14), 'better than hoped');
+  assert.equal(describeRollBand(22, 17), 'better than hoped');
+  assert.equal(describeRollBand(23, 18), 'extraordinary');
 });
 
 test('isPlayerTurn only fires for the active party member', () => {

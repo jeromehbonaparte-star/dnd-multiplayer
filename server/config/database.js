@@ -387,6 +387,76 @@ function migrateClassStrings() {
 }
 
 /**
+ * Fill in `spell_slots` for caster rows whose stored table is empty.
+ *
+ * `POST /api/characters/ai-create` used to INSERT without the column, so every
+ * AI-created caster fell back to the `'{}'` default and nothing ever filled it:
+ * combat then advertised every leveled spell at the fallback slot level 1 and
+ * rejected the spendSlot it had invited, while the sheet hid the Spell Slots
+ * section entirely. The creation path now fills the table; this pass repairs the
+ * rows that predate that fix. Slots come back at full capacity (`current` =
+ * `max`), i.e. as if the party had just long-rested.
+ *
+ * The whole decision lives in `planSpellSlotBackfill` so this migration and the
+ * creation path can never disagree, and multiclass rows resolve through the same
+ * ladder the level-up route uses. Conservative and naturally idempotent: a row
+ * is skipped whenever it already carries any slot level, its class strings do
+ * not resolve, or the resolved classes grant no slots — so a second run writes
+ * nothing.
+ */
+function migrateSpellSlots() {
+  const { planSpellSlotBackfill } = require('../services/classProgressionService');
+  let rows = [];
+  try {
+    rows = db.prepare('SELECT id, class, classes, level, spell_slots FROM characters').all();
+  } catch (e) {
+    logger.error('Spell-slot backfill migration could not read characters', { error: e.message });
+    return;
+  }
+
+  let filled = 0;
+  let skipped = 0;
+  for (const row of rows) {
+    let plan;
+    try {
+      plan = planSpellSlotBackfill(row);
+    } catch (e) {
+      skipped += 1;
+      logger.error(`Spell-slot backfill failed for character ${row.id}`, { error: e.message });
+      continue;
+    }
+
+    if (!plan.fill) {
+      // 'has-slots' and 'non-caster' are the expected no-ops; an unresolvable
+      // class is a real problem worth seeing, and is left untouched, not guessed.
+      if (plan.reason === 'unresolved-class') {
+        skipped += 1;
+        logger.error(`Character ${row.id} has unresolvable class strings; spell slots left untouched`, {
+          characterId: row.id,
+          unresolved: plan.unresolved,
+          class: row.class,
+          classes: row.classes
+        });
+      }
+      continue;
+    }
+
+    try {
+      db.prepare('UPDATE characters SET spell_slots = ? WHERE id = ?').run(plan.json, row.id);
+    } catch (e) {
+      skipped += 1;
+      logger.error(`Spell-slot backfill could not write character ${row.id}`, { error: e.message });
+      continue;
+    }
+    filled += 1;
+  }
+
+  if (filled || skipped) {
+    logger.info(`Spell-slot backfill complete: ${filled} character(s) filled, ${skipped} skipped`);
+  }
+}
+
+/**
  * Seed API config from legacy settings if needed
  */
 function seedApiConfig() {
@@ -509,6 +579,9 @@ migrateMulticlass();
 migrateAcEffects();
 migrateEquipmentToInventory();
 migrateClassStrings();
+// After migrateMulticlass + migrateClassStrings: the backfill resolves classes
+// through the canonical `classes` map those two produce.
+migrateSpellSlots();
 seedApiConfig();
 initializeSettings();
 bootstrapAdminUser();

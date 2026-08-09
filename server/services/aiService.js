@@ -9,6 +9,7 @@ const net = require('net');
 const { estimateTokens } = require('../lib/tokens');
 const { extractMarkerJson } = require('../lib/markerJson');
 const combatService = require('./combatService');
+const combatIntegration = require('./combatIntegration');
 
 const NARRATION_WORD_LIMIT = 650;
 const POV_WORD_LIMIT = 450;
@@ -1168,11 +1169,20 @@ Every turn a combatant has Action Points (AP) and Bonus Points (BP); COMBAT STAT
 - Use spendResource for pooled resources (Ki, sorcery points, superiority dice) with an integer amount.
 
 ## THE DICE ARE LAW
-The declared action may carry the player's roll in the form [DICE ROLL: d20 = X +Y STAT (score Z) = TOTAL]. That TOTAL is AUTHORITATIVE for whether the attempt lands. Never recalculate it, never overrule it, never ask for another roll, never invent a second one.
+The player's own d20 arrives in the PLAYER'S DICE ROLL block, after the declared action. Its TOTAL is AUTHORITATIVE. Never recalculate it, never overrule it, never re-roll, never invent a second roll of your own.
+
+**When the action is an ATTACK — a weapon swing, a thrown weapon, a spell attack roll:**
+- The effective attack total is that TOTAL. Add the acting unit's "attackBonus" from COMBAT STATE to it ONLY when the player applied no stat modifier of their own; a roll that already carries a modifier is finished, and stacking the bonus on top of it would hand out a hit twice over.
+- Compare that effective total against the "ac" of the target the player chose, exactly as COMBAT STATE lists it. Total >= AC and the attack HITS. Total < AC and it MISSES: emit NO damage effect for it, none at all.
+- A natural 1 always misses and goes wrong besides, whatever the total. A natural 20 always hits and doubles the damage dice.
+
+**When it is not an attack roll** — a shove, a grapple, a saving-throw-shaped effect, an improvised stunt, a spell that lets its target save — there is no AC to beat. Read the TOTAL against the bands instead:
 
 ${COMBAT_OUTCOME_BANDS}
 
-If NO roll is present, adjudicate on the fiction and the acting unit's stats and land middle-of-the-road (a partial-to-solid result): something real happens, nothing spectacular.
+The result must be legible in the prose. A miss reads like a miss: the axe bites the doorframe, the bolt goes wide over a shoulder, the grab closes on empty air and the opening is gone. A solid success lands cleanly, a critical is fight-turning, a critical failure costs them something. Show it entirely through the fiction — the no-numbers, no-stat-speak rule below still holds absolutely, so never name the roll, the total, or the AC in the narration.
+
+If NO roll was submitted, adjudicate on the fiction and the acting unit's stats and land middle-of-the-road (a partial-to-solid result): something real happens, nothing spectacular.
 
 ## AMOUNTS
 Roll the appropriate 5e dice in your head and output FLAT INTEGERS. A dagger is d4+mod, a shortsword d6+mod, a longsword d8+mod, a greataxe d12+mod; Fire Bolt d10, Magic Missile 3d4+3, Fireball 8d6, Cure Wounds d8+mod, Healing Word d4+mod. Then scale the number to the band above: a failure deals 0 (the blow misses or is turned aside — emit no damage effect at all), a partial lands a low roll, a solid success lands an average roll, a natural 20 doubles the dice. Damage and healing are whole numbers between 0 and 500.
@@ -1397,6 +1407,27 @@ async function runCombatAdjudicationCall(label, config, messages, callFn) {
 }
 
 /**
+ * The player's roll as its own high-salience line. Buried in the action text the
+ * number read as decoration; on its own line, labelled AUTHORITATIVE and carrying
+ * the band label, the model has nothing left to reinterpret.
+ *
+ * @param {Object|null} roll - normalized `{natural, modifier, stat, score, total}`
+ * @returns {string}
+ */
+function buildPlayerRollBlock(roll) {
+  if (!roll) return "PLAYER'S DICE ROLL: none was submitted.";
+  const natural = Math.max(1, Math.min(20, Math.floor(Number(roll.natural) || 0)));
+  const modifier = Math.floor(Number(roll.modifier) || 0);
+  const total = Number.isFinite(Number(roll.total)) ? Math.floor(Number(roll.total)) : natural + modifier;
+  const stat = roll.stat ? String(roll.stat).toUpperCase() : '';
+  const modifierText = modifier === 0 && !stat
+    ? 'no stat modifier was chosen by the player'
+    : `modifier ${modifier < 0 ? '-' : '+'}${Math.abs(modifier)}${stat ? ` ${stat}` : ''}${roll.score == null ? '' : ` (score ${Math.floor(Number(roll.score))})`}`;
+  const band = combatService.describeRollBand(total, natural);
+  return `PLAYER'S DICE ROLL (AUTHORITATIVE): natural d20 = ${natural}; ${modifierText}; TOTAL = ${total}; outcome band: ${band}.`;
+}
+
+/**
  * Adjudicate one player's freeform combat action.
  * Returns the Adjudication JSON as the model produced it (combatService does
  * the clamping/validation), or `{ error }` on an unknown unit, a failed call,
@@ -1405,19 +1436,25 @@ async function runCombatAdjudicationCall(label, config, messages, callFn) {
  * @param {Object} params
  * @param {Object} params.state - NTC combat state
  * @param {string} params.actingUnitId - the acting party unit
- * @param {string} params.actionText - the player's raw action (may embed a [DICE ROLL: ...] tag)
+ * @param {string} params.actionText - the player's action, tag already stripped by the caller
+ * @param {Object} [params.roll] - the structured d20 the player rolled; parsed out of the action text as a fallback
  * @param {Object} params.config - agent-role API config
  * @param {Function} [params.callFn] - injectable callAI (tests)
  */
-async function adjudicateCombatAction({ state, actingUnitId, actionText, config, callFn } = {}) {
+async function adjudicateCombatAction({ state, actingUnitId, actionText, roll, config, callFn } = {}) {
   const context = buildCombatTurnContext(state, actingUnitId);
   if (!context || context.error) return { error: 'unknown-unit', message: context?.error };
 
   const action = truncatePromptText(actionText, COMBAT_ACTION_MAX_CHARS);
+  // The route strips the tag and hands the roll over structured. A tag that
+  // survived anyway (an older client, a replayed action) is still read here
+  // rather than silently ignored.
+  const effectiveRoll = combatIntegration.normalizePlayerRoll(roll) || combatIntegration.parseDiceRollTag(action);
   const userContent = [
     `COMBAT STATE (JSON):\n${JSON.stringify(context, null, 2)}`,
     `ACTING COMBATANT: ${context.actor.name} — ${context.actor.ap} AP and ${context.actor.bp} BP remaining this turn.`,
     `DECLARED ACTION (verbatim from the player):\n${action || '(the player submitted no action text)'}`,
+    buildPlayerRollBlock(effectiveRoll),
     'Adjudicate this action now. Output only the Adjudication JSON object.'
   ].join('\n\n');
 
